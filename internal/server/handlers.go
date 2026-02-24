@@ -77,7 +77,7 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) {
 
 	idToken, err := s.OIDC.Verifier.Verify(ctx, rawIDToken)
 	if err != nil {
-		http.Error(w, "failed to verify id_token", http.StatusBadRequest)
+		http.Error(w, "failed to verify id_token: "+err.Error()+"\nToken: "+rawIDToken, http.StatusBadRequest)
 		return
 	}
 

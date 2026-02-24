@@ -43,6 +43,11 @@ func New(cfg *config.Config, database *db.DB, oidc *auth.OIDC) *Server {
 }
 
 func (s *Server) setupRoutes() {
+	s.Router.Get("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK"))
+	})
+
 	s.Router.Get("/auth/login", s.handleLogin)
 	s.Router.Get("/auth/callback", s.handleCallback)
 	s.Router.Post("/auth/logout", s.handleLogout)
