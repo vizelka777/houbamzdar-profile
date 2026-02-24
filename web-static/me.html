@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Личная страница - Houba Mzdar!</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <header>
+        <div class="logo"><a href="/" style="text-decoration:none; color:inherit;">Houba Mzdar!</a></div>
+        <div id="auth-buttons">
+            <!-- Rendered by JS -->
+        </div>
+    </header>
+    <main>
+        <h1>Профиль</h1>
+        
+        <div class="profile-card">
+            <div id="profile-picture"></div>
+            
+            <label>Имя пользователя (preferred_username)</label>
+            <input type="text" id="prof-username" readonly disabled>
+            
+            <label>Email</label>
+            <div class="field-row">
+                <input type="email" id="prof-email" readonly disabled>
+                <span id="prof-email-status" class="status-badge"></span>
+            </div>
+            
+            <label>Телефон</label>
+            <div class="field-row">
+                <input type="text" id="prof-phone" readonly disabled>
+                <span id="prof-phone-status" class="status-badge"></span>
+            </div>
+
+            <p class="help-text">Эти поля управляются через <a href="https://ahoj420.eu">ahoj420.eu</a></p>
+        </div>
+
+        <div class="about-card">
+            <h2>О себе</h2>
+            <textarea id="about-me-input" rows="6" maxlength="2000" placeholder="Расскажите о себе..."></textarea>
+            <button id="save-about-btn">Сохранить</button>
+            <span id="save-status"></span>
+        </div>
+    </main>
+    <script src="app.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', initMePage);
+    </script>
+</body>
+</html>
