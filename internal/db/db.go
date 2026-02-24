@@ -83,7 +83,7 @@ func (db *DB) UpsertUser(claims *models.OIDCClaims) (*models.User, bool, error) 
 	var user models.User
 	var exists bool
 	
-	err := db.QueryRow("SELECT id, about_me FROM users WHERE idp_issuer = ? AND idp_sub = ?", claims.Iss, claims.Sub).Scan(&user.ID, &user.AboutMe)
+	err := db.QueryRow("SELECT id, COALESCE(about_me, '') FROM users WHERE idp_issuer = ? AND idp_sub = ?", claims.Iss, claims.Sub).Scan(&user.ID, &user.AboutMe)
 	if err == sql.ErrNoRows {
 		exists = false
 	} else if err != nil {
@@ -133,7 +133,7 @@ func (db *DB) UpsertUser(claims *models.OIDCClaims) (*models.User, bool, error) 
 	}
 
 	// Fetch updated user
-	err = db.QueryRow("SELECT id, idp_issuer, idp_sub, preferred_username, email, email_verified, phone_number, phone_number_verified, picture, COALESCE(about_me, '') FROM users WHERE id = ?", user.ID).Scan(
+	err = db.QueryRow("SELECT id, idp_issuer, idp_sub, COALESCE(preferred_username, ''), COALESCE(email, ''), email_verified, COALESCE(phone_number, ''), phone_number_verified, COALESCE(picture, ''), COALESCE(about_me, '') FROM users WHERE id = ?", user.ID).Scan(
 		&user.ID, &user.IDPIssuer, &user.IDPSub, &user.PreferredUsername, &user.Email, &user.EmailVerified, &user.PhoneNumber, &user.PhoneNumberVerified, &user.Picture, &user.AboutMe,
 	)
 	if err != nil {
@@ -206,7 +206,7 @@ func (db *DB) DeleteSession(sessionID string) error {
 
 func (db *DB) GetUser(id int64) (*models.User, error) {
 	var user models.User
-	err := db.QueryRow("SELECT id, idp_issuer, idp_sub, preferred_username, email, email_verified, phone_number, phone_number_verified, picture, COALESCE(about_me, '') FROM users WHERE id = ?", id).Scan(
+	err := db.QueryRow("SELECT id, idp_issuer, idp_sub, COALESCE(preferred_username, ''), COALESCE(email, ''), email_verified, COALESCE(phone_number, ''), phone_number_verified, COALESCE(picture, ''), COALESCE(about_me, '') FROM users WHERE id = ?", id).Scan(
 		&user.ID, &user.IDPIssuer, &user.IDPSub, &user.PreferredUsername, &user.Email, &user.EmailVerified, &user.PhoneNumber, &user.PhoneNumberVerified, &user.Picture, &user.AboutMe,
 	)
 	return &user, err

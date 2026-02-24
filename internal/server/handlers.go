@@ -43,11 +43,17 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	authURL := s.OIDC.OAuth2Config.AuthCodeURL(
-		state,
+	opts := []oauth2.AuthCodeOption{
 		oauth2.SetAuthURLParam("nonce", nonce),
 		oauth2.S256ChallengeOption(verifier),
-	)
+	}
+
+	// Add custom parameter if requested
+	if r.URL.Query().Get("edit_profile") == "1" {
+		opts = append(opts, oauth2.SetAuthURLParam("edit_profile", "1"))
+	}
+
+	authURL := s.OIDC.OAuth2Config.AuthCodeURL(state, opts...)
 
 	http.Redirect(w, r, authURL, http.StatusFound)
 }
@@ -77,7 +83,7 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) {
 
 	idToken, err := s.OIDC.Verifier.Verify(ctx, rawIDToken)
 	if err != nil {
-		http.Error(w, "failed to verify id_token: "+err.Error()+"\nToken: "+rawIDToken, http.StatusBadRequest)
+		http.Error(w, "failed to verify id_token", http.StatusBadRequest)
 		return
 	}
 
@@ -92,7 +98,7 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Make UserInfo request if some claims are missing
+	// Make UserInfo request if some claims are still missing (fallback)
 	if claims.Email == "" || claims.PreferredUsername == "" {
 		userInfo, err := s.OIDC.Provider.UserInfo(ctx, oauth2.StaticTokenSource(oauth2Token))
 		if err == nil {

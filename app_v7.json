@@ -1,0 +1,171 @@
+{
+  "name": "houbamzdar",
+  "runtimeType": "shared",
+  "regionSettings": {
+    "allowedRegionIds": [
+      "CZ"
+    ],
+    "requiredRegionIds": [
+      "CZ"
+    ],
+    "maxAllowedRegions": 1,
+    "provisioningType": "static"
+  },
+  "containerTemplates": [
+    {
+      "id": "pdZdipupoFrUKG4-4iqd",
+      "name": "houbamzdar",
+      "packageId": "d2c1b95e-65e7-42a3-adb3-d27d9d1a4f72",
+      "image": "houbamzdar/bff:v7",
+      "imageName": "bff",
+      "imageNamespace": "houbamzdar",
+      "imageTag": "latest",
+      "imageRegistryId": "2725",
+      "imagePullPolicy": "always",
+      "entryPoint": {
+        "command": "",
+        "commandArray": [],
+        "arguments": "",
+        "argumentsArray": [],
+        "workingDirectory": ""
+      },
+      "probes": {
+        "startup": {
+          "initialDelaySeconds": 10,
+          "periodSeconds": 10,
+          "timeoutSeconds": 3,
+          "failureThreshold": 3,
+          "successThreshold": 1,
+          "httpGet": {
+            "request": {
+              "path": "/health",
+              "portNumber": 8080
+            },
+            "response": {
+              "expectedStatusCode": null
+            }
+          },
+          "tcpSocket": null,
+          "grpc": null
+        },
+        "readiness": {
+          "initialDelaySeconds": 10,
+          "periodSeconds": 10,
+          "timeoutSeconds": 3,
+          "failureThreshold": 3,
+          "successThreshold": 1,
+          "httpGet": {
+            "request": {
+              "path": "/health",
+              "portNumber": 8080
+            },
+            "response": {
+              "expectedStatusCode": null
+            }
+          },
+          "tcpSocket": null,
+          "grpc": null
+        },
+        "liveness": {
+          "initialDelaySeconds": 10,
+          "periodSeconds": 10,
+          "timeoutSeconds": 3,
+          "failureThreshold": 3,
+          "successThreshold": 1,
+          "httpGet": {
+            "request": {
+              "path": "/health",
+              "portNumber": 8080
+            },
+            "response": {
+              "expectedStatusCode": null
+            }
+          },
+          "tcpSocket": null,
+          "grpc": null
+        }
+      },
+      "environmentVariables": [
+        {
+          "name": "PORT",
+          "value": "8080"
+        },
+        {
+          "name": "APP_BASE_URL",
+          "value": "https://api.houbamzdar.cz"
+        },
+        {
+          "name": "FRONT_BASE_URL",
+          "value": "https://houbamzdar.cz"
+        },
+        {
+          "name": "FRONT_ORIGIN",
+          "value": "https://houbamzdar.cz"
+        },
+        {
+          "name": "SESSION_COOKIE_NAME",
+          "value": "hzd_session"
+        },
+        {
+          "name": "SESSION_COOKIE_SECURE",
+          "value": "true"
+        },
+        {
+          "name": "OIDC_ISSUER",
+          "value": "https://ahoj420.eu"
+        },
+        {
+          "name": "OIDC_CLIENT_ID",
+          "value": "mushroom-bff"
+        },
+        {
+          "name": "OIDC_CLIENT_SECRET",
+          "value": "b8daf59124ae3107d73e1e256df11b33a61d88c75d2a82cb297d1c5cd3678ba55d0ba388caff6139acfe0fe7384e6939"
+        },
+        {
+          "name": "OIDC_REDIRECT_URL",
+          "value": "https://api.houbamzdar.cz/auth/callback"
+        },
+        {
+          "name": "DB_URL",
+          "value": "libsql://01KJ7PW7J4EWV20WEQFG2XNMCD-houbamzdar-db.lite.bunnydb.net/"
+        },
+        {
+          "name": "DB_TOKEN",
+          "value": "eyJ0eXAiOiJKV1QiLCJhbGciOiJFZERTQSJ9.eyJwIjp7InJvIjpudWxsLCJydyI6eyJucyI6WyJob3ViYW16ZGFyLWRiIl0sInRhZ3MiOm51bGx9LCJyb2EiOm51bGwsInJ3YSI6bnVsbCwiZGRsIjpudWxsfSwiaWF0IjoxNzcxOTMyODg2fQ.11kspp00ts4f79zFjGdYO5FIvFIaBFpPK9PFMFFXUp3yM2SoEWGzGqChPKg4tiUuRxl-iVhd4DfcptiCMIaCAw"
+        }
+      ],
+      "endpoints": [
+        {
+          "displayName": "api.houbamzdar.cz",
+          "publicHost": "api.houbamzdar.cz",
+          "type": "cdn",
+          "isSslEnabled": false,
+          "pullZoneId": "5378608",
+          "portMappings": [
+            {
+              "containerPort": 8080,
+              "exposedPort": null,
+              "protocols": [
+                "Tcp"
+              ]
+            }
+          ],
+          "stickySessions": null,
+          "internalIpAddresses": null,
+          "publicIpAddresses": null
+        }
+      ],
+      "volumeMounts": []
+    }
+  ],
+  "volumes": [],
+  "autoScaling": {
+    "min": 1,
+    "max": 1
+  },
+  "networkSettings": {
+    "ingressBandwidthLimit": 1000000000,
+    "egressBandwidthLimit": 1000000000
+  }
+}
