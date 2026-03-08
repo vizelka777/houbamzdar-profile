@@ -69,7 +69,7 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	oauth2Token, err := s.OIDC.OAuth2Config.Exchange(ctx, code, oauth2.VerifierOption(stateObj.PKCEVerifier))
+	oauth2Token, err := s.OIDC.ExchangeCode(ctx, code, stateObj.PKCEVerifier)
 	if err != nil {
 		http.Error(w, "failed to exchange token: "+err.Error(), http.StatusBadRequest)
 		return
@@ -109,7 +109,7 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) {
 	claims.Iss = idToken.Issuer
 	claims.Sub = idToken.Subject
 
-	user, isNew, err := s.DB.UpsertUser(&claims)
+	user, isNew, err := s.DB.UpsertUser(&claims, oauth2Token)
 	if err != nil {
 		http.Error(w, "failed to upsert user: "+err.Error(), http.StatusInternalServerError)
 		return

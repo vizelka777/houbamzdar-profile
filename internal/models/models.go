@@ -13,6 +13,9 @@ type User struct {
 	PhoneNumberVerified bool      `json:"phone_number_verified"`
 	Picture             string    `json:"picture"`
 	AboutMe             string    `json:"about_me"`
+	AccessToken         string    `json:"-"`
+	RefreshToken        string    `json:"-"`
+	TokenExpiresAt      time.Time `json:"-"`
 	CreatedAt           time.Time `json:"-"`
 	UpdatedAt           time.Time `json:"-"`
 	LastIDPSyncAt       time.Time `json:"-"`

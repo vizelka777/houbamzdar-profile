@@ -8,6 +8,7 @@ import (
 	"github.com/houbamzdar/bff/internal/config"
 	"github.com/houbamzdar/bff/internal/models"
 	_ "github.com/tursodatabase/libsql-client-go/libsql"
+	"golang.org/x/oauth2"
 )
 
 type DB struct {
@@ -49,6 +50,9 @@ func migrate(db *sql.DB) error {
 			phone_number_verified INTEGER NOT NULL DEFAULT 0,
 			picture TEXT,
 			about_me TEXT,
+			access_token TEXT,
+			refresh_token TEXT,
+			token_expires_at TEXT,
 			created_at TEXT NOT NULL DEFAULT (datetime('now')),
 			updated_at TEXT NOT NULL DEFAULT (datetime('now')),
 			last_idp_sync_at TEXT,
@@ -79,7 +83,7 @@ func migrate(db *sql.DB) error {
 	return nil
 }
 
-func (db *DB) UpsertUser(claims *models.OIDCClaims) (*models.User, bool, error) {
+func (db *DB) UpsertUser(claims *models.OIDCClaims, token *oauth2.Token) (*models.User, bool, error) {
 	var user models.User
 	var exists bool
 	
@@ -101,11 +105,16 @@ func (db *DB) UpsertUser(claims *models.OIDCClaims) (*models.User, bool, error) 
 		pv = 1
 	}
 
+	expiry := ""
+	if !token.Expiry.IsZero() {
+		expiry = token.Expiry.Format(time.RFC3339)
+	}
+
 	if !exists {
 		res, err := db.Exec(`
-			INSERT INTO users (idp_issuer, idp_sub, preferred_username, email, email_verified, phone_number, phone_number_verified, picture, last_idp_sync_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-		`, claims.Iss, claims.Sub, claims.PreferredUsername, claims.Email, ev, claims.PhoneNumber, pv, claims.Picture)
+			INSERT INTO users (idp_issuer, idp_sub, preferred_username, email, email_verified, phone_number, phone_number_verified, picture, access_token, refresh_token, token_expires_at, last_idp_sync_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+		`, claims.Iss, claims.Sub, claims.PreferredUsername, claims.Email, ev, claims.PhoneNumber, pv, claims.Picture, token.AccessToken, token.RefreshToken, expiry)
 		if err != nil {
 			return nil, false, err
 		}
@@ -123,24 +132,21 @@ func (db *DB) UpsertUser(claims *models.OIDCClaims) (*models.User, bool, error) 
 				phone_number = ?,
 				phone_number_verified = ?,
 				picture = ?,
+				access_token = ?,
+				refresh_token = ?,
+				token_expires_at = ?,
 				last_idp_sync_at = datetime('now'),
 				updated_at = datetime('now')
 			WHERE id = ?
-		`, claims.PreferredUsername, claims.Email, ev, claims.PhoneNumber, pv, claims.Picture, user.ID)
+		`, claims.PreferredUsername, claims.Email, ev, claims.PhoneNumber, pv, claims.Picture, token.AccessToken, token.RefreshToken, expiry, user.ID)
 		if err != nil {
 			return nil, false, err
 		}
 	}
 
 	// Fetch updated user
-	err = db.QueryRow("SELECT id, idp_issuer, idp_sub, COALESCE(preferred_username, ''), COALESCE(email, ''), email_verified, COALESCE(phone_number, ''), phone_number_verified, COALESCE(picture, ''), COALESCE(about_me, '') FROM users WHERE id = ?", user.ID).Scan(
-		&user.ID, &user.IDPIssuer, &user.IDPSub, &user.PreferredUsername, &user.Email, &user.EmailVerified, &user.PhoneNumber, &user.PhoneNumberVerified, &user.Picture, &user.AboutMe,
-	)
-	if err != nil {
-		return nil, false, err
-	}
-
-	return &user, !exists, nil
+	updated, err := db.GetUser(user.ID)
+	return updated, !exists, err
 }
 
 func (db *DB) SaveState(state *models.OIDCLoginState) error {
@@ -206,9 +212,13 @@ func (db *DB) DeleteSession(sessionID string) error {
 
 func (db *DB) GetUser(id int64) (*models.User, error) {
 	var user models.User
-	err := db.QueryRow("SELECT id, idp_issuer, idp_sub, COALESCE(preferred_username, ''), COALESCE(email, ''), email_verified, COALESCE(phone_number, ''), phone_number_verified, COALESCE(picture, ''), COALESCE(about_me, '') FROM users WHERE id = ?", id).Scan(
-		&user.ID, &user.IDPIssuer, &user.IDPSub, &user.PreferredUsername, &user.Email, &user.EmailVerified, &user.PhoneNumber, &user.PhoneNumberVerified, &user.Picture, &user.AboutMe,
+	var expiresAt sql.NullString
+	err := db.QueryRow("SELECT id, idp_issuer, idp_sub, COALESCE(preferred_username, ''), COALESCE(email, ''), email_verified, COALESCE(phone_number, ''), phone_number_verified, COALESCE(picture, ''), COALESCE(about_me, ''), COALESCE(access_token, ''), COALESCE(refresh_token, ''), token_expires_at FROM users WHERE id = ?", id).Scan(
+		&user.ID, &user.IDPIssuer, &user.IDPSub, &user.PreferredUsername, &user.Email, &user.EmailVerified, &user.PhoneNumber, &user.PhoneNumberVerified, &user.Picture, &user.AboutMe, &user.AccessToken, &user.RefreshToken, &expiresAt,
 	)
+	if err == nil && expiresAt.Valid && expiresAt.String != "" {
+		user.TokenExpiresAt, _ = time.Parse(time.RFC3339, expiresAt.String)
+	}
 	return &user, err
 }
 

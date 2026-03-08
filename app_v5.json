@@ -120,7 +120,7 @@
         },
         {
           "name": "OIDC_CLIENT_SECRET",
-          "value": "b8daf59124ae3107d73e1e256df11b33a61d88c75d2a82cb297d1c5cd3678ba55d0ba388caff6139acfe0fe7384e6939"
+          "value": "__SET_IN_BUNNY_OIDC_CLIENT_SECRET__"
         },
         {
           "name": "OIDC_REDIRECT_URL",
@@ -132,7 +132,7 @@
         },
         {
           "name": "DB_TOKEN",
-          "value": "eyJ0eXAiOiJKV1QiLCJhbGciOiJFZERTQSJ9.eyJwIjp7InJvIjpudWxsLCJydyI6eyJucyI6WyJob3ViYW16ZGFyLWRiIl0sInRhZ3MiOm51bGx9LCJyb2EiOm51bGwsInJ3YSI6bnVsbCwiZGRsIjpudWxsfSwiaWF0IjoxNzcxOTMyODg2fQ.11kspp00ts4f79zFjGdYO5FIvFIaBFpPK9PFMFFXUp3yM2SoEWGzGqChPKg4tiUuRxl-iVhd4DfcptiCMIaCAw"
+          "value": "__SET_IN_BUNNY_DB_TOKEN__"
         }
       ],
       "endpoints": [

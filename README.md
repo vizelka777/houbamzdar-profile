@@ -38,6 +38,13 @@ Backend (BFF) и Frontend статика для сайта houbamzdar.cz.
    - Создайте Bunny Database (libSQL).
    - Скопируйте URL (`DB_URL`) и токен доступа (`DB_TOKEN`) в настройки окружения Magic Container.
 
+### Секреты и manifests
+
+- Файлы `app*.json` в репозитории должны оставаться шаблонами без реальных секретов.
+- Реальные значения `OIDC_CLIENT_SECRET` и `DB_TOKEN` нужно задавать только в Bunny, а не коммитить в git.
+- Для Bunny Database токен берётся из `Database -> Access -> Generate Tokens -> Add Secrets to Magic Container App`.
+- Не коммитьте экспорт live-конфигурации из Bunny без предварительной санации секретов.
+
 ## Структура БД
 Схема базы данных автоматически создается при старте бэкенда (`internal/db/db.go`).
 Таблицы:

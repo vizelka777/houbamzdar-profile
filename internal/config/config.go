@@ -43,7 +43,7 @@ func Load() *Config {
 		sessionCookieName = "hzd_session"
 	}
 	scopesStr := os.Getenv("OIDC_SCOPES")
-	scopes := []string{"openid", "profile", "email", "phone"}
+	scopes := []string{"openid", "profile", "email", "phone", "offline_access"}
 	if scopesStr != "" {
 		// Just using defaults for simplicity
 	}

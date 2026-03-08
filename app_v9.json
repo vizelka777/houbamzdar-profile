@@ -16,12 +16,11 @@
       "id": "pdZdipupoFrUKG4-4iqd",
       "name": "houbamzdar",
       "packageId": "d2c1b95e-65e7-42a3-adb3-d27d9d1a4f72",
-      "image": "houbamzdar/bff@sha256:3f2c600a3c81ae68157d511ad810e429204727a46e5cd5baa392b12e931a5291",
+      "image": "houbamzdar/bff:v9",
       "imageName": "bff",
       "imageNamespace": "houbamzdar",
       "imageTag": "latest",
       "imageRegistryId": "2725",
-      "imageDigest": "sha256:3f2c600a3c81ae68157d511ad810e429204727a46e5cd5baa392b12e931a5291",
       "imagePullPolicy": "always",
       "entryPoint": {
         "command": "",
