@@ -6,6 +6,7 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"path"
 	"strconv"
 	"time"
 
@@ -155,6 +156,47 @@ func (s *Server) handlePublishCapture(w http.ResponseWriter, r *http.Request) {
 		"ok":      true,
 		"capture": updated,
 	})
+}
+
+func (s *Server) handlePreviewCapture(w http.ResponseWriter, r *http.Request) {
+	user := r.Context().Value("user").(*models.User)
+	captureID := chi.URLParam(r, "captureID")
+
+	if s.Media == nil || !s.Media.Enabled() {
+		http.Error(w, "capture storage is not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	capture, err := s.DB.GetCaptureForUser(captureID, user.ID)
+	if err != nil {
+		http.Error(w, "capture not found", http.StatusNotFound)
+		return
+	}
+
+	content, contentType, err := s.Media.ReadPrivateCapture(r.Context(), capture.PrivateStorageKey)
+	if err != nil {
+		http.Error(w, "failed to load private capture", http.StatusBadGateway)
+		return
+	}
+	if contentType == "" {
+		contentType = capture.ContentType
+	}
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+
+	fileName := capture.OriginalFileName
+	if fileName == "" {
+		fileName = path.Base(capture.PrivateStorageKey)
+	}
+
+	w.Header().Set("Cache-Control", "private, no-store, max-age=0")
+	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=%q", fileName))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(content)
 }
 
 func (s *Server) handleUnpublishCapture(w http.ResponseWriter, r *http.Request) {

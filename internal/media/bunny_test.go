@@ -45,7 +45,7 @@ func TestCaptureKeys(t *testing.T) {
 	capturedAt := time.Date(2026, time.March, 8, 14, 15, 16, 0, time.UTC)
 
 	privateKey := PrivateCaptureKey(42, "capture-123", capturedAt, ".jpg")
-	if privateKey != "captures/42/2026/03/capture-123/original.jpg" {
+	if privateKey != "captures/42/2026/03/capture-123.jpg" {
 		t.Fatalf("unexpected private key: %q", privateKey)
 	}
 

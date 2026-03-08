@@ -121,6 +121,93 @@ function formatCoords(lat, lng) {
     return `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
 }
 
+function isHeicLikeFile(file) {
+    const fileName = (file?.name || "").toLowerCase();
+    const mimeType = (file?.type || "").toLowerCase();
+
+    return (
+        mimeType === "image/heic" ||
+        mimeType === "image/heif" ||
+        mimeType === "image/heic-sequence" ||
+        mimeType === "image/heif-sequence" ||
+        fileName.endsWith(".heic") ||
+        fileName.endsWith(".heif")
+    );
+}
+
+function replaceFileExtension(fileName, extension) {
+    if (!fileName) return `capture${extension}`;
+    const index = fileName.lastIndexOf(".");
+    if (index === -1) {
+        return `${fileName}${extension}`;
+    }
+    return `${fileName.slice(0, index)}${extension}`;
+}
+
+function loadImageElementFromBlob(blob) {
+    return new Promise((resolve, reject) => {
+        const objectUrl = URL.createObjectURL(blob);
+        const image = new Image();
+
+        image.onload = () => {
+            URL.revokeObjectURL(objectUrl);
+            resolve(image);
+        };
+        image.onerror = () => {
+            URL.revokeObjectURL(objectUrl);
+            reject(new Error("Browser failed to decode image"));
+        };
+        image.src = objectUrl;
+    });
+}
+
+async function convertHeicToJpeg(file) {
+    const image = await loadImageElementFromBlob(file);
+    const canvas = document.createElement("canvas");
+    canvas.width = image.naturalWidth || image.width;
+    canvas.height = image.naturalHeight || image.height;
+
+    const context = canvas.getContext("2d");
+    if (!context) {
+        throw new Error("Canvas is not available");
+    }
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+    const convertedBlob = await new Promise((resolve, reject) => {
+        canvas.toBlob((blob) => {
+            if (!blob) {
+                reject(new Error("Failed to convert HEIC/HEIF to JPEG"));
+                return;
+            }
+            resolve(blob);
+        }, "image/jpeg", 0.9);
+    });
+
+    return {
+        blob: convertedBlob,
+        fileName: replaceFileExtension(file.name || "capture.heic", ".jpg"),
+        mimeType: "image/jpeg"
+    };
+}
+
+async function normalizeSelectedFile(file) {
+    if (!isHeicLikeFile(file)) {
+        return {
+            blob: file,
+            fileName: file.name || `nalez-${Date.now()}.jpg`,
+            mimeType: file.type || "image/jpeg"
+        };
+    }
+
+    try {
+        return await convertHeicToJpeg(file);
+    } catch (error) {
+        throw new Error(
+            "HEIC/HEIF se v tomto prohlížeči nepodařilo převést. Na iPhonu zkuste Formáty -> Most Compatible."
+        );
+    }
+}
+
 function getSelectedCaptureIds() {
     return Array.from(document.querySelectorAll(".capture-checkbox:checked")).map((checkbox) => checkbox.value);
 }
@@ -208,10 +295,12 @@ function renderRemoteCaptures(captures) {
         const publicLink = capture.public_url
             ? `<a href="${escapeHtml(capture.public_url)}" target="_blank" rel="noreferrer" class="capture-link">Otevřít veřejnou verzi</a>`
             : "";
+        const privatePreview = `${API_URL}/api/captures/${encodeURIComponent(capture.id)}/preview`;
         const actionLabel = capture.status === "published" ? "Stáhnout z veřejného webu" : "Zveřejnit";
         const actionName = capture.status === "published" ? "unpublish" : "publish";
 
         card.innerHTML = `
+            <img src="${escapeHtml(privatePreview)}" alt="Soukromý náhled nálezu" class="capture-thumb" loading="lazy">
             <div class="capture-meta">
                 <h3>${escapeHtml(capture.original_file_name || "Nález")}</h3>
                 <p>${escapeHtml(formatDateTime(capture.captured_at))}</p>
@@ -271,13 +360,22 @@ async function handleCaptureSelection(files) {
 
     setStatusMessage(document.getElementById("capture-status"), "Získávám polohu a ukládám snímky...");
     const position = await readCurrentPosition();
+    let storedCount = 0;
+    let convertedCount = 0;
+    const failedFiles = [];
 
     for (const file of files) {
+        try {
+            const normalized = await normalizeSelectedFile(file);
+            if (normalized.mimeType === "image/jpeg" && isHeicLikeFile(file)) {
+                convertedCount += 1;
+            }
+
         const record = {
             id: typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
-            fileName: file.name || `nalez-${Date.now()}.jpg`,
-            mimeType: file.type || "image/jpeg",
-            size: file.size || 0,
+            fileName: normalized.fileName,
+            mimeType: normalized.mimeType,
+            size: normalized.blob.size || 0,
             capturedAt: new Date().toISOString(),
             latitude: position ? position.coords.latitude : null,
             longitude: position ? position.coords.longitude : null,
@@ -286,14 +384,31 @@ async function handleCaptureSelection(files) {
             serverCaptureId: "",
             uploadedAt: "",
             serverStatus: "",
-            blob: file
+            blob: normalized.blob
         };
 
         await putCapture(record);
+            storedCount += 1;
+        } catch (error) {
+            console.error("Failed to normalize selected file", error);
+            failedFiles.push(file.name || "snímek");
+        }
     }
 
     await refreshCaptureVault();
-    setStatusMessage(document.getElementById("capture-status"), "Snímky jsou uložené v zařízení.", "success");
+    const statusNode = document.getElementById("capture-status");
+    if (storedCount === 0) {
+        throw new Error("Nepodařilo se uložit žádný snímek. HEIC/HEIF zkuste na iPhonu přepnout na Most Compatible.");
+    }
+
+    let message = "Snímky jsou uložené v zařízení.";
+    if (convertedCount > 0) {
+        message = `${message} ${convertedCount} souborů HEIC/HEIF bylo převedeno do JPEG.`;
+    }
+    if (failedFiles.length > 0) {
+        message = `${message} ${failedFiles.length} souborů se nepodařilo zpracovat.`;
+    }
+    setStatusMessage(statusNode, message, "success");
 }
 
 async function uploadCaptureToServer(capture) {
@@ -336,13 +451,9 @@ async function uploadQueuedCaptures() {
 
     for (const capture of queuedItems) {
         const result = await uploadCaptureToServer(capture);
-        const remoteCapture = result.capture;
-        await patchCaptureLocal(capture.id, {
-            queued: false,
-            serverCaptureId: remoteCapture.id,
-            uploadedAt: remoteCapture.uploaded_at,
-            serverStatus: remoteCapture.status
-        });
+        if (result.capture?.id) {
+            await deleteCaptures([capture.id]);
+        }
     }
 }
 
@@ -465,7 +576,7 @@ async function initCapturePage() {
             setStatusMessage(statusNode, "Nahrávám označené snímky do soukromého úložiště...");
             await uploadQueuedCaptures();
             await refreshCaptureVault();
-            setStatusMessage(statusNode, "Vybrané snímky jsou uložené na serveru.", "success");
+            setStatusMessage(statusNode, "Vybrané snímky jsou uložené na serveru a odstraněné z tohoto zařízení.", "success");
         } catch (error) {
             console.error("Failed to upload captures", error);
             setStatusMessage(statusNode, error.message || "Nahrání se nepovedlo.", "error");

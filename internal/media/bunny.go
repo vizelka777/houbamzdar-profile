@@ -113,7 +113,7 @@ func (b *BunnyStorage) StorePrivateCapture(ctx context.Context, userID int64, ca
 }
 
 func (b *BunnyStorage) PublishCapture(ctx context.Context, capture *models.Capture) (string, string, error) {
-	content, contentType, err := b.getObject(ctx, b.privateZone, b.privateKey, capture.PrivateStorageKey)
+	content, contentType, err := b.ReadPrivateCapture(ctx, capture.PrivateStorageKey)
 	if err != nil {
 		return "", "", err
 	}
@@ -129,6 +129,10 @@ func (b *BunnyStorage) PublishCapture(ctx context.Context, capture *models.Captu
 	}
 
 	return publicKey, fmt.Sprintf("%s/%s", b.publicBaseURL, publicKey), nil
+}
+
+func (b *BunnyStorage) ReadPrivateCapture(ctx context.Context, key string) ([]byte, string, error) {
+	return b.getObject(ctx, b.privateZone, b.privateKey, key)
 }
 
 func (b *BunnyStorage) DeletePrivate(ctx context.Context, key string) error {
@@ -155,8 +159,7 @@ func PrivateCaptureKey(userID int64, captureID string, capturedAt time.Time, ext
 		fmt.Sprintf("%d", userID),
 		capturedAt.UTC().Format("2006"),
 		capturedAt.UTC().Format("01"),
-		captureID,
-		"original"+extension,
+		captureID+extension,
 	)
 }
 
