@@ -16,6 +16,7 @@ type DB struct {
 }
 
 const migrationUsersTokenColumnsID = "20260308_add_user_token_columns"
+const migrationPhotoCapturesTableID = "20260308_create_photo_captures"
 
 func New(cfg *config.Config) (*DB, error) {
 	url := cfg.DBURL
@@ -110,6 +111,43 @@ func migrate(db *sql.DB) error {
 				}
 				if err := ensureColumnExists(tx, "users", "token_expires_at", "TEXT"); err != nil {
 					return err
+				}
+				return nil
+			},
+		},
+		{
+			id: migrationPhotoCapturesTableID,
+			apply: func(tx *sql.Tx) error {
+				queries := []string{
+					`CREATE TABLE IF NOT EXISTS photo_captures (
+						id TEXT PRIMARY KEY,
+						user_id INTEGER NOT NULL,
+						client_local_id TEXT,
+						original_file_name TEXT NOT NULL,
+						content_type TEXT NOT NULL,
+						size_bytes INTEGER NOT NULL,
+						width INTEGER NOT NULL DEFAULT 0,
+						height INTEGER NOT NULL DEFAULT 0,
+						captured_at TEXT NOT NULL,
+						uploaded_at TEXT NOT NULL DEFAULT (datetime('now')),
+						latitude REAL,
+						longitude REAL,
+						accuracy_meters REAL,
+						status TEXT NOT NULL DEFAULT 'private',
+						private_storage_key TEXT NOT NULL,
+						public_storage_key TEXT,
+						published_at TEXT,
+						FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+					);`,
+					`CREATE UNIQUE INDEX IF NOT EXISTS idx_photo_captures_private_storage_key ON photo_captures(private_storage_key);`,
+					`CREATE INDEX IF NOT EXISTS idx_photo_captures_user_captured_at ON photo_captures(user_id, captured_at DESC);`,
+					`CREATE INDEX IF NOT EXISTS idx_photo_captures_status ON photo_captures(status);`,
+				}
+
+				for _, query := range queries {
+					if _, err := tx.Exec(query); err != nil {
+						return err
+					}
 				}
 				return nil
 			},
@@ -320,4 +358,177 @@ func (db *DB) GetUser(id int64) (*models.User, error) {
 func (db *DB) UpdateAboutMe(id int64, aboutMe string) error {
 	_, err := db.Exec("UPDATE users SET about_me = ?, updated_at = datetime('now') WHERE id = ?", aboutMe, id)
 	return err
+}
+
+const captureSelectColumns = `
+	SELECT id, user_id, COALESCE(client_local_id, ''), original_file_name, content_type, size_bytes, width, height,
+		captured_at, uploaded_at, latitude, longitude, accuracy_meters, status, private_storage_key,
+		COALESCE(public_storage_key, ''), COALESCE(published_at, '')
+	FROM photo_captures
+`
+
+func (db *DB) CreateCapture(capture *models.Capture) error {
+	_, err := db.Exec(`
+		INSERT INTO photo_captures (
+			id, user_id, client_local_id, original_file_name, content_type, size_bytes, width, height,
+			captured_at, uploaded_at, latitude, longitude, accuracy_meters, status, private_storage_key,
+			public_storage_key, published_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`,
+		capture.ID,
+		capture.UserID,
+		nullIfEmpty(capture.ClientLocalID),
+		capture.OriginalFileName,
+		capture.ContentType,
+		capture.SizeBytes,
+		capture.Width,
+		capture.Height,
+		capture.CapturedAt.UTC().Format(time.RFC3339),
+		capture.UploadedAt.UTC().Format(time.RFC3339),
+		floatPointerValue(capture.Latitude),
+		floatPointerValue(capture.Longitude),
+		floatPointerValue(capture.AccuracyMeters),
+		capture.Status,
+		capture.PrivateStorageKey,
+		nullIfEmpty(capture.PublicStorageKey),
+		nullIfZeroTime(capture.PublishedAt),
+	)
+	return err
+}
+
+func (db *DB) ListCapturesByUser(userID int64) ([]*models.Capture, error) {
+	rows, err := db.Query(captureSelectColumns+` WHERE user_id = ? ORDER BY captured_at DESC`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var captures []*models.Capture
+	for rows.Next() {
+		capture, err := scanCapture(rows)
+		if err != nil {
+			return nil, err
+		}
+		captures = append(captures, capture)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return captures, nil
+}
+
+func (db *DB) GetCaptureForUser(id string, userID int64) (*models.Capture, error) {
+	row := db.QueryRow(captureSelectColumns+` WHERE id = ? AND user_id = ? LIMIT 1`, id, userID)
+	return scanCaptureRow(row)
+}
+
+func (db *DB) PublishCapture(id string, userID int64, publicStorageKey string) error {
+	_, err := db.Exec(`
+		UPDATE photo_captures
+		SET status = 'published', public_storage_key = ?, published_at = ?, uploaded_at = uploaded_at
+		WHERE id = ? AND user_id = ?
+	`, publicStorageKey, time.Now().UTC().Format(time.RFC3339), id, userID)
+	return err
+}
+
+func (db *DB) UnpublishCapture(id string, userID int64) error {
+	_, err := db.Exec(`
+		UPDATE photo_captures
+		SET status = 'private', public_storage_key = NULL, published_at = NULL
+		WHERE id = ? AND user_id = ?
+	`, id, userID)
+	return err
+}
+
+func (db *DB) DeleteCapture(id string, userID int64) error {
+	_, err := db.Exec(`DELETE FROM photo_captures WHERE id = ? AND user_id = ?`, id, userID)
+	return err
+}
+
+type scanner interface {
+	Scan(dest ...interface{}) error
+}
+
+func scanCaptureRow(row scanner) (*models.Capture, error) {
+	return scanCapture(row)
+}
+
+func scanCapture(row scanner) (*models.Capture, error) {
+	var (
+		capture            models.Capture
+		clientLocalID      sql.NullString
+		capturedAtRaw      string
+		uploadedAtRaw      string
+		latitude           sql.NullFloat64
+		longitude          sql.NullFloat64
+		accuracyMeters     sql.NullFloat64
+		publicStorageKey   sql.NullString
+		publishedAtRaw     sql.NullString
+	)
+
+	if err := row.Scan(
+		&capture.ID,
+		&capture.UserID,
+		&clientLocalID,
+		&capture.OriginalFileName,
+		&capture.ContentType,
+		&capture.SizeBytes,
+		&capture.Width,
+		&capture.Height,
+		&capturedAtRaw,
+		&uploadedAtRaw,
+		&latitude,
+		&longitude,
+		&accuracyMeters,
+		&capture.Status,
+		&capture.PrivateStorageKey,
+		&publicStorageKey,
+		&publishedAtRaw,
+	); err != nil {
+		return nil, err
+	}
+
+	capture.ClientLocalID = clientLocalID.String
+	capture.PublicStorageKey = publicStorageKey.String
+	capture.CapturedAt, _ = time.Parse(time.RFC3339, capturedAtRaw)
+	capture.UploadedAt, _ = time.Parse(time.RFC3339, uploadedAtRaw)
+	if latitude.Valid {
+		value := latitude.Float64
+		capture.Latitude = &value
+	}
+	if longitude.Valid {
+		value := longitude.Float64
+		capture.Longitude = &value
+	}
+	if accuracyMeters.Valid {
+		value := accuracyMeters.Float64
+		capture.AccuracyMeters = &value
+	}
+	if publishedAtRaw.Valid && publishedAtRaw.String != "" {
+		capture.PublishedAt, _ = time.Parse(time.RFC3339, publishedAtRaw.String)
+	}
+
+	return &capture, nil
+}
+
+func nullIfEmpty(value string) interface{} {
+	if value == "" {
+		return nil
+	}
+	return value
+}
+
+func floatPointerValue(value *float64) interface{} {
+	if value == nil {
+		return nil
+	}
+	return *value
+}
+
+func nullIfZeroTime(value time.Time) interface{} {
+	if value.IsZero() {
+		return nil
+	}
+	return value.UTC().Format(time.RFC3339)
 }

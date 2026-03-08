@@ -22,6 +22,7 @@ function openPhotoVault() {
                 const store = db.createObjectStore(PHOTO_STORE_NAME, { keyPath: "id" });
                 store.createIndex("capturedAt", "capturedAt");
                 store.createIndex("queued", "queued");
+                store.createIndex("serverCaptureId", "serverCaptureId");
             }
         };
 
@@ -63,6 +64,7 @@ async function putCapture(capture) {
 
 async function updateQueuedState(ids, queued) {
     if (!ids.length) return;
+
     const selectedIds = new Set(ids);
     const items = await getAllCaptures();
     const db = await openPhotoVault();
@@ -74,6 +76,30 @@ async function updateQueuedState(ids, queued) {
         .forEach((item) => store.put({ ...item, queued }));
 
     await txDone(tx);
+}
+
+async function patchCaptureLocal(id, patch) {
+    const items = await getAllCaptures();
+    const target = items.find((item) => item.id === id);
+    if (!target) return;
+
+    await putCapture({ ...target, ...patch });
+}
+
+async function clearRemoteReference(serverCaptureId) {
+    if (!serverCaptureId) return;
+
+    const items = await getAllCaptures();
+    const target = items.find((item) => item.serverCaptureId === serverCaptureId);
+    if (!target) return;
+
+    await putCapture({
+        ...target,
+        queued: false,
+        serverCaptureId: "",
+        uploadedAt: "",
+        serverStatus: ""
+    });
 }
 
 async function deleteCaptures(ids) {
@@ -134,7 +160,14 @@ function renderCaptureGrid(items) {
         const previewUrl = URL.createObjectURL(item.blob);
         captureObjectUrls.push(previewUrl);
 
-        const queuedBadge = item.queued ? `<span class="status-badge verified">Připraveno k nahrání</span>` : "";
+        const badges = [];
+        if (item.queued) {
+            badges.push('<span class="status-badge verified">Označeno pro server</span>');
+        }
+        if (item.serverCaptureId) {
+            badges.push(`<span class="status-badge verified">${escapeHtml(item.serverStatus === "published" ? "Na serveru a zveřejněno" : "Na serveru")}</span>`);
+        }
+
         card.innerHTML = `
             <label class="capture-select">
                 <input class="capture-checkbox" type="checkbox" value="${escapeHtml(item.id)}">
@@ -146,7 +179,7 @@ function renderCaptureGrid(items) {
                 <p>${escapeHtml(formatDateTime(item.capturedAt))}</p>
                 <p>${escapeHtml(formatCoords(item.latitude, item.longitude))}</p>
                 <p>${escapeHtml(`${Math.round((item.size || 0) / 1024)} KB`)}</p>
-                ${queuedBadge}
+                ${badges.join("")}
             </div>
         `;
 
@@ -154,10 +187,68 @@ function renderCaptureGrid(items) {
     });
 }
 
+function renderRemoteCaptures(captures) {
+    const grid = document.getElementById("remote-capture-grid");
+    if (!grid) return;
+
+    grid.innerHTML = "";
+
+    if (!captures.length) {
+        const emptyState = document.createElement("div");
+        emptyState.className = "capture-empty";
+        emptyState.textContent = "Na serveru zatím není žádný uložený nález.";
+        grid.appendChild(emptyState);
+        return;
+    }
+
+    captures.forEach((capture) => {
+        const card = document.createElement("article");
+        card.className = "capture-item";
+
+        const publicLink = capture.public_url
+            ? `<a href="${escapeHtml(capture.public_url)}" target="_blank" rel="noreferrer" class="capture-link">Otevřít veřejnou verzi</a>`
+            : "";
+        const actionLabel = capture.status === "published" ? "Stáhnout z veřejného webu" : "Zveřejnit";
+        const actionName = capture.status === "published" ? "unpublish" : "publish";
+
+        card.innerHTML = `
+            <div class="capture-meta">
+                <h3>${escapeHtml(capture.original_file_name || "Nález")}</h3>
+                <p>${escapeHtml(formatDateTime(capture.captured_at))}</p>
+                <p>${escapeHtml(formatCoords(capture.latitude, capture.longitude))}</p>
+                <p>${escapeHtml(`${Math.round((capture.size_bytes || 0) / 1024)} KB`)}</p>
+                <span class="status-badge ${capture.status === "published" ? "verified" : "unverified"}">
+                    ${escapeHtml(capture.status === "published" ? "Veřejné" : "Soukromé")}
+                </span>
+                ${publicLink}
+            </div>
+            <div class="capture-actions">
+                <button type="button" class="btn btn-secondary capture-remote-action" data-action="${actionName}" data-capture-id="${escapeHtml(capture.id)}">
+                    ${escapeHtml(actionLabel)}
+                </button>
+                <button type="button" class="btn btn-secondary capture-remote-action" data-action="delete" data-capture-id="${escapeHtml(capture.id)}">
+                    Smazat ze serveru
+                </button>
+            </div>
+        `;
+
+        grid.appendChild(card);
+    });
+}
+
+async function fetchRemoteCaptures() {
+    const result = await apiGet("/api/captures");
+    if (!result || !result.ok) {
+        return [];
+    }
+    return result.captures || [];
+}
+
 async function refreshCaptureVault() {
-    const items = await getAllCaptures();
-    renderCaptureStats(items);
-    renderCaptureGrid(items);
+    const [localItems, remoteItems] = await Promise.all([getAllCaptures(), fetchRemoteCaptures()]);
+    renderCaptureStats(localItems);
+    renderCaptureGrid(localItems);
+    renderRemoteCaptures(remoteItems);
 }
 
 function readCurrentPosition() {
@@ -192,6 +283,9 @@ async function handleCaptureSelection(files) {
             longitude: position ? position.coords.longitude : null,
             accuracy: position ? position.coords.accuracy : null,
             queued: false,
+            serverCaptureId: "",
+            uploadedAt: "",
+            serverStatus: "",
             blob: file
         };
 
@@ -200,6 +294,113 @@ async function handleCaptureSelection(files) {
 
     await refreshCaptureVault();
     setStatusMessage(document.getElementById("capture-status"), "Snímky jsou uložené v zařízení.", "success");
+}
+
+async function uploadCaptureToServer(capture) {
+    const formData = new FormData();
+    formData.append("photo", capture.blob, capture.fileName || "capture.jpg");
+    formData.append("client_local_id", capture.id);
+    formData.append("captured_at", capture.capturedAt);
+
+    if (typeof capture.latitude === "number") {
+        formData.append("latitude", String(capture.latitude));
+    }
+    if (typeof capture.longitude === "number") {
+        formData.append("longitude", String(capture.longitude));
+    }
+    if (typeof capture.accuracy === "number") {
+        formData.append("accuracy_meters", String(capture.accuracy));
+    }
+
+    const response = await fetch(`${API_URL}/api/captures`, {
+        method: "POST",
+        credentials: "include",
+        body: formData
+    });
+
+    if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || `Upload failed (${response.status})`);
+    }
+
+    return response.json();
+}
+
+async function uploadQueuedCaptures() {
+    const items = await getAllCaptures();
+    const queuedItems = items.filter((item) => item.queued && !item.serverCaptureId);
+
+    if (!queuedItems.length) {
+        throw new Error("Nejdřív označte snímky, které chcete nahrát na server.");
+    }
+
+    for (const capture of queuedItems) {
+        const result = await uploadCaptureToServer(capture);
+        const remoteCapture = result.capture;
+        await patchCaptureLocal(capture.id, {
+            queued: false,
+            serverCaptureId: remoteCapture.id,
+            uploadedAt: remoteCapture.uploaded_at,
+            serverStatus: remoteCapture.status
+        });
+    }
+}
+
+async function apiPostCaptureAction(captureID, action) {
+    const response = await fetch(`${API_URL}/api/captures/${encodeURIComponent(captureID)}/${action}`, {
+        method: "POST",
+        credentials: "include"
+    });
+
+    if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || `Action ${action} failed`);
+    }
+
+    return response.json();
+}
+
+async function apiDeleteCapture(captureID) {
+    const response = await fetch(`${API_URL}/api/captures/${encodeURIComponent(captureID)}`, {
+        method: "DELETE",
+        credentials: "include"
+    });
+
+    if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || "Delete failed");
+    }
+
+    return response.json();
+}
+
+async function handleRemoteAction(event) {
+    const button = event.target.closest(".capture-remote-action");
+    if (!button) return;
+
+    const captureID = button.dataset.captureId;
+    const action = button.dataset.action;
+    const statusNode = document.getElementById("capture-status");
+
+    try {
+        if (action === "publish") {
+            setStatusMessage(statusNode, "Zveřejňuji snímek...");
+            await apiPostCaptureAction(captureID, "publish");
+        } else if (action === "unpublish") {
+            setStatusMessage(statusNode, "Stahuji snímek z veřejného webu...");
+            await apiPostCaptureAction(captureID, "unpublish");
+        } else if (action === "delete") {
+            setStatusMessage(statusNode, "Mažu snímek ze serveru...");
+            await apiDeleteCapture(captureID);
+            await clearRemoteReference(captureID);
+        }
+
+        await refreshCaptureVault();
+        setStatusMessage(statusNode, "Serverový stav byl aktualizován.", "success");
+    } catch (error) {
+        console.error("Failed to update remote capture", error);
+        setStatusMessage(statusNode, "Serverový krok se nepovedl.", "error");
+    }
 }
 
 async function initCapturePage() {
@@ -218,8 +419,10 @@ async function initCapturePage() {
 
     const fileInput = document.getElementById("capture-file-input");
     const queueButton = document.getElementById("capture-queue-btn");
+    const uploadButton = document.getElementById("capture-upload-btn");
     const deleteButton = document.getElementById("capture-delete-btn");
     const statusNode = document.getElementById("capture-status");
+    const remoteGrid = document.getElementById("remote-capture-grid");
 
     if (!indexedDbAvailable()) {
         setStatusMessage(statusNode, "Tento prohlížeč neumí IndexedDB. Zkuste moderní mobilní prohlížeč.", "error");
@@ -243,7 +446,7 @@ async function initCapturePage() {
     queueButton.addEventListener("click", async () => {
         const ids = getSelectedCaptureIds();
         if (!ids.length) {
-            setStatusMessage(statusNode, "Vyberte snímky, které chcete připravit k nahrání.", "error");
+            setStatusMessage(statusNode, "Vyberte snímky, které chcete připravit pro server.", "error");
             return;
         }
 
@@ -254,6 +457,18 @@ async function initCapturePage() {
         } catch (error) {
             console.error("Failed to queue captures", error);
             setStatusMessage(statusNode, "Snímky se nepodařilo označit.", "error");
+        }
+    });
+
+    uploadButton.addEventListener("click", async () => {
+        try {
+            setStatusMessage(statusNode, "Nahrávám označené snímky do soukromého úložiště...");
+            await uploadQueuedCaptures();
+            await refreshCaptureVault();
+            setStatusMessage(statusNode, "Vybrané snímky jsou uložené na serveru.", "success");
+        } catch (error) {
+            console.error("Failed to upload captures", error);
+            setStatusMessage(statusNode, error.message || "Nahrání se nepovedlo.", "error");
         }
     });
 
@@ -273,6 +488,8 @@ async function initCapturePage() {
             setStatusMessage(statusNode, "Snímky se nepodařilo smazat.", "error");
         }
     });
+
+    remoteGrid.addEventListener("click", handleRemoteAction);
 }
 
 document.addEventListener("DOMContentLoaded", initCapturePage);

@@ -35,7 +35,8 @@
             <div class="capture-toolbar">
                 <input id="capture-file-input" class="sr-only" type="file" accept="image/*" capture="environment" multiple>
                 <label for="capture-file-input" class="btn btn-primary">Vyfotit nebo přidat snímky</label>
-                <button id="capture-queue-btn" type="button" class="btn btn-secondary">Označit vybrané k nahrání</button>
+                <button id="capture-queue-btn" type="button" class="btn btn-secondary">Označit pro server</button>
+                <button id="capture-upload-btn" type="button" class="btn btn-secondary">Nahrát označené</button>
                 <button id="capture-delete-btn" type="button" class="btn btn-secondary">Smazat vybrané</button>
             </div>
             <p id="capture-status" class="status-message" aria-live="polite"></p>
@@ -60,8 +61,8 @@
             </div>
 
             <p class="subtle-note">
-                Skutečné nahrání na server zatím backend neumí. Tato stránka už ale drží lokální
-                fotoarchiv a výběr snímků, které později pošleme dál.
+                Soukromé snímky jdou po nahrání do Bunny storage, zatímco přesné souřadnice držíme
+                odděleně v databázi. Zveřejnění je samostatný krok, který ovládáte až vy.
             </p>
         </section>
 
@@ -75,6 +76,20 @@
             </div>
 
             <div id="capture-grid" class="capture-grid"></div>
+        </section>
+
+        <section class="capture-gallery card">
+            <div class="about-head">
+                <div>
+                    <p class="section-label">Soukromé úložiště</p>
+                    <h2>Co už je na serveru</h2>
+                </div>
+                <p class="muted-copy">
+                    Tyto snímky už jsou uložené v soukromém Bunny storage. Odtud je můžete zveřejnit nebo smazat.
+                </p>
+            </div>
+
+            <div id="remote-capture-grid" class="capture-grid"></div>
         </section>
     </main>
 

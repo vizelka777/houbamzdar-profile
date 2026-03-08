@@ -21,6 +21,27 @@ type User struct {
 	LastIDPSyncAt       time.Time `json:"-"`
 }
 
+type Capture struct {
+	ID                string    `json:"id"`
+	UserID            int64     `json:"-"`
+	ClientLocalID     string    `json:"client_local_id,omitempty"`
+	OriginalFileName  string    `json:"original_file_name"`
+	ContentType       string    `json:"content_type"`
+	SizeBytes         int64     `json:"size_bytes"`
+	Width             int       `json:"width"`
+	Height            int       `json:"height"`
+	CapturedAt        time.Time `json:"captured_at"`
+	UploadedAt        time.Time `json:"uploaded_at"`
+	Latitude          *float64  `json:"latitude,omitempty"`
+	Longitude         *float64  `json:"longitude,omitempty"`
+	AccuracyMeters    *float64  `json:"accuracy_meters,omitempty"`
+	Status            string    `json:"status"`
+	PrivateStorageKey string    `json:"-"`
+	PublicStorageKey  string    `json:"-"`
+	PublicURL         string    `json:"public_url,omitempty"`
+	PublishedAt       time.Time `json:"published_at,omitempty"`
+}
+
 type Session struct {
 	SessionID string
 	UserID    int64

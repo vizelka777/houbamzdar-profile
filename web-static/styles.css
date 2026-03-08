@@ -592,6 +592,23 @@ img {
     line-height: 1.45;
 }
 
+.capture-link {
+    color: var(--forest-900);
+    font-weight: 700;
+    text-decoration: none;
+}
+
+.capture-link:hover,
+.capture-link:focus-visible {
+    text-decoration: underline;
+}
+
+.capture-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.7rem;
+}
+
 .capture-select {
     display: inline-flex;
     align-items: center;

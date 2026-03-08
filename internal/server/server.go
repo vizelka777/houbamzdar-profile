@@ -10,16 +10,18 @@ import (
 	"github.com/houbamzdar/bff/internal/auth"
 	"github.com/houbamzdar/bff/internal/config"
 	"github.com/houbamzdar/bff/internal/db"
+	"github.com/houbamzdar/bff/internal/media"
 )
 
 type Server struct {
 	Config *config.Config
 	DB     *db.DB
 	OIDC   *auth.OIDC
+	Media  *media.BunnyStorage
 	Router *chi.Mux
 }
 
-func New(cfg *config.Config, database *db.DB, oidc *auth.OIDC) *Server {
+func New(cfg *config.Config, database *db.DB, oidc *auth.OIDC, mediaStorage *media.BunnyStorage) *Server {
 	r := chi.NewRouter()
 
 	r.Use(middleware.Logger)
@@ -35,6 +37,7 @@ func New(cfg *config.Config, database *db.DB, oidc *auth.OIDC) *Server {
 		Config: cfg,
 		DB:     database,
 		OIDC:   oidc,
+		Media:  mediaStorage,
 		Router: r,
 	}
 
@@ -58,6 +61,11 @@ func (s *Server) setupRoutes() {
 		r.Use(s.authMiddleware)
 		r.Get("/api/me", s.handleGetMe)
 		r.Post("/api/me/about", s.handlePostMeAbout)
+		r.Get("/api/captures", s.handleListCaptures)
+		r.Post("/api/captures", s.handleCreateCapture)
+		r.Post("/api/captures/{captureID}/publish", s.handlePublishCapture)
+		r.Post("/api/captures/{captureID}/unpublish", s.handleUnpublishCapture)
+		r.Delete("/api/captures/{captureID}", s.handleDeleteCapture)
 	})
 }
 

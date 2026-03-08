@@ -1,4 +1,4 @@
-# Houba Mzdar! MVP
+# Houbam Zdar MVP
 
 Backend (BFF) и Frontend статика для сайта houbamzdar.cz.
 
@@ -38,6 +38,17 @@ Backend (BFF) и Frontend статика для сайта houbamzdar.cz.
    - Создайте Bunny Database (libSQL).
    - Скопируйте URL (`DB_URL`) и токен доступа (`DB_TOKEN`) в настройки окружения Magic Container.
 
+4. **Хранилище фото**:
+   - Создайте отдельную private Storage Zone для приватных снимков из леса.
+   - Оставьте `foto.houbamzdar.cz` для публичных опубликованных фото.
+   - Заполните в Magic Container переменные:
+     - `BUNNY_PRIVATE_STORAGE_ZONE`
+     - `BUNNY_PRIVATE_STORAGE_KEY`
+     - `BUNNY_PUBLIC_STORAGE_ZONE`
+     - `BUNNY_PUBLIC_STORAGE_KEY`
+     - `BUNNY_PUBLIC_BASE_URL`
+   - Приватные фото идут в Bunny Storage без точных координат в файле. Координаты и точность лежат только в БД.
+
 ### Секреты и manifests
 
 - Файлы `app*.json` в репозитории должны оставаться шаблонами без реальных секретов.
@@ -51,6 +62,16 @@ Backend (BFF) и Frontend статика для сайта houbamzdar.cz.
 - `users`: Хранение профилей, синхронизация claims (preferred_username, email, phone_number, picture).
 - `sessions`: Управление HTTPOnly куками для BFF-сессий.
 - `oidc_login_state`: Временное хранение state, nonce, PKCE challenge для OIDC.
+- `photo_captures`: Приватные снимки пользователя, их метаданные, статус публикации и ключи в Bunny storage.
+
+## Поток фото
+
+1. Пользователь снимает фото в `capture.html`, снимок временно сохраняется в `IndexedDB`.
+2. При отправке на сервер backend нормализует изображение и повторно кодирует его, чтобы не тащить EXIF-метаданные как есть.
+3. Оригинал сохраняется в private Bunny Storage.
+4. Координаты, точность и статус (`private` / `published`) сохраняются в `photo_captures`.
+5. При публикации backend копирует изображение в public Bunny Storage и отдаёт публичный URL через `foto.houbamzdar.cz`.
+6. При снятии с публикации публичный объект удаляется, а приватный оригинал остаётся у владельца.
 
 ## Синхронизация данных
 Upsert логика находится в `internal/db/db.go` метод `UpsertUser`. 

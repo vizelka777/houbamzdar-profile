@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"strings"
 	"strconv"
 
 	"github.com/joho/godotenv"
@@ -24,6 +25,13 @@ type Config struct {
 
 	DBURL   string
 	DBToken string
+
+	BunnyStorageHost       string
+	BunnyPrivateZone       string
+	BunnyPrivateStorageKey string
+	BunnyPublicZone        string
+	BunnyPublicStorageKey  string
+	BunnyPublicBaseURL     string
 }
 
 func Load() *Config {
@@ -45,7 +53,7 @@ func Load() *Config {
 	scopesStr := os.Getenv("OIDC_SCOPES")
 	scopes := []string{"openid", "profile", "email", "phone", "offline_access"}
 	if scopesStr != "" {
-		// Just using defaults for simplicity
+		scopes = parseScopes(scopesStr)
 	}
 
 	return &Config{
@@ -65,5 +73,42 @@ func Load() *Config {
 
 		DBURL:   os.Getenv("DB_URL"),
 		DBToken: os.Getenv("DB_TOKEN"),
+
+		BunnyStorageHost:       getEnv("BUNNY_STORAGE_HOST", "storage.bunnycdn.com"),
+		BunnyPrivateZone:       os.Getenv("BUNNY_PRIVATE_STORAGE_ZONE"),
+		BunnyPrivateStorageKey: os.Getenv("BUNNY_PRIVATE_STORAGE_KEY"),
+		BunnyPublicZone:        os.Getenv("BUNNY_PUBLIC_STORAGE_ZONE"),
+		BunnyPublicStorageKey:  os.Getenv("BUNNY_PUBLIC_STORAGE_KEY"),
+		BunnyPublicBaseURL:     os.Getenv("BUNNY_PUBLIC_BASE_URL"),
 	}
+}
+
+func getEnv(key, fallback string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return fallback
+}
+
+func parseScopes(raw string) []string {
+	parts := strings.Split(raw, ",")
+	scopes := make([]string, 0, len(parts))
+	seen := make(map[string]struct{}, len(parts))
+
+	for _, part := range parts {
+		scope := strings.TrimSpace(part)
+		if scope == "" {
+			continue
+		}
+		if _, ok := seen[scope]; ok {
+			continue
+		}
+		seen[scope] = struct{}{}
+		scopes = append(scopes, scope)
+	}
+
+	if len(scopes) == 0 {
+		return []string{"openid", "profile", "email", "phone", "offline_access"}
+	}
+	return scopes
 }

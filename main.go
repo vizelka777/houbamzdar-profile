@@ -11,6 +11,7 @@ import (
 	"github.com/houbamzdar/bff/internal/auth"
 	"github.com/houbamzdar/bff/internal/config"
 	"github.com/houbamzdar/bff/internal/db"
+	"github.com/houbamzdar/bff/internal/media"
 	"github.com/houbamzdar/bff/internal/server"
 )
 
@@ -31,7 +32,8 @@ func main() {
 		log.Fatalf("failed to initialize oidc provider: %v", err)
 	}
 
-	srv := server.New(cfg, database, oidcProvider)
+	mediaStorage := media.NewBunnyStorage(cfg)
+	srv := server.New(cfg, database, oidcProvider, mediaStorage)
 
 	go func() {
 		log.Printf("Starting server on port %s", cfg.Port)
