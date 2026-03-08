@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vyfotit nález | Houbam Zdar</title>
+    <meta name="description" content="Přímé focení hub do telefonu s uložením do IndexedDB a lokální fronty pro budoucí nahrání.">
+    <link rel="icon" href="/favicon.ico" sizes="any">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body data-page="capture" class="page-shell page-profile">
+    <header class="site-header">
+        <a href="/" class="brand-link" aria-label="Houbam Zdar">
+            <img src="/logo.png" alt="Logo Houbam Zdar" class="brand-mark">
+            <div class="brand-copy">
+                <span class="brand-eyebrow">Terén</span>
+                <strong>Houbam Zdar</strong>
+            </div>
+        </a>
+        <div id="auth-buttons" class="header-actions"></div>
+    </header>
+
+    <main class="content-main content-main-narrow">
+        <section class="page-intro card">
+            <p class="section-label">Vyfotit nález</p>
+            <h1>Fotky hub přímo z lesa</h1>
+            <p>
+                Na telefonu můžete vyfotit houby, uložit snímek s datem a souřadnicemi do zařízení
+                a později si vybrat, co má jít na server pro mapu míst a budoucí publikace.
+            </p>
+        </section>
+
+        <section class="capture-card card">
+            <div class="capture-toolbar">
+                <input id="capture-file-input" class="sr-only" type="file" accept="image/*" capture="environment" multiple>
+                <label for="capture-file-input" class="btn btn-primary">Vyfotit nebo přidat snímky</label>
+                <button id="capture-queue-btn" type="button" class="btn btn-secondary">Označit vybrané k nahrání</button>
+                <button id="capture-delete-btn" type="button" class="btn btn-secondary">Smazat vybrané</button>
+            </div>
+            <p id="capture-status" class="status-message" aria-live="polite"></p>
+
+            <div class="metric-grid capture-metrics">
+                <div class="metric-tile">
+                    <span class="metric-label">Uloženo v zařízení</span>
+                    <strong id="capture-total" class="metric-value">0</strong>
+                </div>
+                <div class="metric-tile">
+                    <span class="metric-label">Připraveno k odeslání</span>
+                    <strong id="capture-queued" class="metric-value">0</strong>
+                </div>
+                <div class="metric-tile">
+                    <span class="metric-label">Poslední poloha</span>
+                    <strong id="capture-location" class="metric-value">Bez GPS</strong>
+                </div>
+                <div class="metric-tile">
+                    <span class="metric-label">Ukládání</span>
+                    <strong class="metric-value">IndexedDB</strong>
+                </div>
+            </div>
+
+            <p class="subtle-note">
+                Skutečné nahrání na server zatím backend neumí. Tato stránka už ale drží lokální
+                fotoarchiv a výběr snímků, které později pošleme dál.
+            </p>
+        </section>
+
+        <section class="capture-gallery card">
+            <div class="about-head">
+                <div>
+                    <p class="section-label">Archiv nálezů</p>
+                    <h2>Co máte uložené v telefonu</h2>
+                </div>
+                <p class="muted-copy">Snímky zůstávají v zařízení, dokud je sami nesmažete nebo neodešlete v dalším kroku.</p>
+            </div>
+
+            <div id="capture-grid" class="capture-grid"></div>
+        </section>
+    </main>
+
+    <script src="app.js" defer></script>
+    <script src="capture.js" defer></script>
+</body>
+</html>

@@ -1,7 +1,6 @@
 const API_URL = "https://api.houbamzdar.cz";
 const DEFAULT_AVATAR_URL = "/default-avatar.png";
 const PROFILE_LAST_VISIT_KEY = "hzd_last_profile_visit_at";
-const EDIT_PROFILE_URL = "https://ahoj420.eu/?mode=login&edit_profile=1&client_host=houbamzdar.cz&return_profile_to=https%3A%2F%2Fhoubamzdar.cz%2Fme.html&return_after_save_to=https%3A%2F%2Fhoubamzdar.cz%2Freauth.html";
 
 function escapeHtml(unsafe) {
     if (!unsafe) return "";
@@ -198,9 +197,7 @@ function renderHeader(session, profile = null) {
 
         authButtons.appendChild(greeting);
         authButtons.appendChild(createLinkButton("Vytvořit publikaci", "/create-post.html", "btn-secondary"));
-        authButtons.appendChild(
-            createLinkButton(profile?.picture ? "Upravit fotku" : "Přidat fotku", EDIT_PROFILE_URL, "btn-secondary")
-        );
+        authButtons.appendChild(createLinkButton("Vyfotit nález", "/capture.html", "btn-secondary"));
 
         authButtons.appendChild(createLinkButton("Můj profil", "/me.html", "btn-primary"));
         authButtons.appendChild(createActionButton("Odhlásit", "btn-secondary", logoutFlow));

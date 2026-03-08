@@ -535,6 +535,79 @@ img {
     gap: 1rem;
 }
 
+.capture-card,
+.capture-gallery {
+    padding: 1.25rem;
+    display: grid;
+    gap: 1rem;
+}
+
+.capture-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+}
+
+.capture-metrics {
+    margin-top: 0.25rem;
+}
+
+.capture-grid {
+    display: grid;
+    gap: 1rem;
+}
+
+.capture-item {
+    border: 1px solid rgba(19, 38, 29, 0.08);
+    border-radius: 1.2rem;
+    background: rgba(255, 255, 255, 0.56);
+    padding: 0.9rem;
+    display: grid;
+    gap: 0.8rem;
+}
+
+.capture-thumb {
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    object-fit: cover;
+    border-radius: 1rem;
+}
+
+.capture-meta {
+    display: grid;
+    gap: 0.3rem;
+}
+
+.capture-meta h3,
+.capture-meta p {
+    margin: 0;
+}
+
+.capture-meta h3 {
+    color: var(--forest-950);
+}
+
+.capture-meta p {
+    color: var(--muted);
+    line-height: 1.45;
+}
+
+.capture-select {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    font-weight: 700;
+    color: var(--forest-950);
+}
+
+.capture-empty {
+    padding: 1.2rem;
+    border-radius: 1.2rem;
+    background: rgba(255, 255, 255, 0.56);
+    color: var(--muted);
+    border: 1px solid rgba(19, 38, 29, 0.08);
+}
+
 .public-profile-head {
     display: grid;
     gap: 1rem;
@@ -770,5 +843,9 @@ textarea {
 
     .public-profile-head {
         grid-template-columns: auto minmax(0, 1fr);
+    }
+
+    .capture-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 }
