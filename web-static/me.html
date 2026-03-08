@@ -9,89 +9,47 @@
     <link rel="apple-touch-icon" href="/apple-touch-icon.png">
     <link rel="stylesheet" href="styles.css">
 </head>
-<body data-page="me" class="page-shell page-profile">
-    <header class="site-header">
-        <a href="/" class="brand-link" aria-label="Houbam Zdar">
-            <img src="/logo.png" alt="Logo Houbam Zdar" class="brand-mark">
-            <div class="brand-copy">
-                <span class="brand-eyebrow">Váš účet</span>
-                <strong>Houbam Zdar</strong>
-            </div>
-        </a>
-        <div id="auth-buttons" class="header-actions"></div>
+<body data-page="me">
+    <header>
+        <div class="logo"><a href="/">Houbam Zdar</a></div>
+        <div id="auth-buttons">
+            <!-- Rendered by JS -->
+        </div>
     </header>
+    <main>
+        <h1>Můj profil</h1>
 
-    <main class="content-main content-main-narrow">
-        <section class="page-intro card">
-            <p class="section-label">Profil</p>
-            <h1>Můj profil</h1>
-            <p>
-                Tady najdete své základní údaje a krátké představení. Změny e-mailu, telefonu
-                nebo přihlašovacích údajů provedete přes AHOJ420.
+        <div class="profile-card">
+            <div id="profile-picture"></div>
+
+            <label for="prof-username">Uživatelské jméno</label>
+            <input type="text" id="prof-username" readonly disabled>
+
+            <label for="prof-email">E-mail</label>
+            <div class="field-row">
+                <input type="email" id="prof-email" readonly disabled>
+                <span id="prof-email-status" class="status-badge"></span>
+            </div>
+
+            <label for="prof-phone">Telefon</label>
+            <div class="field-row">
+                <input type="text" id="prof-phone" readonly disabled>
+                <span id="prof-phone-status" class="status-badge"></span>
+            </div>
+
+            <p class="help-text">
+                Tyto údaje spravujete přes
+                <a href="https://ahoj420.eu/?mode=login&edit_profile=1&client_host=houbamzdar.cz&return_profile_to=https%3A%2F%2Fhoubamzdar.cz%2Fme.html&return_after_save_to=https%3A%2F%2Fhoubamzdar.cz%2Freauth.html">ahoj420.eu</a>.
             </p>
-        </section>
+        </div>
 
-        <section class="profile-shell card">
-            <div class="profile-topline">
-                <div id="profile-picture" class="profile-picture"></div>
-                <div class="profile-top-copy">
-                    <h2>Údaje účtu</h2>
-                    <p>Tyto hodnoty se synchronizují z identity AHOJ420.</p>
-                </div>
-            </div>
-
-            <div class="form-grid">
-                <div class="field-block">
-                    <label for="prof-username">Uživatelské jméno</label>
-                    <input type="text" id="prof-username" readonly>
-                </div>
-
-                <div class="field-block">
-                    <label for="prof-email">E-mail</label>
-                    <div class="field-row">
-                        <input type="email" id="prof-email" readonly>
-                        <span id="prof-email-status" class="status-badge"></span>
-                    </div>
-                </div>
-
-                <div class="field-block">
-                    <label for="prof-phone">Telefon</label>
-                    <div class="field-row">
-                        <input type="text" id="prof-phone" readonly>
-                        <span id="prof-phone-status" class="status-badge"></span>
-                    </div>
-                </div>
-            </div>
-
-            <div class="help-panel">
-                <p>
-                    Potřebujete změnit e-mail, telefon nebo přístupové údaje?
-                    <a
-                        href="https://ahoj420.eu/?mode=login&edit_profile=1&client_host=houbamzdar.cz&return_profile_to=https%3A%2F%2Fhoubamzdar.cz%2Fme.html&return_after_save_to=https%3A%2F%2Fhoubamzdar.cz%2Freauth.html"
-                    >Otevřít správu profilu v AHOJ420</a>.
-                </p>
-            </div>
-        </section>
-
-        <section class="about-shell card">
-            <div class="about-head">
-                <div>
-                    <p class="section-label">O vás</p>
-                    <h2>Krátké představení</h2>
-                </div>
-                <p class="muted-copy">Napište pár vět o sobě, svých oblíbených lesích nebo plánech na další výpravu.</p>
-            </div>
-
-            <label class="sr-only" for="about-me-input">O mně</label>
+        <div class="about-card">
+            <h2>Krátké představení</h2>
             <textarea id="about-me-input" rows="6" maxlength="2000" placeholder="Napište něco o sobě..."></textarea>
-
-            <div class="action-row">
-                <button id="save-about-btn" class="btn btn-primary">Uložit změny</button>
-                <span id="save-status" class="status-message" aria-live="polite"></span>
-            </div>
-        </section>
+            <button id="save-about-btn" class="btn btn-primary">Uložit změny</button>
+            <span id="save-status" class="status-message" aria-live="polite"></span>
+        </div>
     </main>
-
     <script src="app.js" defer></script>
 </body>
 </html>

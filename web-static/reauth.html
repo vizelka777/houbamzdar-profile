@@ -9,30 +9,23 @@
     <link rel="apple-touch-icon" href="/apple-touch-icon.png">
     <link rel="stylesheet" href="styles.css">
 </head>
-<body data-page="reauth" class="page-shell page-reauth">
-    <header class="site-header">
-        <a href="/" class="brand-link" aria-label="Houbam Zdar">
-            <img src="/logo.png" alt="Logo Houbam Zdar" class="brand-mark">
-            <div class="brand-copy">
-                <span class="brand-eyebrow">Aktualizace účtu</span>
-                <strong>Houbam Zdar</strong>
-            </div>
-        </a>
+<body data-page="reauth">
+    <header>
+        <div class="logo"><a href="/">Houbam Zdar</a></div>
     </header>
-
-    <main class="content-main content-main-narrow">
-        <section class="reauth-card card">
-            <p class="section-label">Synchronizace profilu</p>
-            <h1>Změny jsou připravené</h1>
+    <main>
+        <div class="reauth-container">
+            <h1>Změny profilu</h1>
             <p>
-                Vaše údaje v AHOJ420 byly upraveny. Pro načtení nových dat do Houbam Zdar
-                se prosím znovu přihlaste.
+                Vaše údaje v AHOJ420 byly upraveny. Přihlaste se znovu, aby se nové informace
+                propsaly i do vašeho profilu v Houbam Zdar.
             </p>
-            <button id="reauth-btn" class="btn btn-primary btn-large">Načíst aktualizovaný profil</button>
+            <button id="reauth-btn" class="btn btn-primary btn-large">
+                Načíst aktualizovaný profil
+            </button>
             <p id="reauth-status" class="status-message" aria-live="polite"></p>
-        </section>
+        </div>
     </main>
-
     <script src="app.js" defer></script>
 </body>
 </html>
