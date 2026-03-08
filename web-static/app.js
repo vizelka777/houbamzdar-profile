@@ -1,6 +1,7 @@
 const API_URL = "https://api.houbamzdar.cz";
 const DEFAULT_AVATAR_URL = "/default-avatar.png";
 const PROFILE_LAST_VISIT_KEY = "hzd_last_profile_visit_at";
+const EDIT_PROFILE_URL = "https://ahoj420.eu/?mode=login&edit_profile=1&client_host=houbamzdar.cz&return_profile_to=https%3A%2F%2Fhoubamzdar.cz%2Fme.html&return_after_save_to=https%3A%2F%2Fhoubamzdar.cz%2Freauth.html";
 
 function escapeHtml(unsafe) {
     if (!unsafe) return "";
@@ -191,20 +192,15 @@ function renderHeader(session, profile = null) {
     authButtons.innerHTML = "";
 
     if (session && session.logged_in) {
-        const insights = profile ? buildProfileInsights(profile) : null;
         const greeting = document.createElement("span");
         greeting.className = "user-greeting";
         greeting.textContent = `Ahoj, ${session.user?.preferred_username || "hoste"}`;
 
         authButtons.appendChild(greeting);
         authButtons.appendChild(createLinkButton("Vytvořit publikaci", "/create-post.html", "btn-secondary"));
-
-        if (insights) {
-            const trustPill = document.createElement("span");
-            trustPill.className = "trust-pill";
-            trustPill.textContent = `Důvěra ${insights.score} %`;
-            authButtons.appendChild(trustPill);
-        }
+        authButtons.appendChild(
+            createLinkButton(profile?.picture ? "Upravit fotku" : "Přidat fotku", EDIT_PROFILE_URL, "btn-secondary")
+        );
 
         authButtons.appendChild(createLinkButton("Můj profil", "/me.html", "btn-primary"));
         authButtons.appendChild(createActionButton("Odhlásit", "btn-secondary", logoutFlow));
@@ -282,8 +278,6 @@ async function initMePage() {
     setText("metric-status", insights.statusLabel);
     setText("metric-bonuses", `${insights.bonusCount} / ${insights.bonusTotal}`);
     setText("metric-notifications", String(insights.alerts.length));
-    setText("trust-score", `${insights.score} %`);
-    setText("trust-label", insights.trustLabel);
     setText("account-email-chip", me.email ? `E-mail · ${me.email_verified ? "ověřen" : "čeká na ověření"}` : "E-mail chybí");
     setText("account-phone-chip", me.phone_number ? `Telefon · ${me.phone_number_verified ? "ověřen" : "čeká na ověření"}` : "Telefon chybí");
     setText("account-sync-chip", "Synchronizováno přes AHOJ420");
@@ -292,11 +286,6 @@ async function initMePage() {
     if (statusPill) {
         statusPill.textContent = insights.statusLabel;
         statusPill.className = `status-pill ${insights.tone}`;
-    }
-
-    const trustFill = document.getElementById("trust-bar-fill");
-    if (trustFill) {
-        trustFill.style.width = `${insights.score}%`;
     }
 
     renderSimpleList(
@@ -358,6 +347,12 @@ async function initPublicProfilePage() {
         "public-profile-trust",
         `${insights.trustLabel}. Veřejné představení pomáhá ostatním poznat, kdo jste.`
     );
+    setText("trust-score", `${insights.score} %`);
+    setText("trust-label", insights.trustLabel);
+    const trustFill = document.getElementById("trust-bar-fill");
+    if (trustFill) {
+        trustFill.style.width = `${insights.score}%`;
+    }
     setText(
         "public-about-preview",
         me.about_me || "Zatím bez veřejného představení. Doplňte pár vět, ať profil působí živěji."
