@@ -1,1 +1,208 @@
-{"id":"pdZdipupoFrUKG4","name":"houbamzdar","displayEndpoint":{"id":"pdZdipupoFrUKG4-api.houbamzdar.cz-LB770ZvxVF","address":"api.houbamzdar.cz","type":"cdn"},"status":"active","runtimeType":"shared","regionSettings":{"allowedRegionIds":["CZ"],"requiredRegionIds":["CZ"],"maxAllowedRegions":1,"provisioningType":"static"},"containerTemplates":[{"id":"pdZdipupoFrUKG4-4iqd","name":"houbamzdar","packageId":"d2c1b95e-65e7-42a3-adb3-d27d9d1a4f72","image":"houbamzdar/bff:git-bbf8b39","imageName":"bff","imageNamespace":"houbamzdar","imageTag":"git-bbf8b39","imageRegistryId":"2725","imageDigest":"","imagePullPolicy":"always","entryPoint":{"command":"","commandArray":[],"arguments":"","argumentsArray":[],"workingDirectory":""},"probes":{"startup":{"initialDelaySeconds":10,"periodSeconds":10,"timeoutSeconds":3,"failureThreshold":3,"successThreshold":1,"httpGet":{"request":{"path":"/health","portNumber":8080},"response":{"expectedStatusCode":null}},"tcpSocket":null,"grpc":null},"readiness":{"initialDelaySeconds":10,"periodSeconds":10,"timeoutSeconds":3,"failureThreshold":3,"successThreshold":1,"httpGet":{"request":{"path":"/health","portNumber":8080},"response":{"expectedStatusCode":null}},"tcpSocket":null,"grpc":null},"liveness":{"initialDelaySeconds":10,"periodSeconds":10,"timeoutSeconds":3,"failureThreshold":3,"successThreshold":1,"httpGet":{"request":{"path":"/health","portNumber":8080},"response":{"expectedStatusCode":null}},"tcpSocket":null,"grpc":null}},"environmentVariables":[{"name":"PORT","value":"8080"},{"name":"APP_BASE_URL","value":"https://api.houbamzdar.cz"},{"name":"FRONT_BASE_URL","value":"https://houbamzdar.cz"},{"name":"FRONT_ORIGIN","value":"https://houbamzdar.cz"},{"name":"SESSION_COOKIE_NAME","value":"hzd_session"},{"name":"SESSION_COOKIE_SECURE","value":"true"},{"name":"OIDC_ISSUER","value":"https://ahoj420.eu"},{"name":"OIDC_CLIENT_ID","value":"mushroom-bff"},{"name":"OIDC_CLIENT_SECRET","value":"__SET_IN_BUNNY_OIDC_CLIENT_SECRET__"},{"name":"OIDC_REDIRECT_URL","value":"https://api.houbamzdar.cz/auth/callback"},{"name":"OIDC_SCOPES","value":"openid,profile,email,phone,offline_access"},{"name":"DB_URL","value":"libsql://01KJ7PW7J4EWV20WEQFG2XNMCD-houbamzdar-db.lite.bunnydb.net/"},{"name":"DB_TOKEN","value":"__SET_IN_BUNNY_DB_TOKEN__"},{"name":"BUNNY_STORAGE_HOST","value":"storage.bunnycdn.com"},{"name":"BUNNY_PRIVATE_STORAGE_ZONE","value":"__SET_IN_BUNNY_PRIVATE_STORAGE_ZONE__"},{"name":"BUNNY_PRIVATE_STORAGE_KEY","value":"__SET_IN_BUNNY_PRIVATE_STORAGE_KEY__"},{"name":"BUNNY_PUBLIC_STORAGE_ZONE","value":"houbamzdarfoto"},{"name":"BUNNY_PUBLIC_STORAGE_KEY","value":"__SET_IN_BUNNY_PUBLIC_STORAGE_KEY__"},{"name":"BUNNY_PUBLIC_BASE_URL","value":"https://foto.houbamzdar.cz"}],"endpoints":[{"displayName":"api.houbamzdar.cz","publicHost":"api.houbamzdar.cz","type":"cdn","isSslEnabled":false,"pullZoneId":"5440444","portMappings":[{"containerPort":8080,"exposedPort":null,"protocols":["Tcp"]}],"stickySessions":null,"internalIpAddresses":null,"publicIpAddresses":null}],"volumeMounts":[]}],"containerInstances":[],"volumes":[],"autoScaling":{"min":1,"max":1},"networkSettings":{"ingressBandwidthLimit":1000000000,"egressBandwidthLimit":1000000000}}
+{
+  "id": "pdZdipupoFrUKG4",
+  "name": "houbamzdar",
+  "displayEndpoint": {
+    "id": "pdZdipupoFrUKG4-api.houbamzdar.cz-LB770ZvxVF",
+    "address": "api.houbamzdar.cz",
+    "type": "cdn"
+  },
+  "status": "active",
+  "runtimeType": "shared",
+  "regionSettings": {
+    "allowedRegionIds": [
+      "CZ"
+    ],
+    "requiredRegionIds": [
+      "CZ"
+    ],
+    "maxAllowedRegions": 1,
+    "provisioningType": "static"
+  },
+  "containerTemplates": [
+    {
+      "id": "pdZdipupoFrUKG4-4iqd",
+      "name": "houbamzdar",
+      "packageId": "d2c1b95e-65e7-42a3-adb3-d27d9d1a4f72",
+      "image": "houbamzdar/bff:git-0e84d38",
+      "imageName": "bff",
+      "imageNamespace": "houbamzdar",
+      "imageTag": "git-0e84d38",
+      "imageRegistryId": "2725",
+      "imageDigest": "",
+      "imagePullPolicy": "always",
+      "entryPoint": {
+        "command": "",
+        "commandArray": [],
+        "arguments": "",
+        "argumentsArray": [],
+        "workingDirectory": ""
+      },
+      "probes": {
+        "startup": {
+          "initialDelaySeconds": 10,
+          "periodSeconds": 10,
+          "timeoutSeconds": 3,
+          "failureThreshold": 3,
+          "successThreshold": 1,
+          "httpGet": {
+            "request": {
+              "path": "/health",
+              "portNumber": 8080
+            },
+            "response": {
+              "expectedStatusCode": null
+            }
+          },
+          "tcpSocket": null,
+          "grpc": null
+        },
+        "readiness": {
+          "initialDelaySeconds": 10,
+          "periodSeconds": 10,
+          "timeoutSeconds": 3,
+          "failureThreshold": 3,
+          "successThreshold": 1,
+          "httpGet": {
+            "request": {
+              "path": "/health",
+              "portNumber": 8080
+            },
+            "response": {
+              "expectedStatusCode": null
+            }
+          },
+          "tcpSocket": null,
+          "grpc": null
+        },
+        "liveness": {
+          "initialDelaySeconds": 10,
+          "periodSeconds": 10,
+          "timeoutSeconds": 3,
+          "failureThreshold": 3,
+          "successThreshold": 1,
+          "httpGet": {
+            "request": {
+              "path": "/health",
+              "portNumber": 8080
+            },
+            "response": {
+              "expectedStatusCode": null
+            }
+          },
+          "tcpSocket": null,
+          "grpc": null
+        }
+      },
+      "environmentVariables": [
+        {
+          "name": "PORT",
+          "value": "8080"
+        },
+        {
+          "name": "APP_BASE_URL",
+          "value": "https://api.houbamzdar.cz"
+        },
+        {
+          "name": "FRONT_BASE_URL",
+          "value": "https://houbamzdar.cz"
+        },
+        {
+          "name": "FRONT_ORIGIN",
+          "value": "https://houbamzdar.cz"
+        },
+        {
+          "name": "SESSION_COOKIE_NAME",
+          "value": "hzd_session"
+        },
+        {
+          "name": "SESSION_COOKIE_SECURE",
+          "value": "true"
+        },
+        {
+          "name": "OIDC_ISSUER",
+          "value": "https://ahoj420.eu"
+        },
+        {
+          "name": "OIDC_CLIENT_ID",
+          "value": "mushroom-bff"
+        },
+        {
+          "name": "OIDC_CLIENT_SECRET",
+          "value": "__SET_IN_BUNNY_OIDC_CLIENT_SECRET__"
+        },
+        {
+          "name": "OIDC_REDIRECT_URL",
+          "value": "https://api.houbamzdar.cz/auth/callback"
+        },
+        {
+          "name": "OIDC_SCOPES",
+          "value": "openid,profile,email,phone,offline_access"
+        },
+        {
+          "name": "DB_URL",
+          "value": "libsql://01KJ7PW7J4EWV20WEQFG2XNMCD-houbamzdar-db.lite.bunnydb.net/"
+        },
+        {
+          "name": "DB_TOKEN",
+          "value": "__SET_IN_BUNNY_DB_TOKEN__"
+        },
+        {
+          "name": "BUNNY_STORAGE_HOST",
+          "value": "storage.bunnycdn.com"
+        },
+        {
+          "name": "BUNNY_PRIVATE_STORAGE_ZONE",
+          "value": "__SET_IN_BUNNY_PRIVATE_STORAGE_ZONE__"
+        },
+        {
+          "name": "BUNNY_PRIVATE_STORAGE_KEY",
+          "value": "__SET_IN_BUNNY_PRIVATE_STORAGE_KEY__"
+        },
+        {
+          "name": "BUNNY_PUBLIC_STORAGE_ZONE",
+          "value": "houbamzdarfoto"
+        },
+        {
+          "name": "BUNNY_PUBLIC_STORAGE_KEY",
+          "value": "__SET_IN_BUNNY_PUBLIC_STORAGE_KEY__"
+        },
+        {
+          "name": "BUNNY_PUBLIC_BASE_URL",
+          "value": "https://foto.houbamzdar.cz"
+        }
+      ],
+      "endpoints": [
+        {
+          "displayName": "api.houbamzdar.cz",
+          "publicHost": "api.houbamzdar.cz",
+          "type": "cdn",
+          "isSslEnabled": false,
+          "pullZoneId": "5440444",
+          "portMappings": [
+            {
+              "containerPort": 8080,
+              "exposedPort": null,
+              "protocols": [
+                "Tcp"
+              ]
+            }
+          ],
+          "stickySessions": null,
+          "internalIpAddresses": null,
+          "publicIpAddresses": null
+        }
+      ],
+      "volumeMounts": []
+    }
+  ],
+  "containerInstances": [],
+  "volumes": [],
+  "autoScaling": {
+    "min": 1,
+    "max": 1
+  },
+  "networkSettings": {
+    "ingressBandwidthLimit": 1000000000,
+    "egressBandwidthLimit": 1000000000
+  }
+}
