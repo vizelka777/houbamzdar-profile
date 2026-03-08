@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Serverový archiv | Houbam Zdar</title>
+    <meta name="description" content="Soukromé a veřejné fotografie uložené na serveru s filtrem podle data, stránkováním a hromadnými akcemi.">
+    <link rel="icon" href="/favicon.ico" sizes="any">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body data-page="server-storage" class="page-shell page-profile">
+    <header class="site-header">
+        <a href="/" class="brand-link" aria-label="Houbam Zdar">
+            <img src="/logo.png" alt="Logo Houbam Zdar" class="brand-mark">
+            <div class="brand-copy">
+                <span class="brand-eyebrow">Archiv</span>
+                <strong>Houbam Zdar</strong>
+            </div>
+        </a>
+        <div id="auth-buttons" class="header-actions"></div>
+    </header>
+
+    <main class="content-main content-main-narrow">
+        <section class="page-intro card">
+            <p class="section-label">Soukromé úložiště</p>
+            <h1>Co už je na serveru</h1>
+            <p>
+                Tady spravujete nahrané fotky v Bunny storage. Můžete je filtrovat podle data,
+                přepínat mezi soukromými a veřejnými a provádět hromadné akce nad vybranými snímky.
+            </p>
+        </section>
+
+        <section class="capture-card card">
+            <div class="server-filter-row">
+                <div class="server-status-toggle" role="tablist" aria-label="Stav fotografií">
+                    <button id="storage-toggle-private" type="button" class="server-status-button is-active" data-status="private">Soukromé</button>
+                    <button id="storage-toggle-published" type="button" class="server-status-button" data-status="published">Veřejné</button>
+                </div>
+
+                <form id="storage-filter-form" class="server-date-form">
+                    <label for="storage-date-input" class="sr-only">Datum</label>
+                    <input id="storage-date-input" type="date" class="server-date-input">
+                    <button type="submit" class="btn btn-secondary">Hledat podle data</button>
+                    <button id="storage-date-clear" type="button" class="btn btn-secondary">Vymazat</button>
+                </form>
+            </div>
+
+            <div class="server-bulk-bar">
+                <label class="capture-select">
+                    <input id="storage-select-all" type="checkbox">
+                    <span>Vybrat vše na stránce</span>
+                </label>
+                <strong id="storage-selected-count" class="server-selected-count">Vybráno: 0</strong>
+                <div class="server-bulk-actions">
+                    <button id="storage-publish-btn" type="button" class="btn btn-secondary">Zveřejnit</button>
+                    <button id="storage-unpublish-btn" type="button" class="btn btn-secondary">Stáhnout</button>
+                    <button id="storage-delete-btn" type="button" class="btn btn-secondary">Smazat ze serveru</button>
+                </div>
+            </div>
+
+            <p id="storage-status" class="status-message" aria-live="polite"></p>
+
+            <div class="server-summary">
+                <span id="storage-total-count">Celkem: 0</span>
+                <span id="storage-page-indicator">Strana 1 z 1</span>
+            </div>
+        </section>
+
+        <section class="capture-gallery card">
+            <div class="about-head">
+                <div>
+                    <p class="section-label">Fotografie</p>
+                    <h2>Serverový archiv</h2>
+                </div>
+                <div class="action-row">
+                    <a href="/capture.html" class="btn btn-secondary">Vyfotit nový nález</a>
+                </div>
+            </div>
+
+            <div id="storage-grid" class="capture-grid"></div>
+
+            <div class="server-pagination">
+                <button id="storage-prev-btn" type="button" class="btn btn-secondary">Předchozí</button>
+                <button id="storage-next-btn" type="button" class="btn btn-secondary">Další</button>
+            </div>
+        </section>
+    </main>
+
+    <script src="app.js" defer></script>
+    <script src="server-storage.js" defer></script>
+</body>
+</html>

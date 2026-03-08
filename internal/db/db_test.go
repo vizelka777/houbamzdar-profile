@@ -363,3 +363,126 @@ func TestMigrateCreatesPhotoCapturesTableAndSupportsCRUD(t *testing.T) {
 		t.Fatalf("expected sql.ErrNoRows after delete, got %v", err)
 	}
 }
+
+func TestListCapturesPageSupportsStatusDateAndPagination(t *testing.T) {
+	t.Parallel()
+
+	rawDB := openTestDB(t)
+	if err := migrate(rawDB); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	database := &DB{rawDB}
+	user, _, err := database.UpsertUser(&models.OIDCClaims{
+		Iss:               "https://ahoj420.eu",
+		Sub:               "paged-user",
+		PreferredUsername: "paged",
+		Email:             "paged@example.test",
+		EmailVerified:     true,
+	}, &oauth2.Token{
+		AccessToken:  "paged-access",
+		RefreshToken: "paged-refresh",
+		Expiry:       time.Now().Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	firstDay := time.Date(2026, time.March, 8, 9, 0, 0, 0, time.UTC)
+	secondDay := time.Date(2026, time.March, 9, 11, 30, 0, 0, time.UTC)
+
+	captures := []*models.Capture{
+		{
+			ID:                "cap-1",
+			UserID:            user.ID,
+			OriginalFileName:  "one.jpg",
+			ContentType:       "image/jpeg",
+			SizeBytes:         100,
+			Width:             1000,
+			Height:            800,
+			CapturedAt:        firstDay,
+			UploadedAt:        firstDay,
+			Status:            "private",
+			PrivateStorageKey: "captures/1/2026/03/cap-1.jpg",
+		},
+		{
+			ID:                "cap-2",
+			UserID:            user.ID,
+			OriginalFileName:  "two.jpg",
+			ContentType:       "image/jpeg",
+			SizeBytes:         200,
+			Width:             1200,
+			Height:            900,
+			CapturedAt:        secondDay,
+			UploadedAt:        secondDay,
+			Status:            "published",
+			PrivateStorageKey: "captures/1/2026/03/cap-2.jpg",
+			PublicStorageKey:  "captures/published/1/2026/03/cap-2.jpg",
+			PublishedAt:       secondDay.Add(10 * time.Minute),
+		},
+		{
+			ID:                "cap-3",
+			UserID:            user.ID,
+			OriginalFileName:  "three.jpg",
+			ContentType:       "image/jpeg",
+			SizeBytes:         300,
+			Width:             1400,
+			Height:            1000,
+			CapturedAt:        secondDay.Add(5 * time.Minute),
+			UploadedAt:        secondDay.Add(5 * time.Minute),
+			Status:            "private",
+			PrivateStorageKey: "captures/1/2026/03/cap-3.jpg",
+		},
+	}
+
+	for _, capture := range captures {
+		if err := database.CreateCapture(capture); err != nil {
+			t.Fatalf("create capture %s: %v", capture.ID, err)
+		}
+	}
+	if err := database.PublishCapture("cap-2", user.ID, "captures/published/1/2026/03/cap-2.jpg"); err != nil {
+		t.Fatalf("publish cap-2: %v", err)
+	}
+
+	privatePage, err := database.ListCapturesPage(user.ID, CaptureListFilters{
+		Status:   "private",
+		Page:     1,
+		PageSize: 1,
+	})
+	if err != nil {
+		t.Fatalf("list private page: %v", err)
+	}
+	if privatePage.Total != 2 || privatePage.TotalPages != 2 {
+		t.Fatalf("unexpected private pagination totals: %+v", privatePage)
+	}
+	if len(privatePage.Captures) != 1 || privatePage.Captures[0].ID != "cap-3" {
+		t.Fatalf("unexpected first private page: %+v", privatePage.Captures)
+	}
+
+	capturedFrom := time.Date(2026, time.March, 9, 0, 0, 0, 0, time.UTC)
+	capturedTo := capturedFrom.Add(24 * time.Hour)
+	dayPage, err := database.ListCapturesPage(user.ID, CaptureListFilters{
+		CapturedFrom: &capturedFrom,
+		CapturedTo:   &capturedTo,
+		Page:         1,
+		PageSize:     10,
+	})
+	if err != nil {
+		t.Fatalf("list day page: %v", err)
+	}
+	if dayPage.Total != 2 {
+		t.Fatalf("expected 2 captures on second day, got %d", dayPage.Total)
+	}
+
+	publishedPage, err := database.ListCapturesPage(user.ID, CaptureListFilters{
+		Status:   "published",
+		Page:     1,
+		PageSize: 10,
+	})
+	if err != nil {
+		t.Fatalf("list published page: %v", err)
+	}
+	if publishedPage.Total != 1 || len(publishedPage.Captures) != 1 || publishedPage.Captures[0].ID != "cap-2" {
+		t.Fatalf("unexpected published page: %+v", publishedPage.Captures)
+	}
+}

@@ -12,6 +12,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/houbamzdar/bff/internal/db"
 	"github.com/houbamzdar/bff/internal/media"
 	"github.com/houbamzdar/bff/internal/models"
 )
@@ -21,18 +22,23 @@ const maxCaptureUploadSize = 20 << 20
 func (s *Server) handleListCaptures(w http.ResponseWriter, r *http.Request) {
 	user := r.Context().Value("user").(*models.User)
 
-	captures, err := s.DB.ListCapturesByUser(user.ID)
+	filters := parseCaptureListFilters(r)
+	result, err := s.DB.ListCapturesPage(user.ID, filters)
 	if err != nil {
 		http.Error(w, "failed to load captures", http.StatusInternalServerError)
 		return
 	}
 
-	attachPublicURLs(captures, s.Media)
+	attachPublicURLs(result.Captures, s.Media)
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
-		"ok":       true,
-		"captures": captures,
+		"ok":          true,
+		"captures":    result.Captures,
+		"page":        result.Page,
+		"page_size":   result.PageSize,
+		"total":       result.Total,
+		"total_pages": result.TotalPages,
 	})
 }
 
@@ -308,6 +314,65 @@ func parseOptionalFloat(value string) *float64 {
 		return nil
 	}
 	return &parsed
+}
+
+func parseCaptureListFilters(r *http.Request) db.CaptureListFilters {
+	query := r.URL.Query()
+
+	filters := db.CaptureListFilters{
+		Page:     parsePositiveInt(query.Get("page"), 1),
+		PageSize: parsePositiveInt(query.Get("page_size"), 12),
+	}
+
+	switch query.Get("status") {
+	case "private", "published":
+		filters.Status = query.Get("status")
+	}
+
+	if capturedOn := query.Get("captured_on"); capturedOn != "" {
+		if day, err := time.Parse("2006-01-02", capturedOn); err == nil {
+			from := day.UTC()
+			to := from.Add(24 * time.Hour)
+			filters.CapturedFrom = &from
+			filters.CapturedTo = &to
+			return filters
+		}
+	}
+
+	if from := parseOptionalDateTime(query.Get("date_from")); from != nil {
+		filters.CapturedFrom = from
+	}
+	if to := parseOptionalDateTime(query.Get("date_to")); to != nil {
+		filters.CapturedTo = to
+	}
+
+	return filters
+}
+
+func parsePositiveInt(raw string, fallback int) int {
+	if raw == "" {
+		return fallback
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value <= 0 {
+		return fallback
+	}
+	return value
+}
+
+func parseOptionalDateTime(raw string) *time.Time {
+	if raw == "" {
+		return nil
+	}
+	if parsed, err := time.Parse(time.RFC3339, raw); err == nil {
+		value := parsed.UTC()
+		return &value
+	}
+	if parsed, err := time.Parse("2006-01-02", raw); err == nil {
+		value := parsed.UTC()
+		return &value
+	}
+	return nil
 }
 
 func readUploadPayload(file multipart.File, maxSize int64) ([]byte, error) {

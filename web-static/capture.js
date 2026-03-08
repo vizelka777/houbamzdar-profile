@@ -334,10 +334,9 @@ async function fetchRemoteCaptures() {
 }
 
 async function refreshCaptureVault() {
-    const [localItems, remoteItems] = await Promise.all([getAllCaptures(), fetchRemoteCaptures()]);
+    const localItems = await getAllCaptures();
     renderCaptureStats(localItems);
     renderCaptureGrid(localItems);
-    renderRemoteCaptures(remoteItems);
 }
 
 function readCurrentPosition() {
@@ -533,8 +532,6 @@ async function initCapturePage() {
     const uploadButton = document.getElementById("capture-upload-btn");
     const deleteButton = document.getElementById("capture-delete-btn");
     const statusNode = document.getElementById("capture-status");
-    const remoteGrid = document.getElementById("remote-capture-grid");
-
     if (!indexedDbAvailable()) {
         setStatusMessage(statusNode, "Tento prohlížeč neumí IndexedDB. Zkuste moderní mobilní prohlížeč.", "error");
         return;
@@ -600,7 +597,6 @@ async function initCapturePage() {
         }
     });
 
-    remoteGrid.addEventListener("click", handleRemoteAction);
 }
 
 document.addEventListener("DOMContentLoaded", initCapturePage);

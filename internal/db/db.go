@@ -3,6 +3,7 @@ package db
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/houbamzdar/bff/internal/config"
@@ -13,6 +14,22 @@ import (
 
 type DB struct {
 	*sql.DB
+}
+
+type CaptureListFilters struct {
+	Status       string
+	CapturedFrom *time.Time
+	CapturedTo   *time.Time
+	Page         int
+	PageSize     int
+}
+
+type CaptureListPage struct {
+	Captures   []*models.Capture
+	Total      int
+	Page       int
+	PageSize   int
+	TotalPages int
 }
 
 const migrationUsersTokenColumnsID = "20260308_add_user_token_columns"
@@ -397,7 +414,48 @@ func (db *DB) CreateCapture(capture *models.Capture) error {
 }
 
 func (db *DB) ListCapturesByUser(userID int64) ([]*models.Capture, error) {
-	rows, err := db.Query(captureSelectColumns+` WHERE user_id = ? ORDER BY captured_at DESC`, userID)
+	result, err := db.ListCapturesPage(userID, CaptureListFilters{
+		Page:     1,
+		PageSize: 1000,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.Captures, nil
+}
+
+func (db *DB) ListCapturesPage(userID int64, filters CaptureListFilters) (*CaptureListPage, error) {
+	filters = normalizeCaptureListFilters(filters)
+
+	whereClauses := []string{"user_id = ?"}
+	args := []interface{}{userID}
+
+	if filters.Status != "" {
+		whereClauses = append(whereClauses, "status = ?")
+		args = append(args, filters.Status)
+	}
+	if filters.CapturedFrom != nil {
+		whereClauses = append(whereClauses, "captured_at >= ?")
+		args = append(args, filters.CapturedFrom.UTC().Format(time.RFC3339))
+	}
+	if filters.CapturedTo != nil {
+		whereClauses = append(whereClauses, "captured_at < ?")
+		args = append(args, filters.CapturedTo.UTC().Format(time.RFC3339))
+	}
+
+	whereSQL := " WHERE " + strings.Join(whereClauses, " AND ")
+
+	var total int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM photo_captures`+whereSQL, args...).Scan(&total); err != nil {
+		return nil, err
+	}
+
+	offset := (filters.Page - 1) * filters.PageSize
+	queryArgs := append(append([]interface{}{}, args...), filters.PageSize, offset)
+	rows, err := db.Query(
+		captureSelectColumns+whereSQL+` ORDER BY captured_at DESC LIMIT ? OFFSET ?`,
+		queryArgs...,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -415,7 +473,19 @@ func (db *DB) ListCapturesByUser(userID int64) ([]*models.Capture, error) {
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	return captures, nil
+
+	totalPages := 0
+	if total > 0 {
+		totalPages = (total + filters.PageSize - 1) / filters.PageSize
+	}
+
+	return &CaptureListPage{
+		Captures:   captures,
+		Total:      total,
+		Page:       filters.Page,
+		PageSize:   filters.PageSize,
+		TotalPages: totalPages,
+	}, nil
 }
 
 func (db *DB) GetCaptureForUser(id string, userID int64) (*models.Capture, error) {
@@ -531,4 +601,20 @@ func nullIfZeroTime(value time.Time) interface{} {
 		return nil
 	}
 	return value.UTC().Format(time.RFC3339)
+}
+
+func normalizeCaptureListFilters(filters CaptureListFilters) CaptureListFilters {
+	if filters.Page <= 0 {
+		filters.Page = 1
+	}
+	if filters.PageSize <= 0 {
+		filters.PageSize = 12
+	}
+	if filters.PageSize > 100 {
+		filters.PageSize = 100
+	}
+	if filters.Status != "private" && filters.Status != "published" {
+		filters.Status = ""
+	}
+	return filters
 }
