@@ -26,69 +26,96 @@
             <p class="section-label">Profil</p>
             <h1>Můj profil</h1>
             <p>
-                Tady najdete své základní údaje a krátké představení. Změny e-mailu, telefonu
-                nebo přihlašovacích údajů provedete přes AHOJ420.
+                Tady máte přehled o stavu účtu, důvěře uživatelů a tom, co je potřeba doplnit.
+                Veřejné představení se spravuje samostatně na stránce veřejného profilu.
             </p>
         </section>
 
-        <section class="profile-shell card">
-            <div class="profile-topline">
-                <div id="profile-picture" class="profile-picture"></div>
-                <div class="profile-top-copy">
-                    <h2>Údaje účtu</h2>
-                    <p>Tyto hodnoty se synchronizují z identity AHOJ420.</p>
-                </div>
-            </div>
-
-            <div class="form-grid">
-                <div class="field-block">
-                    <label for="prof-username">Uživatelské jméno</label>
-                    <input type="text" id="prof-username" readonly>
-                </div>
-
-                <div class="field-block">
-                    <label for="prof-email">E-mail</label>
-                    <div class="field-row">
-                        <input type="email" id="prof-email" readonly>
-                        <span id="prof-email-status" class="status-badge"></span>
+        <section class="account-card card">
+            <div class="account-overview">
+                <div id="profile-picture" class="profile-picture profile-picture-compact"></div>
+                <div class="account-summary">
+                    <div class="account-summary-top">
+                        <div>
+                            <p class="section-label">Údaje účtu</p>
+                            <h2 id="account-name">Načítám účet...</h2>
+                        </div>
+                        <span id="account-status-pill" class="status-pill">Načítám</span>
                     </div>
-                </div>
 
-                <div class="field-block">
-                    <label for="prof-phone">Telefon</label>
-                    <div class="field-row">
-                        <input type="text" id="prof-phone" readonly>
-                        <span id="prof-phone-status" class="status-badge"></span>
+                    <div class="compact-meta">
+                        <span id="account-email-chip" class="compact-chip">E-mail</span>
+                        <span id="account-phone-chip" class="compact-chip">Telefon</span>
+                        <span id="account-sync-chip" class="compact-chip">Synchronizováno přes AHOJ420</span>
                     </div>
-                </div>
-            </div>
 
-            <div class="help-panel">
-                <p>
-                    Potřebujete změnit e-mail, telefon nebo přístupové údaje?
-                    <a
-                        href="https://ahoj420.eu/?mode=login&edit_profile=1&client_host=houbamzdar.cz&return_profile_to=https%3A%2F%2Fhoubamzdar.cz%2Fme.html&return_after_save_to=https%3A%2F%2Fhoubamzdar.cz%2Freauth.html"
-                    >Otevřít správu profilu v AHOJ420</a>.
-                </p>
+                    <p class="help-inline">
+                        E-mail, telefon a přihlašovací údaje měníte přes AHOJ420.
+                    </p>
+                </div>
             </div>
         </section>
 
-        <section class="about-shell card">
-            <div class="about-head">
-                <div>
-                    <p class="section-label">O vás</p>
-                    <h2>Krátké představení</h2>
+        <div class="link-action-row">
+            <a href="/public-profile.html" class="btn btn-secondary">Veřejný profil</a>
+            <a
+                href="https://ahoj420.eu/?mode=login&edit_profile=1&client_host=houbamzdar.cz&return_profile_to=https%3A%2F%2Fhoubamzdar.cz%2Fme.html&return_after_save_to=https%3A%2F%2Fhoubamzdar.cz%2Freauth.html"
+                class="btn btn-secondary"
+            >Upravit údaje v AHOJ420</a>
+        </div>
+
+        <section class="dashboard-grid">
+            <article class="dashboard-card card">
+                <p class="section-label">Přehled</p>
+                <h2>Rychlý stav</h2>
+                <div class="metric-grid">
+                    <div class="metric-tile">
+                        <span class="metric-label">Poslední návštěva</span>
+                        <strong id="metric-last-visit" class="metric-value">Právě teď</strong>
+                    </div>
+                    <div class="metric-tile">
+                        <span class="metric-label">Stav</span>
+                        <strong id="metric-status" class="metric-value">Načítám</strong>
+                    </div>
+                    <div class="metric-tile">
+                        <span class="metric-label">Získané bonusy</span>
+                        <strong id="metric-bonuses" class="metric-value">0 / 0</strong>
+                    </div>
+                    <div class="metric-tile">
+                        <span class="metric-label">Upozornění</span>
+                        <strong id="metric-notifications" class="metric-value">0</strong>
+                    </div>
                 </div>
-                <p class="muted-copy">Napište pár vět o sobě, svých oblíbených lesích nebo plánech na další výpravu.</p>
-            </div>
+            </article>
 
-            <label class="sr-only" for="about-me-input">O mně</label>
-            <textarea id="about-me-input" rows="6" maxlength="2000" placeholder="Napište něco o sobě..."></textarea>
+            <article class="dashboard-card card trust-card">
+                <p class="section-label">Důvěra uživatelů</p>
+                <h2>Jak si stojí váš profil</h2>
+                <div class="trust-meter">
+                    <div class="trust-meter-bar">
+                        <span id="trust-bar-fill" class="trust-meter-fill"></span>
+                    </div>
+                    <div class="trust-meter-copy">
+                        <strong id="trust-score" class="trust-score">0 %</strong>
+                        <span id="trust-label" class="muted-copy">Načítám důvěru profilu...</span>
+                    </div>
+                </div>
+            </article>
 
-            <div class="action-row">
-                <button id="save-about-btn" class="btn btn-primary">Uložit změny</button>
-                <span id="save-status" class="status-message" aria-live="polite"></span>
-            </div>
+            <article class="dashboard-card card">
+                <p class="section-label">Upozornění</p>
+                <h2>Co je potřeba doladit</h2>
+                <ul id="alerts-list" class="dashboard-list"></ul>
+            </article>
+
+            <article class="dashboard-card card">
+                <p class="section-label">Poslední návštěvy</p>
+                <h2>Profil si zatím prohlíželi</h2>
+                <ul id="views-list" class="dashboard-list"></ul>
+                <p class="subtle-note">
+                    Návštěvy ostatních uživatelů se začnou zobrazovat, jakmile je začneme sbírat na backendu.
+                </p>
+            </article>
         </section>
     </main>
 

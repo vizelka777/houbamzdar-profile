@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Veřejný profil | Houbam Zdar</title>
+    <meta name="description" content="Nastavení veřejného profilu v Houbam Zdar.">
+    <link rel="icon" href="/favicon.ico" sizes="any">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body data-page="public-profile" class="page-shell page-profile">
+    <header class="site-header">
+        <a href="/" class="brand-link" aria-label="Houbam Zdar">
+            <img src="/logo.png" alt="Logo Houbam Zdar" class="brand-mark">
+            <div class="brand-copy">
+                <span class="brand-eyebrow">Veřejná část</span>
+                <strong>Houbam Zdar</strong>
+            </div>
+        </a>
+        <div id="auth-buttons" class="header-actions"></div>
+    </header>
+
+    <main class="content-main content-main-narrow">
+        <section class="page-intro card">
+            <p class="section-label">Veřejný profil</p>
+            <h1>Jak vás uvidí ostatní</h1>
+            <p>
+                Tady upravujete krátké představení a náhled veřejného profilu. Obsah zůstává
+                oddělený od interního přehledu účtu.
+            </p>
+        </section>
+
+        <section class="public-profile-card card">
+            <div class="public-profile-head">
+                <div id="public-profile-picture" class="profile-picture profile-picture-large"></div>
+                <div>
+                    <p class="section-label">Náhled</p>
+                    <h2 id="public-profile-name">Načítám profil...</h2>
+                    <p id="public-profile-trust" class="muted-copy">Načítám informace...</p>
+                </div>
+            </div>
+
+            <div class="public-profile-body">
+                <h2>Krátké představení</h2>
+                <p id="public-about-preview" class="public-about-preview">
+                    Tady se zobrazí vaše veřejné představení.
+                </p>
+            </div>
+        </section>
+
+        <section class="about-shell card">
+            <div class="about-head">
+                <div>
+                    <p class="section-label">Text profilu</p>
+                    <h2>Upravte své představení</h2>
+                </div>
+                <p class="muted-copy">
+                    Napište pár vět o sobě, svých oblíbených lesích nebo plánech na další výpravu.
+                </p>
+            </div>
+
+            <label class="sr-only" for="about-me-input">Krátké představení</label>
+            <textarea id="about-me-input" rows="6" maxlength="2000" placeholder="Napište něco o sobě..."></textarea>
+
+            <div class="action-row">
+                <button id="save-about-btn" class="btn btn-primary">Uložit veřejný profil</button>
+                <span id="save-status" class="status-message" aria-live="polite"></span>
+            </div>
+        </section>
+    </main>
+
+    <script src="app.js" defer></script>
+</body>
+</html>
