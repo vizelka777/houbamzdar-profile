@@ -1,61 +1,38 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="cs">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Обновление данных - Houba Mzdar!</title>
+    <title>Obnovení profilu | Houbam Zdar</title>
+    <meta name="description" content="Obnovení profilu po změnách identity v AHOJ420.">
+    <link rel="icon" href="/favicon.ico" sizes="any">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
     <link rel="stylesheet" href="styles.css">
-    <style>
-        .reauth-container {
-            text-align: center;
-            margin-top: 5rem;
-            padding: 2rem;
-            background: white;
-            border-radius: 12px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-        }
-        .reauth-container h1 {
-            color: #333;
-            margin-bottom: 1.5rem;
-        }
-        .reauth-container p {
-            font-size: 1.1rem;
-            color: #666;
-            margin-bottom: 2rem;
-        }
-    </style>
 </head>
-<body>
-    <header>
-        <div class="logo"><a href="/" style="text-decoration:none; color:inherit;">Houba Mzdar!</a></div>
+<body data-page="reauth" class="page-shell page-reauth">
+    <header class="site-header">
+        <a href="/" class="brand-link" aria-label="Houbam Zdar">
+            <img src="/logo.png" alt="Logo Houbam Zdar" class="brand-mark">
+            <div class="brand-copy">
+                <span class="brand-eyebrow">Aktualizace účtu</span>
+                <strong>Houbam Zdar</strong>
+            </div>
+        </a>
     </header>
-    <main>
-        <div class="reauth-container">
-            <h1>Обновление профиля</h1>
-            <p>Ваши данные на ahoj420.eu изменились. Требуется заново войти, чтобы изменения вступили в силу в вашем профиле.</p>
-            <button onclick="performReauth()" class="btn-primary" style="padding: 1rem 2rem; font-size: 1.2rem;">
-                Обновить данные профиля
-            </button>
-        </div>
+
+    <main class="content-main content-main-narrow">
+        <section class="reauth-card card">
+            <p class="section-label">Synchronizace profilu</p>
+            <h1>Změny jsou připravené</h1>
+            <p>
+                Vaše údaje v AHOJ420 byly upraveny. Pro načtení nových dat do Houbam Zdar
+                se prosím znovu přihlaste.
+            </p>
+            <button id="reauth-btn" class="btn btn-primary btn-large">Načíst aktualizovaný profil</button>
+            <p id="reauth-status" class="status-message" aria-live="polite"></p>
+        </section>
     </main>
 
-    <script>
-        async function performReauth() {
-            try {
-                // 1. Локальный логаут (только на houbamzdar.cz)
-                await fetch('https://api.houbamzdar.cz/auth/logout', { 
-                    method: 'POST', 
-                    credentials: 'include' 
-                });
-                
-                // 2. Сразу отправляем на новый логин, чтобы синхронизировать данные
-                // Параметр next=me вернет пользователя на личную страницу после входа
-                window.location.href = 'https://api.houbamzdar.cz/auth/login?next=me';
-            } catch (e) {
-                console.error("Ошибка при перезаходе:", e);
-                alert("Произошла ошибка. Попробуйте еще раз.");
-            }
-        }
-    </script>
+    <script src="app.js" defer></script>
 </body>
 </html>
