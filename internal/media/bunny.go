@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"image"
 	"image/jpeg"
 	"image/png"
 	"io"
@@ -13,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/disintegration/imageorient"
 	"github.com/houbamzdar/bff/internal/config"
 	"github.com/houbamzdar/bff/internal/models"
 	_ "image/gif"
@@ -67,7 +67,7 @@ func NormalizeImage(raw []byte, contentType string) (*NormalizedAsset, error) {
 		return nil, fmt.Errorf("empty image payload")
 	}
 
-	img, format, err := image.Decode(bytes.NewReader(raw))
+	img, format, err := imageorient.Decode(bytes.NewReader(raw))
 	if err != nil {
 		detected := http.DetectContentType(raw)
 		return nil, fmt.Errorf("decode image (detected as %q, header %q): %w", detected, contentType, err)
