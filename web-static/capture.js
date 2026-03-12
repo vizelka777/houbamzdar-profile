@@ -161,51 +161,66 @@ function loadImageElementFromBlob(blob) {
     });
 }
 
-async function convertHeicToJpeg(file) {
-    const image = await loadImageElementFromBlob(file);
-    const canvas = document.createElement("canvas");
-    canvas.width = image.naturalWidth || image.width;
-    canvas.height = image.naturalHeight || image.height;
+async function normalizeSelectedFile(file) {
+    let sourceBlob = file;
 
+    // Pokud je to HEIC, převedeme ho nejprve pomocí heic2any
+    if (isHeicLikeFile(file) && typeof heic2any === "function") {
+        try {
+            const result = await heic2any({
+                blob: file,
+                toType: "image/jpeg",
+                quality: 0.9
+            });
+            sourceBlob = Array.isArray(result) ? result[0] : result;
+        } catch (e) {
+            console.warn("heic2any failed", e);
+        }
+    }
+
+    // Načteme obrázek do elementu Image. Moderní prohlížeče zde automaticky aplikují EXIF rotaci.
+    const image = await loadImageElementFromBlob(sourceBlob);
+    
+    // Omezíme maximální rozměry pro rychlejší upload a úsporu místa
+    const MAX_WIDTH = 1920;
+    const MAX_HEIGHT = 1920;
+    
+    let width = image.naturalWidth || image.width;
+    let height = image.naturalHeight || image.height;
+    
+    if (width > MAX_WIDTH || height > MAX_HEIGHT) {
+        const ratio = Math.min(MAX_WIDTH / width, MAX_HEIGHT / height);
+        width = Math.round(width * ratio);
+        height = Math.round(height * ratio);
+    }
+
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    
     const context = canvas.getContext("2d");
     if (!context) {
         throw new Error("Canvas is not available");
     }
-    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    
+    // Vykreslíme na canvas, čímž zafixujeme pixely ve správné orientaci a odstraníme EXIF metadata
+    context.drawImage(image, 0, 0, width, height);
 
     const convertedBlob = await new Promise((resolve, reject) => {
         canvas.toBlob((blob) => {
             if (!blob) {
-                reject(new Error("Failed to convert HEIC/HEIF to JPEG"));
+                reject(new Error("Failed to process image via canvas"));
                 return;
             }
             resolve(blob);
-        }, "image/jpeg", 0.9);
+        }, "image/jpeg", 0.85); // 85% kvalita
     });
 
     return {
         blob: convertedBlob,
-        fileName: replaceFileExtension(file.name || "capture.heic", ".jpg"),
+        fileName: replaceFileExtension(file.name || `nalez-${Date.now()}.jpg`, ".jpg"),
         mimeType: "image/jpeg"
     };
-}
-
-async function normalizeSelectedFile(file) {
-    if (!isHeicLikeFile(file)) {
-        return {
-            blob: file,
-            fileName: file.name || `nalez-${Date.now()}.jpg`,
-            mimeType: file.type || "image/jpeg"
-        };
-    }
-
-    try {
-        return await convertHeicToJpeg(file);
-    } catch (error) {
-        throw new Error(
-            "HEIC/HEIF se v tomto prohlížeči nepodařilo převést. Na iPhonu zkuste Formáty -> Most Compatible."
-        );
-    }
 }
 
 function getSelectedCaptureIds() {
