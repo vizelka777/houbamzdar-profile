@@ -15,8 +15,11 @@ import (
 
 	"github.com/houbamzdar/bff/internal/config"
 	"github.com/houbamzdar/bff/internal/models"
+	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
+
+	_ "golang.org/x/image/webp"
 )
 
 type NormalizedAsset struct {
@@ -66,7 +69,8 @@ func NormalizeImage(raw []byte, contentType string) (*NormalizedAsset, error) {
 
 	img, format, err := image.Decode(bytes.NewReader(raw))
 	if err != nil {
-		return nil, fmt.Errorf("decode image: %w", err)
+		detected := http.DetectContentType(raw)
+		return nil, fmt.Errorf("decode image (detected as %q, header %q): %w", detected, contentType, err)
 	}
 
 	bounds := img.Bounds()
@@ -95,12 +99,24 @@ func NormalizeImage(raw []byte, contentType string) (*NormalizedAsset, error) {
 			Width:       bounds.Dx(),
 			Height:      bounds.Dy(),
 		}, nil
+	case "webp", "gif":
+		// Convert WebP and GIF to JPEG for consistent storage
+		if err := jpeg.Encode(&out, img, &jpeg.Options{Quality: 90}); err != nil {
+			return nil, fmt.Errorf("convert %s to jpeg: %w", format, err)
+		}
+		return &NormalizedAsset{
+			Bytes:       out.Bytes(),
+			ContentType: "image/jpeg",
+			Extension:   ".jpg",
+			Width:       bounds.Dx(),
+			Height:      bounds.Dy(),
+		}, nil
 	default:
 		detected := http.DetectContentType(raw)
 		if contentType != "" {
 			detected = contentType
 		}
-		return nil, fmt.Errorf("unsupported image format %q (%s)", format, detected)
+		return nil, fmt.Errorf("unsupported image format %q (detected as %s)", format, detected)
 	}
 }
 

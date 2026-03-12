@@ -70,7 +70,7 @@ func (s *Server) handleCreateCapture(w http.ResponseWriter, r *http.Request) {
 
 	asset, err := media.NormalizeImage(raw, fileHeader.Header.Get("Content-Type"))
 	if err != nil {
-		http.Error(w, "unsupported image format", http.StatusBadRequest)
+		http.Error(w, fmt.Sprintf("invalid image: %v", err), http.StatusBadRequest)
 		return
 	}
 
