@@ -56,6 +56,7 @@ func (s *Server) setupRoutes() {
 	s.Router.Post("/auth/logout", s.handleLogout)
 
 	s.Router.Get("/api/session", s.handleSession)
+	s.Router.Get("/api/public/posts", s.handleListPublicPosts)
 	
 	s.Router.Group(func(r chi.Router) {
 		r.Use(s.authMiddleware)

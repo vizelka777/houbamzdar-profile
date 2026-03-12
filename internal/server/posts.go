@@ -24,6 +24,11 @@ func (s *Server) handleCreatePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if len(req.CaptureIDs) > 9 {
+		http.Error(w, "maximum 9 photos allowed per post", http.StatusBadRequest)
+		return
+	}
+
 	var captures []*models.Capture
 	if len(req.CaptureIDs) > 0 {
 		for _, cid := range req.CaptureIDs {
@@ -91,6 +96,37 @@ func (s *Server) handleListPosts(w http.ResponseWriter, r *http.Request) {
 	posts, err := s.DB.ListPosts(user.ID, limit, offset)
 	if err != nil {
 		http.Error(w, "failed to list posts", http.StatusInternalServerError)
+		return
+	}
+
+	if posts == nil {
+		posts = []*models.Post{}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"ok":    true,
+		"posts": posts,
+	})
+}
+
+func (s *Server) handleListPublicPosts(w http.ResponseWriter, r *http.Request) {
+	limitStr := r.URL.Query().Get("limit")
+	offsetStr := r.URL.Query().Get("offset")
+
+	limit := 10
+	if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 100 {
+		limit = l
+	}
+
+	offset := 0
+	if o, err := strconv.Atoi(offsetStr); err == nil && o >= 0 {
+		offset = o
+	}
+
+	posts, err := s.DB.ListPublicPosts(limit, offset)
+	if err != nil {
+		http.Error(w, "failed to list public posts", http.StatusInternalServerError)
 		return
 	}
 

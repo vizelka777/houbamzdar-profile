@@ -43,13 +43,16 @@ type Capture struct {
 }
 
 type Post struct {
-	ID        string     `json:"id"`
-	UserID    int64      `json:"-"`
-	Content   string     `json:"content"`
-	Status    string     `json:"status"`
-	CreatedAt time.Time  `json:"created_at"`
-	UpdatedAt time.Time  `json:"updated_at"`
-	Captures  []*Capture `json:"captures,omitempty"`
+	ID           string     `json:"id"`
+	UserID       int64      `json:"-"`
+	AuthorName   string     `json:"author_name,omitempty"`
+	AuthorAvatar string     `json:"author_avatar,omitempty"`
+	Content      string     `json:"content"`
+	Status       string     `json:"status"`
+	LikesCount   int        `json:"likes_count"`
+	CreatedAt    time.Time  `json:"created_at"`
+	UpdatedAt    time.Time  `json:"updated_at"`
+	Captures     []*Capture `json:"captures,omitempty"`
 }
 
 type CreatePostRequest struct {

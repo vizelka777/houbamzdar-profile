@@ -198,12 +198,14 @@ function renderHeader(session, profile = null) {
         authButtons.appendChild(greeting);
         authButtons.appendChild(createLinkButton("Vytvořit publikaci", "/create-post.html", "btn-secondary"));
         authButtons.appendChild(createLinkButton("Vyfotit nález", "/capture.html", "btn-secondary"));
+        authButtons.appendChild(createLinkButton("Zeď úlovků", "/feed.html", "btn-secondary"));
 
         authButtons.appendChild(createLinkButton("Můj profil", "/me.html", "btn-primary"));
         authButtons.appendChild(createActionButton("Odhlásit", "btn-secondary", logoutFlow));
         return;
     }
 
+    authButtons.appendChild(createLinkButton("Zeď úlovků", "/feed.html", "btn-secondary"));
     authButtons.appendChild(
         createLinkButton("Přihlášení / registrace", `${API_URL}/auth/login`, "btn-primary")
     );
@@ -379,11 +381,13 @@ async function initPublicProfilePage() {
                         postEl.style.borderRadius = "var(--radius-sm)";
                         
                         let capturesHtml = "";
+                        let captureUrls = [];
                         if (post.captures && post.captures.length > 0) {
                             capturesHtml = '<div style="display: flex; gap: 0.5rem; margin-top: 1rem; overflow-x: auto;">';
-                            post.captures.forEach(c => {
+                            post.captures.forEach((c, idx) => {
                                 const url = c.public_url ? escapeHtml(c.public_url) : `${API_URL}/api/captures/${encodeURIComponent(c.id)}/preview`;
-                                capturesHtml += `<img src="${url}" style="height: 100px; border-radius: var(--radius-sm); object-fit: cover; aspect-ratio: 1;" loading="lazy">`;
+                                captureUrls.push(url);
+                                capturesHtml += `<img src="${url}" class="public-post-photo" data-idx="${idx}" style="height: 100px; border-radius: var(--radius-sm); object-fit: cover; aspect-ratio: 1; cursor: pointer;" loading="lazy">`;
                             });
                             capturesHtml += '</div>';
                         }
@@ -394,6 +398,15 @@ async function initPublicProfilePage() {
                             ${capturesHtml}
                         `;
                         postsContainer.appendChild(postEl);
+
+                        const photos = postEl.querySelectorAll('.public-post-photo');
+                        photos.forEach(photo => {
+                            photo.addEventListener('click', (e) => {
+                                window.lightboxImages = captureUrls;
+                                window.currentLightboxIndex = parseInt(e.target.dataset.idx);
+                                openLightbox();
+                            });
+                        });
                     });
                 }
             } else {
@@ -405,6 +418,56 @@ async function initPublicProfilePage() {
         }
     }
 }
+
+// Společná Lightbox logika
+window.lightboxImages = [];
+window.currentLightboxIndex = 0;
+
+function openLightbox() {
+    const lb = document.getElementById("lightbox");
+    const img = document.getElementById("lightbox-img");
+    if (!lb || !img || window.lightboxImages.length === 0) return;
+    img.src = window.lightboxImages[window.currentLightboxIndex];
+    lb.classList.add("active");
+}
+
+function closeLightbox() {
+    const lb = document.getElementById("lightbox");
+    if (lb) lb.classList.remove("active");
+}
+
+function lightboxNext() {
+    if (window.lightboxImages.length === 0) return;
+    window.currentLightboxIndex = (window.currentLightboxIndex + 1) % window.lightboxImages.length;
+    document.getElementById("lightbox-img").src = window.lightboxImages[window.currentLightboxIndex];
+}
+
+function lightboxPrev() {
+    if (window.lightboxImages.length === 0) return;
+    window.currentLightboxIndex = (window.currentLightboxIndex - 1 + window.lightboxImages.length) % window.lightboxImages.length;
+    document.getElementById("lightbox-img").src = window.lightboxImages[window.currentLightboxIndex];
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+    const lbClose = document.getElementById("lightbox-close");
+    const lbNext = document.getElementById("lightbox-next");
+    const lbPrev = document.getElementById("lightbox-prev");
+    const lb = document.getElementById("lightbox");
+
+    if (lbClose) lbClose.addEventListener("click", closeLightbox);
+    if (lbNext) lbNext.addEventListener("click", (e) => { e.stopPropagation(); lightboxNext(); });
+    if (lbPrev) lbPrev.addEventListener("click", (e) => { e.stopPropagation(); lightboxPrev(); });
+    if (lb) lb.addEventListener("click", (e) => {
+        if (e.target === lb) closeLightbox();
+    });
+
+    document.addEventListener("keydown", (e) => {
+        if (!lb || !lb.classList.contains("active")) return;
+        if (e.key === "Escape") closeLightbox();
+        if (e.key === "ArrowRight") lightboxNext();
+        if (e.key === "ArrowLeft") lightboxPrev();
+    });
+});
 
 async function initCreatePostPage() {
     const session = await apiGet("/api/session");

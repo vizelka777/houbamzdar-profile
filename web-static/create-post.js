@@ -1,53 +1,82 @@
 const state = {
     captures: [],
-    selectedCaptureIds: new Set()
+    selectedCaptureIds: new Set(),
+    page: 1,
+    totalPages: 1
 };
 
-async function loadCapturesForSelection() {
+async function loadCapturesForSelection(append = false) {
     const grid = document.getElementById("post-captures-grid");
+    const loadMoreBtn = document.getElementById("load-more-captures-btn");
     if (!grid) return;
 
+    if (!append) {
+        grid.innerHTML = '<p class="muted-copy">Načítám fotografie...</p>';
+    }
+
     try {
-        // Fetch recent captures (first page, let's say 20 items to pick from)
-        const result = await apiGet("/api/captures?page_size=20");
+        const result = await apiGet(`/api/captures?page_size=10&page=${state.page}`);
         if (result && result.ok) {
-            state.captures = result.captures || [];
+            state.totalPages = result.total_pages || 1;
+            const newCaptures = result.captures || [];
+            
+            if (append) {
+                state.captures = state.captures.concat(newCaptures);
+            } else {
+                state.captures = newCaptures;
+                grid.innerHTML = "";
+            }
+
+            if (state.captures.length === 0) {
+                grid.innerHTML = '<p class="muted-copy">Žádné fotografie k dispozici.</p>';
+                if (loadMoreBtn) loadMoreBtn.style.display = "none";
+                return;
+            }
+
+            newCaptures.forEach(capture => {
+                const item = document.createElement("div");
+                item.className = "post-capture-item";
+                if (state.selectedCaptureIds.has(capture.id)) {
+                    item.classList.add("selected");
+                }
+
+                const imgUrl = `${API_URL}/api/captures/${encodeURIComponent(capture.id)}/preview`;
+
+                item.innerHTML = `
+                    <img src="${escapeHtml(imgUrl)}" alt="Fotografie" loading="lazy">
+                    <div class="badge">✓</div>
+                `;
+
+                item.addEventListener("click", () => {
+                    const statusNode = document.getElementById("post-status");
+                    if (state.selectedCaptureIds.has(capture.id)) {
+                        state.selectedCaptureIds.delete(capture.id);
+                        item.classList.remove("selected");
+                        setStatusMessage(statusNode, "");
+                    } else {
+                        if (state.selectedCaptureIds.size >= 9) {
+                            setStatusMessage(statusNode, "Můžete vybrat maximálně 9 fotografií.", "error");
+                            return;
+                        }
+                        state.selectedCaptureIds.add(capture.id);
+                        item.classList.add("selected");
+                        setStatusMessage(statusNode, "");
+                    }
+                });
+
+                grid.appendChild(item);
+            });
+
+            if (loadMoreBtn) {
+                loadMoreBtn.style.display = state.page < state.totalPages ? "inline-block" : "none";
+            }
         }
     } catch (e) {
         console.error("Failed to load captures", e);
+        if (!append) {
+            grid.innerHTML = '<p class="muted-copy">Nepodařilo se načíst fotografie.</p>';
+        }
     }
-
-    grid.innerHTML = "";
-
-    if (state.captures.length === 0) {
-        grid.innerHTML = '<p class="muted-copy">Žádné fotografie k dispozici.</p>';
-        return;
-    }
-
-    state.captures.forEach(capture => {
-        const item = document.createElement("div");
-        item.className = "post-capture-item";
-        item.dataset.id = capture.id;
-
-        const imgUrl = `${API_URL}/api/captures/${encodeURIComponent(capture.id)}/preview`;
-
-        item.innerHTML = `
-            <img src="${escapeHtml(imgUrl)}" alt="Fotografie" loading="lazy">
-            <div class="badge">✓</div>
-        `;
-
-        item.addEventListener("click", () => {
-            if (state.selectedCaptureIds.has(capture.id)) {
-                state.selectedCaptureIds.delete(capture.id);
-                item.classList.remove("selected");
-            } else {
-                state.selectedCaptureIds.add(capture.id);
-                item.classList.add("selected");
-            }
-        });
-
-        grid.appendChild(item);
-    });
 }
 
 async function handlePostSubmit(event) {
@@ -57,6 +86,11 @@ async function handlePostSubmit(event) {
 
     const statusNode = document.getElementById("post-status");
     const submitBtn = document.getElementById("post-submit-btn");
+
+    if (state.selectedCaptureIds.size > 9) {
+        setStatusMessage(statusNode, "Můžete vybrat maximálně 9 fotografií.", "error");
+        return;
+    }
 
     try {
         setStatusMessage(statusNode, "Publikuji...");
@@ -86,13 +120,23 @@ async function handlePostSubmit(event) {
 async function initCreatePostPageLogic() {
     if (document.body.dataset.page !== "create-post") return;
 
-    // initCreatePostPage is called from app.js as well, but we can manage our local forms here
     const form = document.getElementById("create-post-form");
     if (form) {
         form.addEventListener("submit", handlePostSubmit);
     }
 
-    await loadCapturesForSelection();
+    const loadMoreBtn = document.getElementById("load-more-captures-btn");
+    if (loadMoreBtn) {
+        loadMoreBtn.addEventListener("click", () => {
+            if (state.page < state.totalPages) {
+                state.page++;
+                loadCapturesForSelection(true);
+            }
+        });
+    }
+
+    state.page = 1;
+    await loadCapturesForSelection(false);
 }
 
 document.addEventListener("DOMContentLoaded", initCreatePostPageLogic);

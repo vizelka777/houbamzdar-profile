@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Objevujte úlovky | Houbam Zdar</title>
+    <meta name="description" content="Veřejná zeď houbařských úlovků a příspěvků.">
+    <link rel="icon" href="/favicon.ico" sizes="any">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        .feed-card { margin-bottom: 2rem; padding: 1.5rem; }
+        .feed-header { display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem; }
+        .feed-avatar { width: 48px; height: 48px; border-radius: 50%; object-fit: cover; background-color: var(--surface-hover); }
+        .feed-meta { display: flex; flex-direction: column; }
+        .feed-author { font-weight: bold; font-size: 1.1rem; }
+        .feed-date { font-size: 0.85rem; color: var(--text-muted); }
+        .feed-content { margin-bottom: 1rem; line-height: 1.5; }
+        .feed-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 0.5rem; }
+        .feed-photo { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: var(--radius-sm); cursor: pointer; }
+        
+        .feed-actions { margin-top: 1rem; display: flex; align-items: center; gap: 1rem; border-top: 1px solid var(--border-color); padding-top: 1rem; }
+        .like-btn { display: flex; align-items: center; gap: 0.5rem; background: none; border: none; cursor: pointer; color: var(--text-muted); font-size: 1rem; }
+        .like-btn:hover { color: var(--primary-color); }
+        .like-btn svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; }
+        
+        /* Lightbox modal */
+        .lightbox { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.9); align-items: center; justify-content: center; }
+        .lightbox.active { display: flex; }
+        .lightbox-close { position: absolute; top: 20px; right: 20px; color: white; font-size: 2rem; cursor: pointer; user-select: none; z-index: 1001; }
+        .lightbox-content { max-width: 90%; max-height: 90%; object-fit: contain; }
+        .lightbox-nav { position: absolute; top: 50%; transform: translateY(-50%); color: white; font-size: 3rem; cursor: pointer; user-select: none; padding: 1rem; }
+        .lightbox-prev { left: 10px; }
+        .lightbox-next { right: 10px; }
+    </style>
+</head>
+<body data-page="feed" class="page-shell">
+    <header class="site-header">
+        <a href="/" class="brand-link" aria-label="Houbam Zdar">
+            <img src="/logo.png" alt="Logo Houbam Zdar" class="brand-mark">
+            <div class="brand-copy">
+                <span class="brand-eyebrow">Komunita</span>
+                <strong>Houbam Zdar</strong>
+            </div>
+        </a>
+        <div id="auth-buttons" class="header-actions"></div>
+    </header>
+
+    <main class="content-main content-main-narrow">
+        <section class="page-intro card" style="margin-bottom: 2rem;">
+            <p class="section-label">Veřejná zeď</p>
+            <h1>Co se našlo v lese</h1>
+            <p>
+                Prohlížejte si nejnovější úlovky a příspěvky od ostatních houbařů.
+            </p>
+        </section>
+
+        <div id="feed-container">
+            <p class="muted-copy" style="text-align: center;">Načítám příspěvky...</p>
+        </div>
+
+        <div style="text-align: center; margin-top: 2rem; margin-bottom: 2rem;">
+            <button id="load-more-feed-btn" class="btn btn-secondary" style="display: none;">Načíst další příspěvky</button>
+        </div>
+    </main>
+
+    <!-- Lightbox pro galerii -->
+    <div id="lightbox" class="lightbox">
+        <span id="lightbox-close" class="lightbox-close">&times;</span>
+        <span id="lightbox-prev" class="lightbox-nav lightbox-prev">&#10094;</span>
+        <img id="lightbox-img" class="lightbox-content" src="">
+        <span id="lightbox-next" class="lightbox-nav lightbox-next">&#10095;</span>
+    </div>
+
+    <script src="app.js" defer></script>
+    <script src="feed.js" defer></script>
+</body>
+</html>
