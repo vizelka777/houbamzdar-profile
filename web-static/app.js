@@ -361,6 +361,49 @@ async function initPublicProfilePage() {
             value || "Zatím bez veřejného představení. Doplňte pár vět, ať profil působí živěji."
         );
     });
+
+    const postsContainer = document.getElementById("public-posts-container");
+    if (postsContainer) {
+        try {
+            const postsRes = await apiGet("/api/posts?limit=10");
+            if (postsRes && postsRes.ok) {
+                const posts = postsRes.posts || [];
+                postsContainer.innerHTML = "";
+                if (posts.length === 0) {
+                    postsContainer.innerHTML = '<p class="muted-copy">Zatím žádné publikace.</p>';
+                } else {
+                    posts.forEach(post => {
+                        const postEl = document.createElement("div");
+                        postEl.style.padding = "1rem";
+                        postEl.style.border = "1px solid var(--border-color)";
+                        postEl.style.borderRadius = "var(--radius-sm)";
+                        
+                        let capturesHtml = "";
+                        if (post.captures && post.captures.length > 0) {
+                            capturesHtml = '<div style="display: flex; gap: 0.5rem; margin-top: 1rem; overflow-x: auto;">';
+                            post.captures.forEach(c => {
+                                const url = c.public_url ? escapeHtml(c.public_url) : `${API_URL}/api/captures/${encodeURIComponent(c.id)}/preview`;
+                                capturesHtml += `<img src="${url}" style="height: 100px; border-radius: var(--radius-sm); object-fit: cover; aspect-ratio: 1;" loading="lazy">`;
+                            });
+                            capturesHtml += '</div>';
+                        }
+
+                        postEl.innerHTML = `
+                            <p style="margin-bottom: 0.5rem; font-size: 0.9rem;" class="muted-copy">${formatDateTime(post.created_at)}</p>
+                            <p>${escapeHtml(post.content).replace(/\n/g, '<br>')}</p>
+                            ${capturesHtml}
+                        `;
+                        postsContainer.appendChild(postEl);
+                    });
+                }
+            } else {
+                postsContainer.innerHTML = '<p class="muted-copy">Nepodařilo se načíst publikace.</p>';
+            }
+        } catch (e) {
+            console.error(e);
+            postsContainer.innerHTML = '<p class="muted-copy">Nepodařilo se načíst publikace.</p>';
+        }
+    }
 }
 
 async function initCreatePostPage() {

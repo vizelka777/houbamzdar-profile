@@ -42,6 +42,21 @@ type Capture struct {
 	PublishedAt       time.Time `json:"published_at,omitempty"`
 }
 
+type Post struct {
+	ID        string     `json:"id"`
+	UserID    int64      `json:"-"`
+	Content   string     `json:"content"`
+	Status    string     `json:"status"`
+	CreatedAt time.Time  `json:"created_at"`
+	UpdatedAt time.Time  `json:"updated_at"`
+	Captures  []*Capture `json:"captures,omitempty"`
+}
+
+type CreatePostRequest struct {
+	Content    string   `json:"content"`
+	CaptureIDs []string `json:"capture_ids"`
+}
+
 type Session struct {
 	SessionID string
 	UserID    int64

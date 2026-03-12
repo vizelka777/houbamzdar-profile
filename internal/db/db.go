@@ -34,6 +34,7 @@ type CaptureListPage struct {
 
 const migrationUsersTokenColumnsID = "20260308_add_user_token_columns"
 const migrationPhotoCapturesTableID = "20260308_create_photo_captures"
+const migrationPostsTableID = "20260312_create_posts_table"
 
 func New(cfg *config.Config) (*DB, error) {
 	url := cfg.DBURL
@@ -161,6 +162,38 @@ func migrate(db *sql.DB) error {
 					`CREATE INDEX IF NOT EXISTS idx_photo_captures_status ON photo_captures(status);`,
 				}
 
+				for _, query := range queries {
+					if _, err := tx.Exec(query); err != nil {
+						return err
+					}
+				}
+				return nil
+			},
+		},
+		{
+			id: migrationPostsTableID,
+			apply: func(tx *sql.Tx) error {
+				queries := []string{
+					`CREATE TABLE IF NOT EXISTS posts (
+						id TEXT PRIMARY KEY,
+						user_id INTEGER NOT NULL,
+						content TEXT NOT NULL,
+						status TEXT NOT NULL DEFAULT 'published',
+						created_at TEXT NOT NULL,
+						updated_at TEXT NOT NULL,
+						FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+					);`,
+					`CREATE INDEX IF NOT EXISTS idx_posts_user_created ON posts(user_id, created_at DESC);`,
+					`CREATE TABLE IF NOT EXISTS post_captures (
+						post_id TEXT NOT NULL,
+						capture_id TEXT NOT NULL,
+						display_order INTEGER NOT NULL DEFAULT 0,
+						PRIMARY KEY(post_id, capture_id),
+						FOREIGN KEY(post_id) REFERENCES posts(id) ON DELETE CASCADE,
+						FOREIGN KEY(capture_id) REFERENCES photo_captures(id) ON DELETE CASCADE
+					);`,
+					`CREATE INDEX IF NOT EXISTS idx_post_captures_post_id ON post_captures(post_id);`,
+				}
 				for _, query := range queries {
 					if _, err := tx.Exec(query); err != nil {
 						return err
@@ -617,4 +650,99 @@ func normalizeCaptureListFilters(filters CaptureListFilters) CaptureListFilters 
 		filters.Status = ""
 	}
 	return filters
+}
+
+func (db *DB) CreatePost(post *models.Post) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	_, err = tx.Exec(`
+		INSERT INTO posts (id, user_id, content, status, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`, post.ID, post.UserID, post.Content, post.Status, post.CreatedAt.Format(time.RFC3339), post.UpdatedAt.Format(time.RFC3339))
+	if err != nil {
+		return err
+	}
+
+	for i, capture := range post.Captures {
+		_, err = tx.Exec(`
+			INSERT INTO post_captures (post_id, capture_id, display_order)
+			VALUES (?, ?, ?)
+		`, post.ID, capture.ID, i)
+		if err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
+
+func (db *DB) ListPosts(userID int64, limit, offset int) ([]*models.Post, error) {
+	rows, err := db.Query(`
+		SELECT id, user_id, content, status, created_at, updated_at
+		FROM posts
+		WHERE user_id = ?
+		ORDER BY created_at DESC
+		LIMIT ? OFFSET ?
+	`, userID, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var posts []*models.Post
+	for rows.Next() {
+		var p models.Post
+		var createdAt, updatedAt string
+		if err := rows.Scan(&p.ID, &p.UserID, &p.Content, &p.Status, &createdAt, &updatedAt); err != nil {
+			return nil, err
+		}
+		p.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
+		p.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
+		posts = append(posts, &p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	for _, p := range posts {
+		cRows, err := db.Query(`
+			SELECT c.id, c.user_id, COALESCE(c.client_local_id, ''), c.original_file_name, c.content_type, c.size_bytes, c.width, c.height,
+				c.captured_at, c.uploaded_at, c.latitude, c.longitude, c.accuracy_meters, c.status, c.private_storage_key,
+				COALESCE(c.public_storage_key, ''), COALESCE(c.published_at, '')
+			FROM photo_captures c
+			JOIN post_captures pc ON c.id = pc.capture_id
+			WHERE pc.post_id = ?
+			ORDER BY pc.display_order ASC
+		`, p.ID)
+		if err != nil {
+			return nil, err
+		}
+		defer cRows.Close()
+
+		var captures []*models.Capture
+		for cRows.Next() {
+			var c models.Capture
+			var capturedAt, uploadedAt, publishedAt string
+			if err := cRows.Scan(
+				&c.ID, &c.UserID, &c.ClientLocalID, &c.OriginalFileName, &c.ContentType, &c.SizeBytes, &c.Width, &c.Height,
+				&capturedAt, &uploadedAt, &c.Latitude, &c.Longitude, &c.AccuracyMeters, &c.Status, &c.PrivateStorageKey,
+				&c.PublicStorageKey, &publishedAt,
+			); err != nil {
+				return nil, err
+			}
+			c.CapturedAt, _ = time.Parse(time.RFC3339, capturedAt)
+			c.UploadedAt, _ = time.Parse(time.RFC3339, uploadedAt)
+			if publishedAt != "" {
+				c.PublishedAt, _ = time.Parse(time.RFC3339, publishedAt)
+			}
+			captures = append(captures, &c)
+		}
+		p.Captures = captures
+	}
+
+	return posts, nil
 }
