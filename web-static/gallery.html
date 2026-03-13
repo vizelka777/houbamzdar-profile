@@ -16,39 +16,50 @@
             margin-top: 1.5rem;
         }
         .gallery-item {
-            position: relative;
-            aspect-ratio: 1;
+            display: flex;
+            flex-direction: column;
             border-radius: var(--radius-sm);
             overflow: hidden;
             cursor: pointer;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        .gallery-item img {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            background: var(--surface-color);
             transition: transform 0.2s ease;
         }
-        .gallery-item:hover img {
-            transform: scale(1.05);
+        .gallery-item:hover {
+            transform: translateY(-4px);
         }
-        .gallery-item-overlay {
-            position: absolute;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            background: linear-gradient(transparent, rgba(0,0,0,0.7));
-            padding: 0.5rem;
-            color: white;
-            font-size: 0.8rem;
+        .gallery-item-header {
+            padding: 0.6rem;
             display: flex;
             align-items: center;
-            gap: 0.4rem;
+            gap: 0.5rem;
+            background: var(--surface-hover);
+            border-bottom: 1px solid var(--border-color);
         }
         .gallery-item-avatar {
-            width: 20px;
-            height: 20px;
+            width: 24px;
+            height: 24px;
             border-radius: 50%;
+            object-fit: cover;
+            flex-shrink: 0;
+        }
+        .gallery-item-author {
+            font-size: 0.85rem;
+            font-weight: 500;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            color: var(--text-color);
+        }
+        .gallery-item-image {
+            position: relative;
+            aspect-ratio: 1;
+            width: 100%;
+            overflow: hidden;
+        }
+        .gallery-item-image img {
+            width: 100%;
+            height: 100%;
             object-fit: cover;
         }
 

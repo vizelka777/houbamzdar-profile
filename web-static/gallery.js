@@ -70,10 +70,12 @@ function renderGallery(capturesToRender, container) {
         const globalIdx = (state.page - 1) * state.pageSize + idx;
 
         item.innerHTML = `
-            <img src="${url}" loading="lazy" alt="Houbařský úlovek">
-            <div class="gallery-item-overlay">
+            <div class="gallery-item-header">
                 <img src="${escapeHtml(avatarUrl)}" class="gallery-item-avatar" alt="Avatar">
-                <span>${escapeHtml(authorName)}</span>
+                <span class="gallery-item-author">${escapeHtml(authorName)}</span>
+            </div>
+            <div class="gallery-item-image">
+                <img src="${url}" loading="lazy" alt="Houbařský úlovek">
             </div>
         `;
 
