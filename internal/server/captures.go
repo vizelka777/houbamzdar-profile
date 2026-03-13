@@ -64,6 +64,8 @@ func (s *Server) handleListPublicCaptures(w http.ResponseWriter, r *http.Request
 
 	if captures == nil {
 		captures = []*models.Capture{}
+	} else {
+		attachPublicURLs(captures, s.Media)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
