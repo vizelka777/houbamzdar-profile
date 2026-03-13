@@ -106,6 +106,7 @@ async function handleEditPostSubmit(event) {
 
         const response = await fetch(`${API_URL}/api/posts/${encodeURIComponent(state.postId)}`, {
             method: "PUT",
+            credentials: "include",
             headers: {
                 "Content-Type": "application/json"
             },
