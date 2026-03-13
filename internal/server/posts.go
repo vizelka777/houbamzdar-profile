@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/houbamzdar/bff/internal/models"
 )
@@ -74,6 +75,105 @@ func (s *Server) handleCreatePost(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"ok":   true,
 		"post": post,
+	})
+}
+
+func (s *Server) handleGetPost(w http.ResponseWriter, r *http.Request) {
+	user := r.Context().Value("user").(*models.User)
+	postID := chi.URLParam(r, "postID")
+
+	post, err := s.DB.GetPost(postID, user.ID)
+	if err != nil {
+		http.Error(w, "post not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"ok":   true,
+		"post": post,
+	})
+}
+
+func (s *Server) handleUpdatePost(w http.ResponseWriter, r *http.Request) {
+	user := r.Context().Value("user").(*models.User)
+	postID := chi.URLParam(r, "postID")
+
+	post, err := s.DB.GetPost(postID, user.ID)
+	if err != nil {
+		http.Error(w, "post not found", http.StatusNotFound)
+		return
+	}
+
+	var req models.CreatePostRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.Content == "" {
+		http.Error(w, "content is required", http.StatusBadRequest)
+		return
+	}
+
+	if len(req.CaptureIDs) > 9 {
+		http.Error(w, "maximum 9 photos allowed per post", http.StatusBadRequest)
+		return
+	}
+
+	var captures []*models.Capture
+	if len(req.CaptureIDs) > 0 {
+		for _, cid := range req.CaptureIDs {
+			c, err := s.DB.GetCaptureForUser(cid, user.ID)
+			if err != nil {
+				http.Error(w, "capture not found or unauthorized", http.StatusBadRequest)
+				return
+			}
+			
+			if c.Status != "published" {
+				if s.Media != nil && s.Media.Enabled() {
+					publicKey, publicURL, err := s.Media.PublishCapture(r.Context(), c)
+					if err == nil {
+						if err := s.DB.PublishCapture(c.ID, user.ID, publicKey); err == nil {
+							c.Status = "published"
+							c.PublicStorageKey = publicKey
+							c.PublicURL = publicURL
+							c.PublishedAt = time.Now()
+						}
+					}
+				}
+			}
+			captures = append(captures, c)
+		}
+	}
+
+	post.Content = req.Content
+	post.Captures = captures
+
+	if err := s.DB.UpdatePost(post); err != nil {
+		http.Error(w, "failed to update post", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"ok":   true,
+		"post": post,
+	})
+}
+
+func (s *Server) handleDeletePost(w http.ResponseWriter, r *http.Request) {
+	user := r.Context().Value("user").(*models.User)
+	postID := chi.URLParam(r, "postID")
+
+	if err := s.DB.DeletePost(postID, user.ID); err != nil {
+		http.Error(w, "failed to delete post", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"ok": true,
 	})
 }
 

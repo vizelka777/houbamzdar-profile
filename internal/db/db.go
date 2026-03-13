@@ -680,6 +680,68 @@ func (db *DB) CreatePost(post *models.Post) error {
 	return tx.Commit()
 }
 
+func (db *DB) GetPost(postID string, userID int64) (*models.Post, error) {
+	var p models.Post
+	var createdAt, updatedAt string
+	err := db.QueryRow(`
+		SELECT id, user_id, content, status, created_at, updated_at
+		FROM posts
+		WHERE id = ? AND user_id = ?
+	`, postID, userID).Scan(&p.ID, &p.UserID, &p.Content, &p.Status, &createdAt, &updatedAt)
+	if err != nil {
+		return nil, err
+	}
+
+	p.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
+	p.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
+
+	captures, err := db.getCapturesForPost(p.ID)
+	if err != nil {
+		return nil, err
+	}
+	p.Captures = captures
+
+	return &p, nil
+}
+
+func (db *DB) UpdatePost(post *models.Post) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	_, err = tx.Exec(`
+		UPDATE posts SET content = ?, updated_at = ?
+		WHERE id = ? AND user_id = ?
+	`, post.Content, time.Now().UTC().Format(time.RFC3339), post.ID, post.UserID)
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.Exec(`DELETE FROM post_captures WHERE post_id = ?`, post.ID)
+	if err != nil {
+		return err
+	}
+
+	for i, capture := range post.Captures {
+		_, err = tx.Exec(`
+			INSERT INTO post_captures (post_id, capture_id, display_order)
+			VALUES (?, ?, ?)
+		`, post.ID, capture.ID, i)
+		if err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
+
+func (db *DB) DeletePost(postID string, userID int64) error {
+	_, err := db.Exec(`DELETE FROM posts WHERE id = ? AND user_id = ?`, postID, userID)
+	return err
+}
+
 func (db *DB) ListPosts(userID int64, limit, offset int) ([]*models.Post, error) {
 	rows, err := db.Query(`
 		SELECT id, user_id, content, status, created_at, updated_at

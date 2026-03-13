@@ -393,11 +393,43 @@ async function initPublicProfilePage() {
                         }
 
                         postEl.innerHTML = `
-                            <p style="margin-bottom: 0.5rem; font-size: 0.9rem;" class="muted-copy">${formatDateTime(post.created_at)}</p>
+                            <div style="display: flex; justify-content: space-between; align-items: baseline;">
+                                <p style="margin-bottom: 0.5rem; font-size: 0.9rem;" class="muted-copy">${formatDateTime(post.created_at)}</p>
+                                <div>
+                                    <button class="btn btn-secondary post-edit-btn" data-id="${escapeHtml(post.id)}" style="padding: 0.2rem 0.5rem; font-size: 0.8rem; margin-right: 0.5rem;">Upravit</button>
+                                    <button class="btn btn-secondary post-delete-btn" data-id="${escapeHtml(post.id)}" style="padding: 0.2rem 0.5rem; font-size: 0.8rem; color: #d32f2f;">Smazat</button>
+                                </div>
+                            </div>
                             <p>${escapeHtml(post.content).replace(/\n/g, '<br>')}</p>
                             ${capturesHtml}
                         `;
                         postsContainer.appendChild(postEl);
+
+                        const editBtn = postEl.querySelector('.post-edit-btn');
+                        if (editBtn) {
+                            editBtn.addEventListener('click', () => {
+                                window.location.href = `/edit-post.html?id=${encodeURIComponent(post.id)}`;
+                            });
+                        }
+
+                        const deleteBtn = postEl.querySelector('.post-delete-btn');
+                        if (deleteBtn) {
+                            deleteBtn.addEventListener('click', async () => {
+                                if (confirm("Opravdu chcete tuto publikaci smazat?")) {
+                                    try {
+                                        const res = await fetch(`${API_URL}/api/posts/${encodeURIComponent(post.id)}`, {
+                                            method: "DELETE",
+                                            credentials: "include"
+                                        });
+                                        if (!res.ok) throw new Error("Delete failed");
+                                        postEl.remove();
+                                    } catch (e) {
+                                        console.error(e);
+                                        alert("Nepodařilo se smazat publikaci.");
+                                    }
+                                }
+                            });
+                        }
 
                         const photos = postEl.querySelectorAll('.public-post-photo');
                         photos.forEach(photo => {

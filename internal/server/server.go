@@ -71,6 +71,9 @@ func (s *Server) setupRoutes() {
 		
 		r.Get("/api/posts", s.handleListPosts)
 		r.Post("/api/posts", s.handleCreatePost)
+		r.Get("/api/posts/{postID}", s.handleGetPost)
+		r.Put("/api/posts/{postID}", s.handleUpdatePost)
+		r.Delete("/api/posts/{postID}", s.handleDeletePost)
 	})
 }
 
