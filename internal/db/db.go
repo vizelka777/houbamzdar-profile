@@ -823,6 +823,47 @@ func (db *DB) ListPublicPosts(limit, offset int) ([]*models.Post, error) {
 	return posts, nil
 }
 
+func (db *DB) ListPublicCaptures(limit, offset int) ([]*models.Capture, error) {
+	rows, err := db.Query(`
+		SELECT c.id, c.user_id, u.preferred_username, COALESCE(u.picture, ''), COALESCE(c.client_local_id, ''), c.original_file_name, c.content_type, c.size_bytes, c.width, c.height,
+			c.captured_at, c.uploaded_at, c.latitude, c.longitude, c.accuracy_meters, c.status, c.private_storage_key,
+			COALESCE(c.public_storage_key, ''), COALESCE(c.published_at, '')
+		FROM photo_captures c
+		JOIN users u ON c.user_id = u.id
+		WHERE c.status = 'published' AND c.public_storage_key IS NOT NULL AND c.public_storage_key != ''
+		ORDER BY c.published_at DESC, c.captured_at DESC
+		LIMIT ? OFFSET ?
+	`, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var captures []*models.Capture
+	for rows.Next() {
+		var c models.Capture
+		var capturedAt, uploadedAt, publishedAt string
+		if err := rows.Scan(
+			&c.ID, &c.UserID, &c.AuthorName, &c.AuthorAvatar, &c.ClientLocalID, &c.OriginalFileName, &c.ContentType, &c.SizeBytes, &c.Width, &c.Height,
+			&capturedAt, &uploadedAt, &c.Latitude, &c.Longitude, &c.AccuracyMeters, &c.Status, &c.PrivateStorageKey,
+			&c.PublicStorageKey, &publishedAt,
+		); err != nil {
+			return nil, err
+		}
+		c.CapturedAt, _ = time.Parse(time.RFC3339, capturedAt)
+		c.UploadedAt, _ = time.Parse(time.RFC3339, uploadedAt)
+		if publishedAt != "" {
+			c.PublishedAt, _ = time.Parse(time.RFC3339, publishedAt)
+		}
+		captures = append(captures, &c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return captures, nil
+}
+
 func (db *DB) getCapturesForPost(postID string) ([]*models.Capture, error) {
 	cRows, err := db.Query(`
 		SELECT c.id, c.user_id, COALESCE(c.client_local_id, ''), c.original_file_name, c.content_type, c.size_bytes, c.width, c.height,

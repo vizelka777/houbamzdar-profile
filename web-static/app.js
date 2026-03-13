@@ -199,6 +199,7 @@ function renderHeader(session, profile = null) {
         authButtons.appendChild(createLinkButton("Vytvořit publikaci", "/create-post.html", "btn-secondary"));
         authButtons.appendChild(createLinkButton("Vyfotit nález", "/capture.html", "btn-secondary"));
         authButtons.appendChild(createLinkButton("Zeď úlovků", "/feed.html", "btn-secondary"));
+        authButtons.appendChild(createLinkButton("Galerie", "/gallery.html", "btn-secondary"));
 
         authButtons.appendChild(createLinkButton("Můj profil", "/me.html", "btn-primary"));
         authButtons.appendChild(createActionButton("Odhlásit", "btn-secondary", logoutFlow));
@@ -206,6 +207,7 @@ function renderHeader(session, profile = null) {
     }
 
     authButtons.appendChild(createLinkButton("Zeď úlovků", "/feed.html", "btn-secondary"));
+    authButtons.appendChild(createLinkButton("Galerie", "/gallery.html", "btn-secondary"));
     authButtons.appendChild(
         createLinkButton("Přihlášení / registrace", `${API_URL}/auth/login`, "btn-primary")
     );

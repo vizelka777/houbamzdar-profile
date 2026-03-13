@@ -24,6 +24,8 @@ type User struct {
 type Capture struct {
 	ID                string    `json:"id"`
 	UserID            int64     `json:"-"`
+	AuthorName        string    `json:"author_name,omitempty"`
+	AuthorAvatar      string    `json:"author_avatar,omitempty"`
 	ClientLocalID     string    `json:"client_local_id,omitempty"`
 	OriginalFileName  string    `json:"original_file_name"`
 	ContentType       string    `json:"content_type"`

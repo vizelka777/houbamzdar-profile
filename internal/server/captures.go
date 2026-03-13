@@ -42,6 +42,37 @@ func (s *Server) handleListCaptures(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) handleListPublicCaptures(w http.ResponseWriter, r *http.Request) {
+	limitStr := r.URL.Query().Get("limit")
+	offsetStr := r.URL.Query().Get("offset")
+
+	limit := 24
+	if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 100 {
+		limit = l
+	}
+
+	offset := 0
+	if o, err := strconv.Atoi(offsetStr); err == nil && o >= 0 {
+		offset = o
+	}
+
+	captures, err := s.DB.ListPublicCaptures(limit, offset)
+	if err != nil {
+		http.Error(w, "failed to list public captures", http.StatusInternalServerError)
+		return
+	}
+
+	if captures == nil {
+		captures = []*models.Capture{}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"ok":       true,
+		"captures": captures,
+	})
+}
+
 func (s *Server) handleCreateCapture(w http.ResponseWriter, r *http.Request) {
 	user := r.Context().Value("user").(*models.User)
 

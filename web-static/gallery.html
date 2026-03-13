@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Galerie úlovků | Houbam Zdar</title>
+    <meta name="description" content="Veřejná galerie všech sdílených houbařských úlovků.">
+    <link rel="icon" href="/favicon.ico" sizes="any">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        .gallery-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+            gap: 1rem;
+            margin-top: 1.5rem;
+        }
+        .gallery-item {
+            position: relative;
+            aspect-ratio: 1;
+            border-radius: var(--radius-sm);
+            overflow: hidden;
+            cursor: pointer;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .gallery-item img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transition: transform 0.2s ease;
+        }
+        .gallery-item:hover img {
+            transform: scale(1.05);
+        }
+        .gallery-item-overlay {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: linear-gradient(transparent, rgba(0,0,0,0.7));
+            padding: 0.5rem;
+            color: white;
+            font-size: 0.8rem;
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+        .gallery-item-avatar {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            object-fit: cover;
+        }
+
+        /* Lightbox modal (reused from feed.html) */
+        .lightbox { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.9); align-items: center; justify-content: center; }
+        .lightbox.active { display: flex; }
+        .lightbox-close { position: absolute; top: 20px; right: 20px; color: white; font-size: 2rem; cursor: pointer; user-select: none; z-index: 1001; }
+        .lightbox-content { max-width: 90%; max-height: 90%; object-fit: contain; }
+        .lightbox-nav { position: absolute; top: 50%; transform: translateY(-50%); color: white; font-size: 3rem; cursor: pointer; user-select: none; padding: 1rem; }
+        .lightbox-prev { left: 10px; }
+        .lightbox-next { right: 10px; }
+    </style>
+</head>
+<body data-page="gallery" class="page-shell">
+    <header class="site-header">
+        <a href="/" class="brand-link" aria-label="Houbam Zdar">
+            <img src="/logo.png" alt="Logo Houbam Zdar" class="brand-mark">
+            <div class="brand-copy">
+                <span class="brand-eyebrow">Fotografie</span>
+                <strong>Houbam Zdar</strong>
+            </div>
+        </a>
+        <div id="auth-buttons" class="header-actions"></div>
+    </header>
+
+    <main class="content-main content-main-narrow">
+        <section class="page-intro card" style="margin-bottom: 2rem;">
+            <p class="section-label">Galerie</p>
+            <h1>Všechny sdílené úlovky</h1>
+            <p>
+                Prohlédněte si všechny fotografie, které naši houbaři přidali na veřejnou zeď.
+            </p>
+        </section>
+
+        <div id="gallery-container" class="gallery-grid">
+            <p class="muted-copy" style="grid-column: 1 / -1; text-align: center;">Načítám fotografie...</p>
+        </div>
+
+        <div style="text-align: center; margin-top: 2rem; margin-bottom: 2rem;">
+            <button id="load-more-gallery-btn" class="btn btn-secondary" style="display: none;">Načíst další fotky</button>
+        </div>
+    </main>
+
+    <!-- Lightbox pro galerii -->
+    <div id="lightbox" class="lightbox">
+        <span id="lightbox-close" class="lightbox-close">&times;</span>
+        <span id="lightbox-prev" class="lightbox-nav lightbox-prev">&#10094;</span>
+        <img id="lightbox-img" class="lightbox-content" src="">
+        <span id="lightbox-next" class="lightbox-nav lightbox-next">&#10095;</span>
+    </div>
+
+    <script src="app.js" defer></script>
+    <script src="gallery.js" defer></script>
+</body>
+</html>
