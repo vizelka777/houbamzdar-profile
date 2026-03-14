@@ -529,9 +529,11 @@ async function initPublicProfilePage() {
                         photos.forEach(photo => {
                             photo.addEventListener('click', (e) => {
                                 window.lightboxImages = captureUrls;
-                                window.lightboxMapData = post.captures.map(c => 
-                                    (c.latitude && c.longitude) ? {lat: c.latitude, lon: c.longitude} : null
+                                window.lightboxMapData = post.captures.map(c =>
+                                    (c.latitude && c.longitude && !c.coordinates_locked) ? {lat: c.latitude, lon: c.longitude} : null
                                 );
+                                window.lightboxCaptureIds = post.captures.map(c => c.id || null);
+                                window.lightboxCoordinatesLocked = post.captures.map(c => Boolean(c.coordinates_locked));
                                 window.currentLightboxIndex = parseInt(e.target.dataset.idx);
                                 openLightbox();
                             });
@@ -551,6 +553,8 @@ async function initPublicProfilePage() {
 // Společná Lightbox logika
 window.lightboxImages = [];
 window.lightboxMapData = []; // [{lat: 12.3, lon: 45.6}, null, ...]
+window.lightboxCaptureIds = [];
+window.lightboxCoordinatesLocked = [];
 window.currentLightboxIndex = 0;
 let lightboxMapInstance = null;
 
@@ -560,11 +564,33 @@ function updateLightboxMap() {
     if (!mapBtn || !mapDiv) return;
 
     const data = window.lightboxMapData[window.currentLightboxIndex];
+    const isLocked = Boolean(window.lightboxCoordinatesLocked[window.currentLightboxIndex]);
+    const captureID = window.lightboxCaptureIds[window.currentLightboxIndex];
+
+    if (isLocked && captureID) {
+        mapBtn.style.display = "block";
+        mapBtn.textContent = "Открыть координаты за 1 houbičku";
+        mapDiv.style.display = "none";
+        mapBtn.onclick = async (e) => {
+            e.stopPropagation();
+            mapBtn.disabled = true;
+            mapBtn.textContent = "Otevírám...";
+            const res = await apiPost(`/api/captures/${encodeURIComponent(captureID)}/unlock-coordinates`);
+            if (res && res.ok) {
+                window.location.reload();
+                return;
+            }
+            mapBtn.disabled = false;
+            mapBtn.textContent = "Открыть координаты за 1 houbičku";
+        };
+        return;
+    }
+
     if (data && data.lat && data.lon) {
         mapBtn.style.display = "block";
         mapBtn.textContent = "Zobrazit na mapě";
         mapDiv.style.display = "none";
-        
+
         mapBtn.onclick = (e) => {
             e.stopPropagation();
             if (mapDiv.style.display === "none") {
@@ -578,7 +604,6 @@ function updateLightboxMap() {
                     L.marker([data.lat, data.lon]).addTo(lightboxMapInstance);
                 } else if (lightboxMapInstance) {
                     lightboxMapInstance.setView([data.lat, data.lon], 13);
-                    // Odstranění starých markerů
                     lightboxMapInstance.eachLayer((layer) => {
                         if (layer instanceof L.Marker) {
                             lightboxMapInstance.removeLayer(layer);

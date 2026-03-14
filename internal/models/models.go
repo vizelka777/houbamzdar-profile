@@ -42,6 +42,7 @@ type Capture struct {
 	PublicStorageKey  string    `json:"-"`
 	PublicURL         string    `json:"public_url,omitempty"`
 	PublishedAt       time.Time `json:"published_at,omitempty"`
+	CoordinatesLocked bool      `json:"coordinates_locked"`
 }
 
 type Post struct {

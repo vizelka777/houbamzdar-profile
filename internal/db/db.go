@@ -37,6 +37,7 @@ const migrationPhotoCapturesTableID = "20260308_create_photo_captures"
 const migrationPostsTableID = "20260312_create_posts_table"
 const migrationPostCommentsTableID = "20260314_create_post_comments_table"
 const migrationPostLikesTableID = "20260314_create_post_likes_table"
+const migrationCaptureCoordinateUnlocksTableID = "20260314_create_capture_coordinate_unlocks_table"
 
 func New(cfg *config.Config) (*DB, error) {
 	url := cfg.DBURL
@@ -243,6 +244,28 @@ func migrate(db *sql.DB) error {
 					);`,
 					`CREATE INDEX IF NOT EXISTS idx_post_likes_post_id ON post_likes(post_id);`,
 					`CREATE INDEX IF NOT EXISTS idx_post_likes_user_id ON post_likes(user_id);`,
+				}
+				for _, query := range queries {
+					if _, err := tx.Exec(query); err != nil {
+						return err
+					}
+				}
+				return nil
+			},
+		},
+		{
+			id: migrationCaptureCoordinateUnlocksTableID,
+			apply: func(tx *sql.Tx) error {
+				queries := []string{
+					`CREATE TABLE IF NOT EXISTS capture_coordinate_unlocks (
+						capture_id TEXT NOT NULL,
+						viewer_user_id INTEGER NOT NULL,
+						created_at TEXT NOT NULL DEFAULT (datetime('now')),
+						PRIMARY KEY(capture_id, viewer_user_id),
+						FOREIGN KEY(capture_id) REFERENCES photo_captures(id) ON DELETE CASCADE,
+						FOREIGN KEY(viewer_user_id) REFERENCES users(id) ON DELETE CASCADE
+					);`,
+					`CREATE INDEX IF NOT EXISTS idx_capture_coordinate_unlocks_viewer ON capture_coordinate_unlocks(viewer_user_id, created_at DESC);`,
 				}
 				for _, query := range queries {
 					if _, err := tx.Exec(query); err != nil {
@@ -747,7 +770,7 @@ func (db *DB) GetPost(postID string, userID int64) (*models.Post, error) {
 	p.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
 	p.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
 
-	captures, err := db.getCapturesForPost(p.ID)
+	captures, err := db.getCapturesForPost(p.ID, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -881,7 +904,7 @@ func (db *DB) ListPosts(userID int64, limit, offset int) ([]*models.Post, error)
 	}
 
 	for _, p := range posts {
-		captures, err := db.getCapturesForPost(p.ID)
+		captures, err := db.getCapturesForPost(p.ID, userID)
 		if err != nil {
 			return nil, err
 		}
@@ -929,7 +952,7 @@ func (db *DB) ListPublicPosts(limit, offset int, currentUserID int64) ([]*models
 	}
 
 	for _, p := range posts {
-		captures, err := db.getCapturesForPost(p.ID)
+		captures, err := db.getCapturesForPost(p.ID, currentUserID)
 		if err != nil {
 			return nil, err
 		}
@@ -945,17 +968,39 @@ func (db *DB) ListPublicPosts(limit, offset int, currentUserID int64) ([]*models
 	return posts, nil
 }
 
-func (db *DB) ListPublicCaptures(limit, offset int) ([]*models.Capture, error) {
+func (db *DB) ListPublicCaptures(limit, offset int, viewerUserID int64) ([]*models.Capture, error) {
 	rows, err := db.Query(`
 		SELECT c.id, c.user_id, u.preferred_username, COALESCE(u.picture, ''), COALESCE(c.client_local_id, ''), c.original_file_name, c.content_type, c.size_bytes, c.width, c.height,
-			c.captured_at, c.uploaded_at, c.latitude, c.longitude, c.accuracy_meters, c.status, c.private_storage_key,
-			COALESCE(c.public_storage_key, ''), COALESCE(c.published_at, '')
+			c.captured_at, c.uploaded_at,
+			CASE
+				WHEN ? > 0 AND c.user_id = ? THEN c.latitude
+				WHEN ? > 0 AND EXISTS (SELECT 1 FROM capture_coordinate_unlocks cu WHERE cu.capture_id = c.id AND cu.viewer_user_id = ?) THEN c.latitude
+				ELSE NULL
+			END AS latitude,
+			CASE
+				WHEN ? > 0 AND c.user_id = ? THEN c.longitude
+				WHEN ? > 0 AND EXISTS (SELECT 1 FROM capture_coordinate_unlocks cu WHERE cu.capture_id = c.id AND cu.viewer_user_id = ?) THEN c.longitude
+				ELSE NULL
+			END AS longitude,
+			c.accuracy_meters, c.status, c.private_storage_key,
+			COALESCE(c.public_storage_key, ''), COALESCE(c.published_at, ''),
+			CASE
+				WHEN c.latitude IS NULL OR c.longitude IS NULL THEN 0
+				WHEN ? > 0 AND c.user_id = ? THEN 0
+				WHEN ? > 0 AND EXISTS (SELECT 1 FROM capture_coordinate_unlocks cu WHERE cu.capture_id = c.id AND cu.viewer_user_id = ?) THEN 0
+				ELSE 1
+			END AS coordinates_locked
 		FROM photo_captures c
 		JOIN users u ON c.user_id = u.id
 		WHERE c.status = 'published' AND c.public_storage_key IS NOT NULL AND c.public_storage_key != ''
 		ORDER BY c.published_at DESC, c.captured_at DESC
 		LIMIT ? OFFSET ?
-	`, limit, offset)
+	`,
+		viewerUserID, viewerUserID, viewerUserID, viewerUserID,
+		viewerUserID, viewerUserID, viewerUserID, viewerUserID,
+		viewerUserID, viewerUserID, viewerUserID, viewerUserID,
+		limit, offset,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -968,7 +1013,7 @@ func (db *DB) ListPublicCaptures(limit, offset int) ([]*models.Capture, error) {
 		if err := rows.Scan(
 			&c.ID, &c.UserID, &c.AuthorName, &c.AuthorAvatar, &c.ClientLocalID, &c.OriginalFileName, &c.ContentType, &c.SizeBytes, &c.Width, &c.Height,
 			&capturedAt, &uploadedAt, &c.Latitude, &c.Longitude, &c.AccuracyMeters, &c.Status, &c.PrivateStorageKey,
-			&c.PublicStorageKey, &publishedAt,
+			&c.PublicStorageKey, &publishedAt, &c.CoordinatesLocked,
 		); err != nil {
 			return nil, err
 		}
@@ -986,16 +1031,38 @@ func (db *DB) ListPublicCaptures(limit, offset int) ([]*models.Capture, error) {
 	return captures, nil
 }
 
-func (db *DB) getCapturesForPost(postID string) ([]*models.Capture, error) {
+func (db *DB) getCapturesForPost(postID string, viewerUserID int64) ([]*models.Capture, error) {
 	cRows, err := db.Query(`
 		SELECT c.id, c.user_id, COALESCE(c.client_local_id, ''), c.original_file_name, c.content_type, c.size_bytes, c.width, c.height,
-			c.captured_at, c.uploaded_at, c.latitude, c.longitude, c.accuracy_meters, c.status, c.private_storage_key,
-			COALESCE(c.public_storage_key, ''), COALESCE(c.published_at, '')
+			c.captured_at, c.uploaded_at,
+			CASE
+				WHEN ? > 0 AND c.user_id = ? THEN c.latitude
+				WHEN ? > 0 AND EXISTS (SELECT 1 FROM capture_coordinate_unlocks cu WHERE cu.capture_id = c.id AND cu.viewer_user_id = ?) THEN c.latitude
+				ELSE NULL
+			END AS latitude,
+			CASE
+				WHEN ? > 0 AND c.user_id = ? THEN c.longitude
+				WHEN ? > 0 AND EXISTS (SELECT 1 FROM capture_coordinate_unlocks cu WHERE cu.capture_id = c.id AND cu.viewer_user_id = ?) THEN c.longitude
+				ELSE NULL
+			END AS longitude,
+			c.accuracy_meters, c.status, c.private_storage_key,
+			COALESCE(c.public_storage_key, ''), COALESCE(c.published_at, ''),
+			CASE
+				WHEN c.latitude IS NULL OR c.longitude IS NULL THEN 0
+				WHEN ? > 0 AND c.user_id = ? THEN 0
+				WHEN ? > 0 AND EXISTS (SELECT 1 FROM capture_coordinate_unlocks cu WHERE cu.capture_id = c.id AND cu.viewer_user_id = ?) THEN 0
+				ELSE 1
+			END AS coordinates_locked
 		FROM photo_captures c
 		JOIN post_captures pc ON c.id = pc.capture_id
 		WHERE pc.post_id = ?
 		ORDER BY pc.display_order ASC
-	`, postID)
+	`,
+		viewerUserID, viewerUserID, viewerUserID, viewerUserID,
+		viewerUserID, viewerUserID, viewerUserID, viewerUserID,
+		viewerUserID, viewerUserID, viewerUserID, viewerUserID,
+		postID,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1008,7 +1075,7 @@ func (db *DB) getCapturesForPost(postID string) ([]*models.Capture, error) {
 		if err := cRows.Scan(
 			&c.ID, &c.UserID, &c.ClientLocalID, &c.OriginalFileName, &c.ContentType, &c.SizeBytes, &c.Width, &c.Height,
 			&capturedAt, &uploadedAt, &c.Latitude, &c.Longitude, &c.AccuracyMeters, &c.Status, &c.PrivateStorageKey,
-			&c.PublicStorageKey, &publishedAt,
+			&c.PublicStorageKey, &publishedAt, &c.CoordinatesLocked,
 		); err != nil {
 			return nil, err
 		}
@@ -1019,6 +1086,56 @@ func (db *DB) getCapturesForPost(postID string) ([]*models.Capture, error) {
 		}
 		captures = append(captures, &c)
 	}
+	return captures, nil
+}
+
+func (db *DB) UnlockCaptureCoordinates(captureID string, viewerUserID int64) error {
+	_, err := db.Exec(`
+		INSERT OR IGNORE INTO capture_coordinate_unlocks (capture_id, viewer_user_id)
+		VALUES (?, ?)
+	`, captureID, viewerUserID)
+	return err
+}
+
+func (db *DB) ListUnlockedCapturesByViewer(viewerUserID int64, limit, offset int) ([]*models.Capture, error) {
+	rows, err := db.Query(`
+		SELECT c.id, c.user_id, u.preferred_username, COALESCE(u.picture, ''), COALESCE(c.client_local_id, ''), c.original_file_name, c.content_type, c.size_bytes, c.width, c.height,
+			c.captured_at, c.uploaded_at, c.latitude, c.longitude, c.accuracy_meters, c.status, c.private_storage_key,
+			COALESCE(c.public_storage_key, ''), COALESCE(c.published_at, ''), 0 as coordinates_locked
+		FROM capture_coordinate_unlocks cu
+		JOIN photo_captures c ON c.id = cu.capture_id
+		JOIN users u ON c.user_id = u.id
+		WHERE cu.viewer_user_id = ? AND c.status = 'published' AND c.public_storage_key IS NOT NULL AND c.public_storage_key != ''
+		ORDER BY cu.created_at DESC
+		LIMIT ? OFFSET ?
+	`, viewerUserID, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var captures []*models.Capture
+	for rows.Next() {
+		var c models.Capture
+		var capturedAt, uploadedAt, publishedAt string
+		if err := rows.Scan(
+			&c.ID, &c.UserID, &c.AuthorName, &c.AuthorAvatar, &c.ClientLocalID, &c.OriginalFileName, &c.ContentType, &c.SizeBytes, &c.Width, &c.Height,
+			&capturedAt, &uploadedAt, &c.Latitude, &c.Longitude, &c.AccuracyMeters, &c.Status, &c.PrivateStorageKey,
+			&c.PublicStorageKey, &publishedAt, &c.CoordinatesLocked,
+		); err != nil {
+			return nil, err
+		}
+		c.CapturedAt, _ = time.Parse(time.RFC3339, capturedAt)
+		c.UploadedAt, _ = time.Parse(time.RFC3339, uploadedAt)
+		if publishedAt != "" {
+			c.PublishedAt, _ = time.Parse(time.RFC3339, publishedAt)
+		}
+		captures = append(captures, &c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
 	return captures, nil
 }
 

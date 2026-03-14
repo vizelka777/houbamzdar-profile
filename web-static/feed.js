@@ -208,7 +208,7 @@ function renderPosts(postsToRender, container) {
                     : `${API_URL}/api/captures/${encodeURIComponent(capture.id)}/preview`;
                 captureUrls.push(url);
                 capturesHtml += `<img src="${url}" class="feed-photo" loading="lazy" data-idx="${idx}">`;
-                if (capture.latitude && capture.longitude) {
+                if (capture.latitude && capture.longitude && !capture.coordinates_locked) {
                     hasCoords = true;
                     mapData.push({ lat: capture.latitude, lon: capture.longitude });
                 }
@@ -219,7 +219,10 @@ function renderPosts(postsToRender, container) {
         const mapId = `feed-map-${post.id}`;
         let mapBtnHtml = "";
         let mapDivHtml = "";
-        if (hasCoords) {
+        const lockedCapture = (post.captures || []).find((capture) => capture.coordinates_locked);
+        if (lockedCapture) {
+            mapBtnHtml = `<button class="btn btn-secondary unlock-coordinates-btn" data-capture-id="${escapeHtml(lockedCapture.id)}" style="margin-left:auto; font-size: 0.8rem; padding: 0.2rem 0.5rem;">Открыть координаты за 1 houbičku</button>`;
+        } else if (hasCoords) {
             mapBtnHtml = `<button class="btn btn-secondary map-toggle-btn" data-target="${mapId}" style="margin-left:auto; font-size: 0.8rem; padding: 0.2rem 0.5rem;">Zobrazit na mapě</button>`;
             mapDivHtml = `<div id="${mapId}" class="feed-map-container"></div>`;
         }
@@ -300,6 +303,27 @@ function renderPosts(postsToRender, container) {
             });
         }
 
+
+        const unlockBtn = card.querySelector(".unlock-coordinates-btn");
+        if (unlockBtn) {
+            unlockBtn.addEventListener("click", async () => {
+                const captureID = unlockBtn.dataset.captureId;
+                if (!captureID) return;
+
+                unlockBtn.disabled = true;
+                unlockBtn.textContent = "Otevírám...";
+                try {
+                    const res = await apiPost(`/api/captures/${encodeURIComponent(captureID)}/unlock-coordinates`);
+                    if (!res || !res.ok) throw new Error("Unlock failed");
+                    await loadFeed(false);
+                } catch (error) {
+                    console.error("Failed to unlock coordinates", error);
+                    unlockBtn.disabled = false;
+                    unlockBtn.textContent = "Открыть координаты за 1 houbičku";
+                }
+            });
+        }
+
         if (hasCoords && typeof L !== "undefined") {
             const toggleBtn = card.querySelector(".map-toggle-btn");
             const mapDiv = document.getElementById(mapId);
@@ -340,8 +364,10 @@ function renderPosts(postsToRender, container) {
             photo.addEventListener("click", (event) => {
                 window.lightboxImages = captureUrls;
                 window.lightboxMapData = post.captures.map((capture) =>
-                    (capture.latitude && capture.longitude) ? { lat: capture.latitude, lon: capture.longitude } : null
+                    (capture.latitude && capture.longitude && !capture.coordinates_locked) ? { lat: capture.latitude, lon: capture.longitude } : null
                 );
+                window.lightboxCaptureIds = post.captures.map((capture) => capture.id || null);
+                window.lightboxCoordinatesLocked = post.captures.map((capture) => Boolean(capture.coordinates_locked));
                 window.currentLightboxIndex = parseInt(event.target.dataset.idx, 10);
                 if (typeof openLightbox === "function") openLightbox();
             });
