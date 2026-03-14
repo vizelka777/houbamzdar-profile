@@ -7,14 +7,53 @@ const state = {
     me: null
 };
 
-function findPostById(postID) {
-    return state.posts.find((post) => post.id === postID) || null;
+function activeSession() {
+    return state.session || window.appSession || null;
+}
+
+function activeUser() {
+    return state.me || window.appMe || null;
+}
+
+function findPostById(postID, postsStore = state.posts) {
+    return (postsStore || []).find((post) => post.id === postID) || null;
 }
 
 function formatCommentCount(count) {
     if (count === 1) return "1 komentář";
     if (count >= 2 && count <= 4) return `${count} komentáře`;
     return `${count} komentářů`;
+}
+
+function commentIsMine(comment) {
+    const me = activeUser();
+    return Boolean(me && comment && Number(comment.author_user_id) === Number(me.id));
+}
+
+function buildAuthorLinkHTML(userID, avatarURL, authorName, avatarClass, nameClass) {
+    const safeAvatar = escapeHtml(avatarURL || DEFAULT_AVATAR_URL);
+    const safeName = escapeHtml(authorName || "Registrovaný houbař");
+    const href = buildPublicProfileURL(userID);
+
+    return `
+        <a href="${escapeHtml(href)}" class="author-link">
+            <img src="${safeAvatar}" alt="${safeName}" class="${avatarClass}">
+            <span class="${nameClass}">${safeName}</span>
+        </a>
+    `;
+}
+
+function buildCommentActionsHtml(comment) {
+    if (!commentIsMine(comment)) {
+        return "";
+    }
+
+    return `
+        <div class="comment-actions">
+            <button type="button" class="btn btn-secondary comment-action-btn comment-edit-btn" data-comment-id="${escapeHtml(comment.id)}">Upravit</button>
+            <button type="button" class="btn btn-secondary comment-action-btn comment-delete-btn" data-comment-id="${escapeHtml(comment.id)}">Smazat</button>
+        </div>
+    `;
 }
 
 function buildCommentsListHtml(post) {
@@ -27,16 +66,30 @@ function buildCommentsListHtml(post) {
         const avatarUrl = comment.author_avatar || DEFAULT_AVATAR_URL;
         const authorName = comment.author_name || "Registrovaný houbař";
         const content = escapeHtml(comment.content || "").replace(/\n/g, "<br>");
+        const edited = comment.updated_at && comment.created_at && comment.updated_at !== comment.created_at
+            ? '<span class="comment-edited">upraveno</span>'
+            : "";
 
         return `
-            <article class="comment-item">
-                <img src="${escapeHtml(avatarUrl)}" alt="Avatar komentujícího" class="comment-avatar">
+            <article class="comment-item" data-comment-id="${escapeHtml(comment.id)}">
+                ${buildAuthorLinkHTML(comment.author_user_id, avatarUrl, authorName, "comment-avatar", "comment-author")}
                 <div class="comment-body">
                     <div class="comment-meta">
-                        <span class="comment-author">${escapeHtml(authorName)}</span>
-                        <span class="comment-date">${escapeHtml(formatDateTime(comment.created_at))}</span>
+                        <div class="comment-meta-copy">
+                            <span class="comment-date">${escapeHtml(formatDateTime(comment.created_at))}</span>
+                            ${edited}
+                        </div>
+                        ${buildCommentActionsHtml(comment)}
                     </div>
                     <div class="comment-text">${content}</div>
+                    <form class="comment-edit-form" data-comment-id="${escapeHtml(comment.id)}" hidden>
+                        <textarea class="comment-input comment-edit-input" maxlength="1000" required>${escapeHtml(comment.content || "")}</textarea>
+                        <div class="comment-form-row">
+                            <button type="button" class="btn btn-secondary comment-cancel-btn">Zrušit</button>
+                            <button type="submit" class="btn btn-primary comment-save-btn">Uložit</button>
+                        </div>
+                        <p class="status-message comment-status" aria-live="polite"></p>
+                    </form>
                 </div>
             </article>
         `;
@@ -45,7 +98,7 @@ function buildCommentsListHtml(post) {
 
 function buildCommentsSectionHtml(post) {
     const comments = Array.isArray(post.comments) ? post.comments : [];
-    const isLoggedIn = Boolean(state.session && state.session.logged_in);
+    const isLoggedIn = Boolean(activeSession() && activeSession().logged_in);
 
     const composerHtml = isLoggedIn
         ? `
@@ -85,15 +138,15 @@ function buildCommentsSectionHtml(post) {
     `;
 }
 
-function renderCommentsSection(card, post) {
+function renderCommentsSection(card, post, postsStore = state.posts) {
     const commentsPanel = card.querySelector(".comments-panel");
     if (!commentsPanel) return;
 
     commentsPanel.outerHTML = buildCommentsSectionHtml(post);
-    attachCommentFormHandler(card, post);
+    attachCommentSectionHandlers(card, post, postsStore);
 }
 
-function attachCommentFormHandler(card, post) {
+function attachCommentCreateHandler(card, post, postsStore) {
     const form = card.querySelector(".comment-form");
     if (!form) return;
 
@@ -120,19 +173,15 @@ function attachCommentFormHandler(card, post) {
             textarea.disabled = true;
             submitBtn.disabled = true;
 
-            const res = await apiPost(`/api/posts/${encodeURIComponent(post.id)}/comments`, {
-                content
-            });
-
+            const res = await apiPost(`/api/posts/${encodeURIComponent(post.id)}/comments`, { content });
             if (!res || !res.ok || !res.comment) {
                 throw new Error("Nepodařilo se odeslat komentář.");
             }
 
-            const targetPost = findPostById(post.id) || post;
+            const targetPost = findPostById(post.id, postsStore) || post;
             targetPost.comments = Array.isArray(targetPost.comments) ? targetPost.comments : [];
             targetPost.comments.push(res.comment);
-
-            renderCommentsSection(card, targetPost);
+            renderCommentsSection(card, targetPost, postsStore);
         } catch (error) {
             console.error("Failed to create comment", error);
             textarea.disabled = false;
@@ -142,62 +191,219 @@ function attachCommentFormHandler(card, post) {
     });
 }
 
-async function loadFeed(append = false) {
-    const container = document.getElementById("feed-container");
-    const loadMoreBtn = document.getElementById("load-more-feed-btn");
+function attachCommentEditHandlers(card, post, postsStore) {
+    card.querySelectorAll(".comment-edit-btn").forEach((button) => {
+        button.addEventListener("click", () => {
+            const commentItem = button.closest(".comment-item");
+            const editForm = commentItem.querySelector(".comment-edit-form");
+            const commentText = commentItem.querySelector(".comment-text");
+            if (!editForm || !commentText) return;
 
-    if (!append) {
-        container.innerHTML = '<p class="muted-copy" style="text-align: center;">Načítám příspěvky...</p>';
-    }
+            commentText.hidden = true;
+            editForm.hidden = false;
+            editForm.querySelector(".comment-edit-input")?.focus();
+        });
+    });
 
-    try {
-        const offset = (state.page - 1) * state.pageSize;
-        const res = await apiGet(`/api/public/posts?limit=${state.pageSize}&offset=${offset}`);
+    card.querySelectorAll(".comment-cancel-btn").forEach((button) => {
+        button.addEventListener("click", () => {
+            const commentItem = button.closest(".comment-item");
+            const editForm = commentItem.querySelector(".comment-edit-form");
+            const commentText = commentItem.querySelector(".comment-text");
+            if (!editForm || !commentText) return;
 
-        if (res && res.ok) {
-            const newPosts = res.posts || [];
-            state.hasMore = newPosts.length >= state.pageSize;
+            editForm.hidden = true;
+            commentText.hidden = false;
+        });
+    });
 
-            if (append) {
-                state.posts = state.posts.concat(newPosts);
-            } else {
-                state.posts = newPosts;
-                container.innerHTML = "";
-            }
+    card.querySelectorAll(".comment-edit-form").forEach((form) => {
+        form.addEventListener("submit", async (event) => {
+            event.preventDefault();
 
-            if (state.posts.length === 0) {
-                container.innerHTML = '<p class="muted-copy" style="text-align: center;">Zatím nejsou žádné příspěvky k zobrazení.</p>';
-                if (loadMoreBtn) loadMoreBtn.style.display = "none";
+            const commentID = form.dataset.commentId;
+            const input = form.querySelector(".comment-edit-input");
+            const saveBtn = form.querySelector(".comment-save-btn");
+            const cancelBtn = form.querySelector(".comment-cancel-btn");
+            const statusNode = form.querySelector(".comment-status");
+            const content = (input?.value || "").trim();
+
+            if (!content) {
+                setStatusMessage(statusNode, "Komentář nesmí být prázdný.", "error");
                 return;
             }
 
-            renderPosts(newPosts, container);
+            try {
+                if (input) input.disabled = true;
+                if (saveBtn) saveBtn.disabled = true;
+                if (cancelBtn) cancelBtn.disabled = true;
+                setStatusMessage(statusNode, "Ukládám komentář...");
 
-            if (loadMoreBtn) {
-                loadMoreBtn.style.display = state.hasMore ? "inline-block" : "none";
+                const res = await apiPut(`/api/posts/${encodeURIComponent(post.id)}/comments/${encodeURIComponent(commentID)}`, { content });
+                if (!res || !res.ok || !res.comment) {
+                    throw new Error("Nepodařilo se uložit komentář.");
+                }
+
+                const targetPost = findPostById(post.id, postsStore) || post;
+                targetPost.comments = (targetPost.comments || []).map((comment) => (
+                    comment.id === commentID ? res.comment : comment
+                ));
+                renderCommentsSection(card, targetPost, postsStore);
+            } catch (error) {
+                console.error("Failed to update comment", error);
+                if (input) input.disabled = false;
+                if (saveBtn) saveBtn.disabled = false;
+                if (cancelBtn) cancelBtn.disabled = false;
+                setStatusMessage(statusNode, error.message || "Komentář se nepodařilo uložit.", "error");
             }
+        });
+    });
+}
+
+function attachCommentDeleteHandlers(card, post, postsStore) {
+    card.querySelectorAll(".comment-delete-btn").forEach((button) => {
+        button.addEventListener("click", async () => {
+            const commentID = button.dataset.commentId;
+            if (!commentID) return;
+            if (!window.confirm("Opravdu chcete komentář smazat?")) {
+                return;
+            }
+
+            button.disabled = true;
+
+            try {
+                const res = await apiDelete(`/api/posts/${encodeURIComponent(post.id)}/comments/${encodeURIComponent(commentID)}`);
+                if (!res || !res.ok) {
+                    throw new Error("Komentář se nepodařilo smazat.");
+                }
+
+                const targetPost = findPostById(post.id, postsStore) || post;
+                targetPost.comments = (targetPost.comments || []).filter((comment) => comment.id !== commentID);
+                renderCommentsSection(card, targetPost, postsStore);
+            } catch (error) {
+                console.error("Failed to delete comment", error);
+                button.disabled = false;
+                window.alert(error.message || "Komentář se nepodařilo smazat.");
+            }
+        });
+    });
+}
+
+function attachCommentSectionHandlers(card, post, postsStore = state.posts) {
+    attachCommentCreateHandler(card, post, postsStore);
+    attachCommentEditHandlers(card, post, postsStore);
+    attachCommentDeleteHandlers(card, post, postsStore);
+}
+
+function attachInlineMapToggle(card, post, mapId, mapData) {
+    if (!mapData.length || typeof L === "undefined") {
+        return;
+    }
+
+    const toggleBtn = card.querySelector(".map-toggle-btn");
+    const mapDiv = document.getElementById(mapId);
+    let mapInitialized = false;
+
+    if (!toggleBtn || !mapDiv) {
+        return;
+    }
+
+    toggleBtn.addEventListener("click", () => {
+        if (mapDiv.style.display === "block") {
+            mapDiv.style.display = "none";
+            toggleBtn.textContent = "Zobrazit na mapě";
+            return;
         }
-    } catch (e) {
-        console.error("Failed to load feed", e);
-        if (!append) {
-            container.innerHTML = '<p class="muted-copy" style="text-align: center;">Chyba při načítání zdi.</p>';
+
+        mapDiv.style.display = "block";
+        toggleBtn.textContent = "Skrýt mapu";
+
+        if (!mapInitialized) {
+            const postMap = L.map(mapId).setView([mapData[0].lat, mapData[0].lon], 13);
+            mapDiv._leaflet_map = postMap;
+            L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+                attribution: "&copy; OpenStreetMap"
+            }).addTo(postMap);
+
+            const bounds = L.latLngBounds();
+            mapData.forEach((point) => {
+                L.marker([point.lat, point.lon]).addTo(postMap);
+                bounds.extend([point.lat, point.lon]);
+            });
+
+            if (mapData.length > 1) {
+                postMap.fitBounds(bounds, { padding: [10, 10] });
+            }
+            mapInitialized = true;
+            return;
         }
+
+        const existingMap = mapDiv._leaflet_map;
+        if (existingMap) {
+            existingMap.invalidateSize();
+        }
+    });
+}
+
+function attachPostManagementHandlers(card, post, postsStore, options) {
+    const me = activeUser();
+    const canManage = Boolean(options.allowPostManagement && me && Number(me.id) === Number(post.author_user_id));
+    if (!canManage) {
+        return;
+    }
+
+    const editBtn = card.querySelector(".post-edit-btn");
+    const deleteBtn = card.querySelector(".post-delete-btn");
+
+    if (editBtn) {
+        editBtn.addEventListener("click", () => {
+            window.location.href = `/edit-post.html?id=${encodeURIComponent(post.id)}`;
+        });
+    }
+
+    if (deleteBtn) {
+        deleteBtn.addEventListener("click", async () => {
+            if (!window.confirm("Opravdu chcete tuto publikaci smazat?")) {
+                return;
+            }
+
+            deleteBtn.disabled = true;
+            try {
+                const res = await apiDelete(`/api/posts/${encodeURIComponent(post.id)}`);
+                if (!res || !res.ok) {
+                    throw new Error("Publikaci se nepodařilo smazat.");
+                }
+
+                const nextPosts = postsStore.filter((item) => item.id !== post.id);
+                postsStore.length = 0;
+                nextPosts.forEach((item) => postsStore.push(item));
+                card.remove();
+
+                if (typeof options.onPostDeleted === "function") {
+                    options.onPostDeleted(post, nextPosts);
+                }
+            } catch (error) {
+                console.error("Failed to delete post", error);
+                deleteBtn.disabled = false;
+                window.alert(error.message || "Publikaci se nepodařilo smazat.");
+            }
+        });
     }
 }
 
-function renderPosts(postsToRender, container) {
-    const isLoggedIn = Boolean(state.session && state.session.logged_in);
+function renderPosts(postsToRender, container, options = {}) {
+    const postsStore = options.postsStore || state.posts;
+    const isLoggedIn = Boolean(activeSession() && activeSession().logged_in);
+    const me = activeUser();
 
     postsToRender.forEach((post) => {
         const card = document.createElement("article");
         card.className = "card feed-card";
 
-        const avatarUrl = post.author_avatar || "/default-avatar.png";
+        const avatarUrl = post.author_avatar || DEFAULT_AVATAR_URL;
         const authorName = post.author_name || "Neznámý houbař";
 
         let capturesHtml = "";
-        const captureUrls = [];
-        let hasCoords = false;
         const mapData = [];
 
         if (post.captures && post.captures.length > 0) {
@@ -205,7 +411,6 @@ function renderPosts(postsToRender, container) {
             post.captures.forEach((capture, idx) => {
                 const url = escapeHtml(buildCaptureImageURL(capture));
                 const accessBadge = buildCaptureAccessBadgeHtml(capture);
-                captureUrls.push(url);
                 capturesHtml += `
                     <div class="feed-photo-frame">
                         <img src="${url}" class="feed-photo" loading="lazy" data-idx="${idx}">
@@ -213,7 +418,6 @@ function renderPosts(postsToRender, container) {
                     </div>
                 `;
                 if (captureHasCoordinates(capture)) {
-                    hasCoords = true;
                     mapData.push(buildCaptureMapData(capture));
                 }
             });
@@ -221,20 +425,26 @@ function renderPosts(postsToRender, container) {
         }
 
         const mapId = `feed-map-${post.id}`;
-        let mapBtnHtml = "";
-        let mapDivHtml = "";
-        if (hasCoords) {
-            mapBtnHtml = `<button class="btn btn-secondary map-toggle-btn" data-target="${mapId}" style="margin-left:auto; font-size: 0.8rem; padding: 0.2rem 0.5rem;">Zobrazit na mapě</button>`;
-            mapDivHtml = `<div id="${mapId}" class="feed-map-container"></div>`;
-        }
-
+        const hasCoords = mapData.length > 0;
+        const mapBtnHtml = hasCoords
+            ? `<button class="btn btn-secondary map-toggle-btn" data-target="${mapId}">Zobrazit na mapě</button>`
+            : "";
+        const mapDivHtml = hasCoords ? `<div id="${mapId}" class="feed-map-container"></div>` : "";
         const activeClass = post.is_liked_by_me ? "active" : "";
+        const canManage = Boolean(options.allowPostManagement && me && Number(me.id) === Number(post.author_user_id));
+        const managementHtml = canManage
+            ? `
+                <div class="post-management-row">
+                    <button type="button" class="btn btn-secondary post-edit-btn">Upravit publikaci</button>
+                    <button type="button" class="btn btn-secondary post-delete-btn">Smazat publikaci</button>
+                </div>
+            `
+            : "";
 
         card.innerHTML = `
             <div class="feed-header">
-                <img src="${escapeHtml(avatarUrl)}" alt="Avatar" class="feed-avatar">
+                ${buildAuthorLinkHTML(post.author_user_id, avatarUrl, authorName, "feed-avatar", "feed-author")}
                 <div class="feed-meta">
-                    <span class="feed-author">${escapeHtml(authorName)}</span>
                     <span class="feed-date">${escapeHtml(formatDateTime(post.created_at))}</span>
                 </div>
             </div>
@@ -243,7 +453,8 @@ function renderPosts(postsToRender, container) {
             </div>
             ${capturesHtml}
             ${mapDivHtml}
-            <div class="feed-actions" style="display: flex; justify-content: flex-start; align-items: center; gap: 1rem;">
+            ${managementHtml}
+            <div class="feed-actions">
                 <button class="like-btn ${activeClass}" data-id="${post.id}">
                     <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
@@ -257,19 +468,16 @@ function renderPosts(postsToRender, container) {
 
         container.appendChild(card);
 
-        // Обработчик лайка
         const likeBtn = card.querySelector(".like-btn");
         if (likeBtn) {
             let likeRequestInFlight = false;
             likeBtn.addEventListener("click", async () => {
                 if (likeRequestInFlight) return;
-
                 if (!isLoggedIn) {
                     window.location.href = `${API_URL}/auth/login?next=feed`;
                     return;
                 }
 
-                // Optimistic UI
                 const wasActive = likeBtn.classList.contains("active");
                 const countNode = likeBtn.querySelector("span");
                 const currentCount = parseInt(countNode.textContent, 10) || 0;
@@ -281,22 +489,18 @@ function renderPosts(postsToRender, container) {
 
                 try {
                     const res = await apiPost(`/api/posts/${encodeURIComponent(post.id)}/like`);
-                    if (res && res.ok) {
-                        countNode.textContent = res.likes_count;
-                        if (res.is_liked) likeBtn.classList.add("active");
-                        else likeBtn.classList.remove("active");
-                        
-                        // Update state
-                        post.likes_count = res.likes_count;
-                        post.is_liked_by_me = res.is_liked;
-                    } else {
-                        throw new Error();
+                    if (!res || !res.ok) {
+                        throw new Error("Nepodařilo se změnit lajk.");
                     }
-                } catch (e) {
-                    // Rollback
+
+                    countNode.textContent = res.likes_count;
+                    likeBtn.classList.toggle("active", Boolean(res.is_liked));
+                    post.likes_count = res.likes_count;
+                    post.is_liked_by_me = res.is_liked;
+                } catch (error) {
                     likeBtn.classList.toggle("active", wasActive);
                     countNode.textContent = currentCount;
-                    console.error("Failed to toggle like", e);
+                    console.error("Failed to toggle like", error);
                 } finally {
                     likeRequestInFlight = false;
                     likeBtn.disabled = false;
@@ -304,54 +508,72 @@ function renderPosts(postsToRender, container) {
             });
         }
 
-        if (hasCoords && typeof L !== "undefined") {
-            const toggleBtn = card.querySelector(".map-toggle-btn");
-            const mapDiv = document.getElementById(mapId);
-            let mapInitialized = false;
+        attachInlineMapToggle(card, post, mapId, mapData);
 
-            if (toggleBtn && mapDiv) {
-                toggleBtn.addEventListener("click", () => {
-                    if (mapDiv.style.display === "block") {
-                        mapDiv.style.display = "none";
-                        toggleBtn.textContent = "Zobrazit na mapě";
-                    } else {
-                        mapDiv.style.display = "block";
-                        toggleBtn.textContent = "Skrýt mapu";
-                        if (!mapInitialized) {
-                            const postMap = L.map(mapId).setView([mapData[0].lat, mapData[0].lon], 13);
-                            L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-                                attribution: "&copy; OpenStreetMap"
-                            }).addTo(postMap);
-
-                            const bounds = L.latLngBounds();
-                            mapData.forEach((point) => {
-                                L.marker([point.lat, point.lon]).addTo(postMap);
-                                bounds.extend([point.lat, point.lon]);
-                            });
-
-                            if (mapData.length > 1) {
-                                postMap.fitBounds(bounds, { padding: [10, 10] });
-                            }
-                            mapInitialized = true;
-                        }
-                    }
-                });
-            }
-        }
-
-        const photos = card.querySelectorAll(".feed-photo");
-        photos.forEach((photo) => {
+        card.querySelectorAll(".feed-photo").forEach((photo) => {
             photo.addEventListener("click", (event) => {
                 window.lightboxImages = post.captures.map((capture) => buildCaptureImageURL(capture));
                 window.lightboxCaptureData = post.captures;
                 window.lightboxMapData = post.captures.map((capture) => buildCaptureMapData(capture));
                 window.currentLightboxIndex = parseInt(event.target.dataset.idx, 10);
-                if (typeof openLightbox === "function") openLightbox();
+                if (typeof openLightbox === "function") {
+                    openLightbox();
+                }
             });
         });
 
-        attachCommentFormHandler(card, post);
+        attachPostManagementHandlers(card, post, postsStore, options);
+        attachCommentSectionHandlers(card, post, postsStore);
     });
+}
+
+window.hzdFeedUI = {
+    renderPosts
+};
+
+async function loadFeed(append = false) {
+    const container = document.getElementById("feed-container");
+    const loadMoreBtn = document.getElementById("load-more-feed-btn");
+
+    if (!append) {
+        container.innerHTML = '<p class="muted-copy" style="text-align: center;">Načítám příspěvky...</p>';
+    }
+
+    try {
+        const offset = (state.page - 1) * state.pageSize;
+        const res = await apiGet(`/api/public/posts?limit=${state.pageSize}&offset=${offset}`);
+
+        if (!res || !res.ok) {
+            throw new Error("Nepodařilo se načíst příspěvky.");
+        }
+
+        const newPosts = res.posts || [];
+        state.hasMore = newPosts.length >= state.pageSize;
+
+        if (append) {
+            state.posts = state.posts.concat(newPosts);
+        } else {
+            state.posts = newPosts;
+            container.innerHTML = "";
+        }
+
+        if (state.posts.length === 0) {
+            container.innerHTML = '<p class="muted-copy" style="text-align: center;">Zatím nejsou žádné příspěvky k zobrazení.</p>';
+            if (loadMoreBtn) loadMoreBtn.style.display = "none";
+            return;
+        }
+
+        renderPosts(newPosts, container, { postsStore: state.posts });
+
+        if (loadMoreBtn) {
+            loadMoreBtn.style.display = state.hasMore ? "inline-block" : "none";
+        }
+    } catch (error) {
+        console.error("Failed to load feed", error);
+        if (!append) {
+            container.innerHTML = '<p class="muted-copy" style="text-align: center;">Chyba při načítání zdi.</p>';
+        }
+    }
 }
 
 async function initFeedPage() {
@@ -368,7 +590,7 @@ async function initFeedPage() {
     if (loadMoreBtn) {
         loadMoreBtn.addEventListener("click", () => {
             if (state.hasMore) {
-                state.page++;
+                state.page += 1;
                 loadFeed(true);
             }
         });

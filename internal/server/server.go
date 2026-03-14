@@ -56,6 +56,9 @@ func (s *Server) setupRoutes() {
 	s.Router.Post("/auth/logout", s.handleLogout)
 
 	s.Router.Get("/api/session", s.handleSession)
+	s.Router.Get("/api/public/users/{userID}", s.handleGetPublicUserProfile)
+	s.Router.Get("/api/public/users/{userID}/posts", s.handleListPublicUserPosts)
+	s.Router.Get("/api/public/users/{userID}/captures", s.handleListPublicUserCaptures)
 	s.Router.Get("/api/public/posts", s.handleListPublicPosts)
 	s.Router.Get("/api/public/captures", s.handleListPublicCaptures)
 
@@ -77,6 +80,8 @@ func (s *Server) setupRoutes() {
 		r.Post("/api/posts", s.handleCreatePost)
 		r.Get("/api/posts/{postID}", s.handleGetPost)
 		r.Post("/api/posts/{postID}/comments", s.handleCreatePostComment)
+		r.Put("/api/posts/{postID}/comments/{commentID}", s.handleUpdatePostComment)
+		r.Delete("/api/posts/{postID}/comments/{commentID}", s.handleDeletePostComment)
 		r.Post("/api/posts/{postID}/like", s.handleTogglePostLike)
 		r.Put("/api/posts/{postID}", s.handleUpdatePost)
 		r.Delete("/api/posts/{postID}", s.handleDeletePost)

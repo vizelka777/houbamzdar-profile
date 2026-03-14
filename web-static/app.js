@@ -49,11 +49,60 @@ async function apiPost(path, body = null) {
     }
 }
 
+async function apiPut(path, body = null) {
+    try {
+        const options = {
+            method: "PUT",
+            credentials: "include",
+            headers: {}
+        };
+
+        if (body) {
+            options.headers["Content-Type"] = "application/json";
+            options.body = JSON.stringify(body);
+        }
+
+        const res = await fetch(`${API_URL}${path}`, options);
+        if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+        return await res.json();
+    } catch (e) {
+        console.error("API PUT Error", e);
+        return null;
+    }
+}
+
+async function apiDelete(path) {
+    try {
+        const res = await fetch(`${API_URL}${path}`, {
+            method: "DELETE",
+            credentials: "include"
+        });
+        if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+        return await res.json();
+    } catch (e) {
+        console.error("API DELETE Error", e);
+        return null;
+    }
+}
+
 function createLinkButton(label, href, className) {
     const link = document.createElement("a");
     link.className = `btn ${className}`;
     link.href = href;
     link.textContent = label;
+    return link;
+}
+
+function createIconLinkButton(href, label, iconSVG, className) {
+    const link = document.createElement("a");
+    link.className = `btn ${className} btn-icon`;
+    link.href = href;
+    link.setAttribute("aria-label", label);
+    link.setAttribute("title", label);
+    link.innerHTML = `
+        <span class="btn-icon-glyph" aria-hidden="true">${iconSVG}</span>
+        <span class="sr-only">${escapeHtml(label)}</span>
+    `;
     return link;
 }
 
@@ -87,6 +136,13 @@ function formatHoubickaCount(value) {
     if (amount === 1) return "1 houbička";
     if (amount >= 2 && amount <= 4) return `${amount} houbičky`;
     return `${amount} houbiček`;
+}
+
+function buildPublicProfileURL(userID) {
+    if (!userID) {
+        return "/public-profile.html";
+    }
+    return `/public-profile.html?user=${encodeURIComponent(userID)}`;
 }
 
 function buildCaptureImageURL(capture) {
@@ -266,9 +322,14 @@ function renderHeader(session, profile = null) {
         greeting.className = "user-greeting";
         greeting.textContent = `Ahoj, ${session.user?.preferred_username || "hoste"}`;
 
+        const cameraIcon = `
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 7h3l1.4-2h7.2L17 7h3a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2zm8 2.5A4.5 4.5 0 1 0 12 18a4.5 4.5 0 0 0 0-9zm0 2A2.5 2.5 0 1 1 12 16a2.5 2.5 0 0 1 0-5z"></path>
+            </svg>
+        `;
+
         authButtons.appendChild(greeting);
-        authButtons.appendChild(createLinkButton("Vytvořit publikaci", "/create-post.html", "btn-secondary"));
-        authButtons.appendChild(createLinkButton("Vyfotit nález", "/capture.html", "btn-secondary"));
+        authButtons.appendChild(createIconLinkButton("/capture.html", "Vyfotit nebo přidat snímky", cameraIcon, "btn-secondary"));
         authButtons.appendChild(createLinkButton("Zeď úlovků", "/feed.html", "btn-secondary"));
         authButtons.appendChild(createLinkButton("Galerie", "/gallery.html", "btn-secondary"));
         authButtons.appendChild(createLinkButton("Mapa", "/map.html", "btn-secondary"));
@@ -421,55 +482,13 @@ async function initMePage() {
 
     renderSimpleList("houbicka-rules", bonusRules, "Bonusová pravidla se načtou později.");
 
-    const [viewedRes, capturesRes] = await Promise.all([
-        apiGet("/api/me/viewed-captures?limit=24&offset=0"),
-        apiGet("/api/captures?page_size=200")
-    ]);
+    const publicLink = document.getElementById("profile-public-link");
+    if (publicLink) {
+        publicLink.href = buildPublicProfileURL(me.id);
+    }
 
-    renderViewedCaptures(viewedRes && viewedRes.ok ? viewedRes.captures : []);
-
-    // Vykreslení soukromé mapy
-    const mapContainer = document.getElementById("private-map");
-    if (mapContainer && typeof L !== 'undefined') {
-        if (capturesRes && capturesRes.ok && capturesRes.captures) {
-            const captures = capturesRes.captures;
-            const map = L.map('private-map').setView([49.8, 15.5], 7);
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '&copy; OpenStreetMap'
-            }).addTo(map);
-
-            const bounds = L.latLngBounds();
-            let hasValidPoints = false;
-
-            captures.forEach(capture => {
-                if (capture.latitude && capture.longitude) {
-                    hasValidPoints = true;
-                    const lat = parseFloat(capture.latitude);
-                    const lon = parseFloat(capture.longitude);
-                    if (!isNaN(lat) && !isNaN(lon)) {
-                        const marker = L.marker([lat, lon]).addTo(map);
-                        bounds.extend([lat, lon]);
-
-                        const imgUrl = capture.public_url ? escapeHtml(capture.public_url) : `${API_URL}/api/captures/${encodeURIComponent(capture.id)}/preview`;
-                        const date = escapeHtml(formatDateTime(capture.captured_at));
-                        const status = capture.status === "published" ? "Veřejné" : "Soukromé";
-                        
-                        marker.bindPopup(`
-                            <div style="text-align:center;">
-                                <a href="${imgUrl}" target="_blank"><img src="${imgUrl}" style="max-width:150px; max-height:150px; border-radius:4px; margin-bottom:5px;"></a>
-                                <p style="margin:0; font-size:12px;">${date}<br><b>${status}</b></p>
-                            </div>
-                        `);
-                    }
-                }
-            });
-
-            if (hasValidPoints) {
-                map.fitBounds(bounds, { padding: [20, 20] });
-            } else {
-                mapContainer.innerHTML = '<p class="muted-copy" style="text-align:center; padding: 2rem;">Zatím nemáte žádné fotky s polohou.</p>';
-            }
-        }
+    if (typeof window.initProfileActivityMap === "function") {
+        await window.initProfileActivityMap();
     }
 }
 
@@ -500,176 +519,257 @@ function setupAboutEditor(initialValue, onSaved) {
     });
 }
 
-async function initPublicProfilePage() {
-    const session = await apiGet("/api/session");
-    if (!session || !session.logged_in) {
-        window.location.href = "/";
+const publicProfileState = {
+    requestedUserID: 0,
+    isOwner: false,
+    user: null,
+    posts: [],
+    captures: [],
+    postsLimit: 6,
+    capturesLimit: 60,
+    postsOffset: 0,
+    capturesOffset: 0,
+    postsHasMore: false,
+    capturesHasMore: false,
+    map: null,
+    markerLayer: null
+};
+
+function buildPublicTrustProfile(profile) {
+    const score =
+        (profile.preferred_username ? 28 : 0) +
+        (profile.picture ? 22 : 0) +
+        (profile.about_me ? 18 : 0) +
+        (profile.email_verified ? 16 : 0) +
+        (profile.phone_verified ? 16 : 0);
+
+    let trustLabel = "Rozpracovaný profil";
+    if (score >= 80) {
+        trustLabel = "Silný veřejný profil";
+    } else if (score >= 55) {
+        trustLabel = "Důvěryhodný profil";
+    }
+
+    return {
+        score: Math.min(score, 100),
+        trustLabel
+    };
+}
+
+function ensurePublicProfileMap() {
+    const mapNode = document.getElementById("public-map");
+    if (!mapNode || typeof L === "undefined") {
+        return null;
+    }
+
+    if (!publicProfileState.map) {
+        publicProfileState.map = L.map("public-map").setView([49.8, 15.5], 7);
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+            attribution: "&copy; OpenStreetMap"
+        }).addTo(publicProfileState.map);
+        publicProfileState.markerLayer = L.layerGroup().addTo(publicProfileState.map);
+    }
+
+    return publicProfileState.map;
+}
+
+function renderPublicProfileMap() {
+    const map = ensurePublicProfileMap();
+    const emptyNode = document.getElementById("public-map-empty");
+    const summaryNode = document.getElementById("public-map-summary");
+    const loadMoreButton = document.getElementById("public-map-load-more-btn");
+    const captures = publicProfileState.captures.filter((capture) => captureHasCoordinates(capture));
+
+    if (summaryNode) {
+        summaryNode.textContent = `${captures.length} z ${publicProfileState.captures.length} načtených fotografií má souřadnice.`;
+    }
+    if (loadMoreButton) {
+        loadMoreButton.style.display = publicProfileState.capturesHasMore ? "inline-flex" : "none";
+    }
+
+    if (!map || !emptyNode) {
         return;
     }
 
-    const me = await apiGet("/api/me");
-    if (!me) return;
-    setAppIdentity(session, me);
+    publicProfileState.markerLayer?.clearLayers();
 
-    renderHeader(session, me);
-    renderProfilePicture("public-profile-picture", me.picture, "Veřejná profilová fotka");
-    setText("public-profile-name", me.preferred_username || "Bez veřejného jména");
-
-    const insights = buildProfileInsights(me);
-    setText(
-        "public-profile-trust",
-        `${insights.trustLabel}. Veřejné představení pomáhá ostatním poznat, kdo jste.`
-    );
-    setText("trust-score", `${insights.score} %`);
-    setText("trust-label", insights.trustLabel);
-    const trustFill = document.getElementById("trust-bar-fill");
-    if (trustFill) {
-        trustFill.style.width = `${insights.score}%`;
+    if (!captures.length) {
+        emptyNode.hidden = false;
+        emptyNode.textContent = "Zatím tu nejsou žádné veřejné fotografie s polohou.";
+        return;
     }
-    setText(
-        "public-about-preview",
-        me.about_me || "Zatím bez veřejného představení. Doplňte pár vět, ať profil působí živěji."
-    );
 
-    setupAboutEditor(me.about_me || "", (value) => {
-        setText(
-            "public-about-preview",
-            value || "Zatím bez veřejného představení. Doplňte pár vět, ať profil působí živěji."
-        );
+    emptyNode.hidden = true;
+
+    const bounds = L.latLngBounds();
+    captures.forEach((capture) => {
+        const marker = L.marker([Number(capture.latitude), Number(capture.longitude)]).addTo(publicProfileState.markerLayer);
+        bounds.extend([Number(capture.latitude), Number(capture.longitude)]);
+
+        marker.bindPopup(`
+            <div class="map-popup-content">
+                <a href="${escapeHtml(buildCaptureImageURL(capture))}" target="_blank" rel="noreferrer">
+                    <img src="${escapeHtml(buildCaptureImageURL(capture))}" alt="${escapeHtml(capture.author_name || "Fotografie")}" loading="lazy">
+                </a>
+                <h4>${escapeHtml(capture.author_name || publicProfileState.user?.preferred_username || "Neznámý houbař")}</h4>
+                <p>${escapeHtml(formatDateTime(capture.captured_at))}</p>
+            </div>
+        `);
     });
 
-    // Vykreslení veřejné mapy
-    const mapContainer = document.getElementById("public-map");
-    if (mapContainer && typeof L !== 'undefined') {
-        const capturesRes = await apiGet("/api/captures");
-        if (capturesRes && capturesRes.ok && capturesRes.captures) {
-            // Pouze veřejné fotky
-            const captures = capturesRes.captures.filter(c => c.status === "published");
-            const map = L.map('public-map').setView([49.8, 15.5], 7);
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '&copy; OpenStreetMap'
-            }).addTo(map);
+    if (bounds.isValid()) {
+        map.fitBounds(bounds, { padding: [30, 30] });
+    }
+}
 
-            const bounds = L.latLngBounds();
-            let hasValidPoints = false;
-
-            captures.forEach(capture => {
-                if (capture.latitude && capture.longitude) {
-                    hasValidPoints = true;
-                    const lat = parseFloat(capture.latitude);
-                    const lon = parseFloat(capture.longitude);
-                    if (!isNaN(lat) && !isNaN(lon)) {
-                        const marker = L.marker([lat, lon]).addTo(map);
-                        bounds.extend([lat, lon]);
-
-                        const imgUrl = capture.public_url ? escapeHtml(capture.public_url) : `${API_URL}/api/captures/${encodeURIComponent(capture.id)}/preview`;
-                        const date = escapeHtml(formatDateTime(capture.captured_at));
-                        
-                        marker.bindPopup(`
-                            <div style="text-align:center;">
-                                <a href="${imgUrl}" target="_blank"><img src="${imgUrl}" style="max-width:150px; max-height:150px; border-radius:4px; margin-bottom:5px;"></a>
-                                <p style="margin:0; font-size:12px;">${date}</p>
-                            </div>
-                        `);
-                    }
-                }
-            });
-
-            if (hasValidPoints) {
-                map.fitBounds(bounds, { padding: [20, 20] });
-            } else {
-                mapContainer.innerHTML = '<p class="muted-copy" style="text-align:center; padding: 2rem;">Zatím nemáte žádné veřejné fotky s polohou.</p>';
-            }
-        }
+async function loadPublicProfilePosts(append = false) {
+    const container = document.getElementById("public-posts-container");
+    const loadMoreButton = document.getElementById("public-posts-load-more-btn");
+    const summaryNode = document.getElementById("public-posts-summary");
+    if (!container || !publicProfileState.requestedUserID) {
+        return;
     }
 
-    const postsContainer = document.getElementById("public-posts-container");
-    if (postsContainer) {
-        try {
-            const postsRes = await apiGet("/api/posts?limit=10");
-            if (postsRes && postsRes.ok) {
-                const posts = postsRes.posts || [];
-                postsContainer.innerHTML = "";
-                if (posts.length === 0) {
-                    postsContainer.innerHTML = '<p class="muted-copy">Zatím žádné publikace.</p>';
-                } else {
-                    posts.forEach(post => {
-                        const postEl = document.createElement("div");
-                        postEl.style.padding = "1rem";
-                        postEl.style.border = "1px solid var(--border-color)";
-                        postEl.style.borderRadius = "var(--radius-sm)";
-                        
-                        let capturesHtml = "";
-                        let captureUrls = [];
-                        if (post.captures && post.captures.length > 0) {
-                            capturesHtml = '<div style="display: flex; gap: 0.5rem; margin-top: 1rem; overflow-x: auto;">';
-                            post.captures.forEach((c, idx) => {
-                                const url = c.public_url ? escapeHtml(c.public_url) : `${API_URL}/api/captures/${encodeURIComponent(c.id)}/preview`;
-                                captureUrls.push(url);
-                                capturesHtml += `<img src="${url}" class="public-post-photo" data-idx="${idx}" style="height: 100px; border-radius: var(--radius-sm); object-fit: cover; aspect-ratio: 1; cursor: pointer;" loading="lazy">`;
-                            });
-                            capturesHtml += '</div>';
-                        }
-
-                        postEl.innerHTML = `
-                            <div style="display: flex; justify-content: space-between; align-items: baseline;">
-                                <p style="margin-bottom: 0.5rem; font-size: 0.9rem;" class="muted-copy">${formatDateTime(post.created_at)}</p>
-                                <div>
-                                    <button class="btn btn-secondary post-edit-btn" data-id="${escapeHtml(post.id)}" style="padding: 0.2rem 0.5rem; font-size: 0.8rem; margin-right: 0.5rem;">Upravit</button>
-                                    <button class="btn btn-secondary post-delete-btn" data-id="${escapeHtml(post.id)}" style="padding: 0.2rem 0.5rem; font-size: 0.8rem; color: #d32f2f;">Smazat</button>
-                                </div>
-                            </div>
-                            <p>${escapeHtml(post.content).replace(/\n/g, '<br>')}</p>
-                            ${capturesHtml}
-                        `;
-                        postsContainer.appendChild(postEl);
-
-                        const editBtn = postEl.querySelector('.post-edit-btn');
-                        if (editBtn) {
-                            editBtn.addEventListener('click', () => {
-                                window.location.href = `/edit-post.html?id=${encodeURIComponent(post.id)}`;
-                            });
-                        }
-
-                        const deleteBtn = postEl.querySelector('.post-delete-btn');
-                        if (deleteBtn) {
-                            deleteBtn.addEventListener('click', async () => {
-                                if (confirm("Opravdu chcete tuto publikaci smazat?")) {
-                                    try {
-                                        const res = await fetch(`${API_URL}/api/posts/${encodeURIComponent(post.id)}`, {
-                                            method: "DELETE",
-                                            credentials: "include"
-                                        });
-                                        if (!res.ok) throw new Error("Delete failed");
-                                        postEl.remove();
-                                    } catch (e) {
-                                        console.error(e);
-                                        alert("Nepodařilo se smazat publikaci.");
-                                    }
-                                }
-                            });
-                        }
-
-                        const photos = postEl.querySelectorAll('.public-post-photo');
-                        photos.forEach(photo => {
-                            photo.addEventListener('click', (e) => {
-                                window.lightboxImages = post.captures.map((capture) => buildCaptureImageURL(capture));
-                                window.lightboxCaptureData = post.captures;
-                                window.lightboxMapData = post.captures.map((capture) => buildCaptureMapData(capture));
-                                window.currentLightboxIndex = parseInt(e.target.dataset.idx, 10);
-                                openLightbox();
-                            });
-                        });
-                    });
-                }
-            } else {
-                postsContainer.innerHTML = '<p class="muted-copy">Nepodařilo se načíst publikace.</p>';
-            }
-        } catch (e) {
-            console.error(e);
-            postsContainer.innerHTML = '<p class="muted-copy">Nepodařilo se načíst publikace.</p>';
-        }
+    if (!append) {
+        publicProfileState.posts = [];
+        publicProfileState.postsOffset = 0;
+        container.innerHTML = '<p class="muted-copy">Načítám publikace...</p>';
     }
+
+    const result = await apiGet(`/api/public/users/${encodeURIComponent(publicProfileState.requestedUserID)}/posts?limit=${publicProfileState.postsLimit}&offset=${publicProfileState.postsOffset}`);
+    if (!result || !result.ok) {
+        container.innerHTML = '<p class="muted-copy">Nepodařilo se načíst publikace.</p>';
+        if (loadMoreButton) loadMoreButton.style.display = "none";
+        return;
+    }
+
+    const posts = result.posts || [];
+    publicProfileState.posts = publicProfileState.posts.concat(posts);
+    publicProfileState.postsOffset += posts.length;
+    publicProfileState.postsHasMore = Boolean(result.has_more);
+
+    container.innerHTML = "";
+    if (!publicProfileState.posts.length) {
+        container.innerHTML = '<p class="muted-copy">Zatím žádné publikace.</p>';
+    } else if (window.hzdFeedUI && typeof window.hzdFeedUI.renderPosts === "function") {
+        window.hzdFeedUI.renderPosts(publicProfileState.posts, container, {
+            postsStore: publicProfileState.posts,
+            allowPostManagement: publicProfileState.isOwner,
+            onPostDeleted: (_, nextPosts) => {
+                if (summaryNode) {
+                    summaryNode.textContent = `Načteno ${nextPosts.length} publikací.`;
+                }
+                if (!nextPosts.length) {
+                    container.innerHTML = '<p class="muted-copy">Zatím žádné publikace.</p>';
+                }
+            }
+        });
+    }
+
+    if (summaryNode) {
+        summaryNode.textContent = `Načteno ${publicProfileState.posts.length} z ${result.total || publicProfileState.posts.length} publikací.`;
+    }
+    if (loadMoreButton) {
+        loadMoreButton.style.display = publicProfileState.postsHasMore ? "inline-flex" : "none";
+    }
+}
+
+async function loadPublicProfileCaptures(append = false) {
+    if (!publicProfileState.requestedUserID) {
+        return;
+    }
+
+    if (!append) {
+        publicProfileState.captures = [];
+        publicProfileState.capturesOffset = 0;
+    }
+
+    const result = await apiGet(`/api/public/users/${encodeURIComponent(publicProfileState.requestedUserID)}/captures?limit=${publicProfileState.capturesLimit}&offset=${publicProfileState.capturesOffset}`);
+    if (!result || !result.ok) {
+        const emptyNode = document.getElementById("public-map-empty");
+        if (emptyNode) {
+            emptyNode.hidden = false;
+            emptyNode.textContent = "Nepodařilo se načíst veřejnou mapu.";
+        }
+        return;
+    }
+
+    const captures = result.captures || [];
+    publicProfileState.captures = publicProfileState.captures.concat(captures);
+    publicProfileState.capturesOffset += captures.length;
+    publicProfileState.capturesHasMore = Boolean(result.has_more);
+    renderPublicProfileMap();
+}
+
+async function initPublicProfilePage() {
+    const session = await apiGet("/api/session");
+    let me = null;
+    if (session && session.logged_in) {
+        me = await apiGet("/api/me");
+    }
+    setAppIdentity(session, me);
+    renderHeader(session, me);
+
+    const params = new URLSearchParams(window.location.search);
+    const requestedUserID = Number(params.get("user")) || Number(me && me.id) || 0;
+    if (!requestedUserID) {
+        setText("public-profile-name", "Profil nenalezen");
+        setText("public-profile-trust", "Vyberte uživatele z veřejné zdi nebo galerie.");
+        return;
+    }
+
+    publicProfileState.requestedUserID = requestedUserID;
+    publicProfileState.isOwner = Boolean(me && Number(me.id) === requestedUserID);
+
+    const profileRes = await apiGet(`/api/public/users/${encodeURIComponent(requestedUserID)}`);
+    if (!profileRes || !profileRes.ok || !profileRes.user) {
+        setText("public-profile-name", "Profil nenalezen");
+        setText("public-profile-trust", "Tento veřejný profil se nepodařilo načíst.");
+        return;
+    }
+
+    const profile = profileRes.user;
+    publicProfileState.user = profile;
+
+    const trust = buildPublicTrustProfile(profile);
+    renderProfilePicture("public-profile-picture", profile.picture, "Veřejná profilová fotka");
+    setText("public-profile-name", profile.preferred_username || "Bez veřejného jména");
+    setText("public-profile-trust", `${trust.trustLabel}. Veřejné publikace a mapa se načítají níže.`);
+    setText("trust-score", `${trust.score} %`);
+    setText("trust-label", trust.trustLabel);
+    setText("public-about-preview", profile.about_me || "Zatím bez veřejného představení.");
+    setText("public-profile-stats", `${profile.public_posts_count || 0} publikací · ${profile.public_captures_count || 0} veřejných fotografií`);
+
+    const trustFill = document.getElementById("trust-bar-fill");
+    if (trustFill) {
+        trustFill.style.width = `${trust.score}%`;
+    }
+
+    const ownerPanel = document.getElementById("public-owner-panel");
+    if (ownerPanel) {
+        ownerPanel.hidden = !publicProfileState.isOwner;
+    }
+
+    if (publicProfileState.isOwner) {
+        setupAboutEditor(profile.about_me || "", (value) => {
+            setText("public-about-preview", value || "Zatím bez veřejného představení.");
+        });
+    }
+
+    const postsLoadMore = document.getElementById("public-posts-load-more-btn");
+    if (postsLoadMore) {
+        postsLoadMore.addEventListener("click", () => loadPublicProfilePosts(true));
+    }
+
+    const mapLoadMore = document.getElementById("public-map-load-more-btn");
+    if (mapLoadMore) {
+        mapLoadMore.addEventListener("click", () => loadPublicProfileCaptures(true));
+    }
+
+    await Promise.all([
+        loadPublicProfilePosts(false),
+        loadPublicProfileCaptures(false)
+    ]);
 }
 
 // Společná Lightbox logika

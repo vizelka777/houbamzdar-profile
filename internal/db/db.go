@@ -558,6 +558,48 @@ func (db *DB) GetUser(id int64) (*models.User, error) {
 	return &user, err
 }
 
+func (db *DB) GetPublicUserProfile(id int64) (*models.PublicUserProfile, error) {
+	var (
+		profile                models.PublicUserProfile
+		createdAtRaw           string
+		emailVerifiedInt       int
+		phoneNumberVerifiedInt int
+	)
+
+	err := db.QueryRow(`
+		SELECT
+			id,
+			COALESCE(preferred_username, ''),
+			COALESCE(picture, ''),
+			COALESCE(about_me, ''),
+			email_verified,
+			phone_number_verified,
+			created_at,
+			(SELECT COUNT(*) FROM posts WHERE user_id = users.id AND status = 'published'),
+			(SELECT COUNT(*) FROM photo_captures WHERE user_id = users.id AND status = 'published' AND public_storage_key IS NOT NULL AND public_storage_key != '')
+		FROM users
+		WHERE id = ?
+	`, id).Scan(
+		&profile.ID,
+		&profile.PreferredUsername,
+		&profile.Picture,
+		&profile.AboutMe,
+		&emailVerifiedInt,
+		&phoneNumberVerifiedInt,
+		&createdAtRaw,
+		&profile.PublicPostsCount,
+		&profile.PublicCapturesCount,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	profile.EmailVerified = emailVerifiedInt == 1
+	profile.PhoneVerified = phoneNumberVerifiedInt == 1
+	profile.JoinedAt, _ = time.Parse(time.RFC3339, createdAtRaw)
+	return &profile, nil
+}
+
 func (db *DB) UpdateAboutMe(id int64, aboutMe string) error {
 	_, err := db.Exec("UPDATE users SET about_me = ?, updated_at = datetime('now') WHERE id = ?", aboutMe, id)
 	return err
@@ -769,6 +811,7 @@ func scanCapture(row scanner) (*models.Capture, error) {
 	}
 
 	capture.ClientLocalID = clientLocalID.String
+	capture.AuthorUserID = capture.UserID
 	capture.PublicStorageKey = publicStorageKey.String
 	capture.CapturedAt, _ = time.Parse(time.RFC3339, capturedAtRaw)
 	capture.UploadedAt, _ = time.Parse(time.RFC3339, uploadedAtRaw)
@@ -880,6 +923,7 @@ func (db *DB) GetPost(postID string, userID int64) (*models.Post, error) {
 
 	p.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
 	p.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
+	p.AuthorUserID = p.UserID
 
 	captures, err := db.getCapturesForPost(p.ID, userID)
 	if err != nil {
@@ -984,6 +1028,66 @@ func (db *DB) CreatePostComment(comment *models.Comment) error {
 	return err
 }
 
+func (db *DB) UpdatePostComment(postID, commentID string, userID int64, content string, updatedAt time.Time) (*models.Comment, error) {
+	tx, err := db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	result, err := tx.Exec(`
+		UPDATE post_comments
+		SET content = ?, updated_at = ?
+		WHERE id = ? AND post_id = ? AND user_id = ?
+	`, content, updatedAt.UTC().Format(time.RFC3339), commentID, postID, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return nil, err
+	}
+	if rowsAffected == 0 {
+		return nil, sql.ErrNoRows
+	}
+
+	comment, err := scanCommentRow(tx.QueryRow(`
+		SELECT pc.id, pc.post_id, pc.user_id, COALESCE(u.preferred_username, ''), COALESCE(u.picture, ''), pc.content, pc.created_at, pc.updated_at
+		FROM post_comments pc
+		JOIN users u ON pc.user_id = u.id
+		WHERE pc.id = ? AND pc.post_id = ?
+		LIMIT 1
+	`, commentID, postID))
+	if err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return comment, nil
+}
+
+func (db *DB) DeletePostComment(postID, commentID string, userID int64) error {
+	result, err := db.Exec(`
+		DELETE FROM post_comments
+		WHERE id = ? AND post_id = ? AND user_id = ?
+	`, commentID, postID, userID)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 func (db *DB) ListPosts(userID int64, limit, offset int) ([]*models.Post, error) {
 	rows, err := db.Query(`
 		SELECT id, user_id, content, status, created_at, updated_at,
@@ -1008,6 +1112,7 @@ func (db *DB) ListPosts(userID int64, limit, offset int) ([]*models.Post, error)
 		}
 		p.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
 		p.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
+		p.AuthorUserID = p.UserID
 		posts = append(posts, &p)
 	}
 	if err := rows.Err(); err != nil {
@@ -1054,6 +1159,66 @@ func (db *DB) ListPublicPosts(limit, offset int, currentUserID int64) ([]*models
 		if err := rows.Scan(&p.ID, &p.UserID, &p.AuthorName, &p.AuthorAvatar, &p.Content, &p.Status, &createdAt, &updatedAt, &p.LikesCount, &p.IsLikedByMe); err != nil {
 			return nil, err
 		}
+		p.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
+		p.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
+		p.AuthorUserID = p.UserID
+		posts = append(posts, &p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	for _, p := range posts {
+		captures, err := db.getCapturesForPost(p.ID, currentUserID)
+		if err != nil {
+			return nil, err
+		}
+		p.Captures = captures
+
+		comments, err := db.getCommentsForPost(p.ID)
+		if err != nil {
+			return nil, err
+		}
+		p.Comments = comments
+	}
+
+	return posts, nil
+}
+
+func (db *DB) CountPublicPostsByUser(userID int64) (int, error) {
+	var total int
+	err := db.QueryRow(`
+		SELECT COUNT(*)
+		FROM posts
+		WHERE user_id = ? AND status = 'published'
+	`, userID).Scan(&total)
+	return total, err
+}
+
+func (db *DB) ListPublicPostsByUser(userID int64, limit, offset int, currentUserID int64) ([]*models.Post, error) {
+	rows, err := db.Query(`
+		SELECT p.id, p.user_id, COALESCE(u.preferred_username, ''), COALESCE(u.picture, ''), p.content, p.status, p.created_at, p.updated_at,
+		       (SELECT COUNT(*) FROM post_likes WHERE post_id = p.id) as likes_count,
+		       (SELECT EXISTS(SELECT 1 FROM post_likes WHERE post_id = p.id AND user_id = ?)) as is_liked_by_me
+		FROM posts p
+		JOIN users u ON p.user_id = u.id
+		WHERE p.status = 'published' AND p.user_id = ?
+		ORDER BY p.created_at DESC
+		LIMIT ? OFFSET ?
+	`, currentUserID, userID, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var posts []*models.Post
+	for rows.Next() {
+		var p models.Post
+		var createdAt, updatedAt string
+		if err := rows.Scan(&p.ID, &p.UserID, &p.AuthorName, &p.AuthorAvatar, &p.Content, &p.Status, &createdAt, &updatedAt, &p.LikesCount, &p.IsLikedByMe); err != nil {
+			return nil, err
+		}
+		p.AuthorUserID = p.UserID
 		p.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
 		p.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
 		posts = append(posts, &p)
@@ -1109,6 +1274,67 @@ func (db *DB) ListPublicCaptures(limit, offset int, viewerUserID int64) ([]*mode
 		}
 		c.CapturedAt, _ = time.Parse(time.RFC3339, capturedAt)
 		c.UploadedAt, _ = time.Parse(time.RFC3339, uploadedAt)
+		c.AuthorUserID = c.UserID
+		if publishedAt != "" {
+			c.PublishedAt, _ = time.Parse(time.RFC3339, publishedAt)
+		}
+		c.CoordinatesFree = coordinatesFree == 1
+		captures = append(captures, &c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	if err := db.maskCaptureCoordinatesForViewer(viewerUserID, captures); err != nil {
+		return nil, err
+	}
+
+	return captures, nil
+}
+
+func (db *DB) CountPublicCapturesByUser(userID int64) (int, error) {
+	var total int
+	err := db.QueryRow(`
+		SELECT COUNT(*)
+		FROM photo_captures
+		WHERE user_id = ? AND status = 'published' AND public_storage_key IS NOT NULL AND public_storage_key != ''
+	`, userID).Scan(&total)
+	return total, err
+}
+
+func (db *DB) ListPublicCapturesByUser(userID int64, limit, offset int, viewerUserID int64) ([]*models.Capture, error) {
+	rows, err := db.Query(`
+		SELECT c.id, c.user_id, COALESCE(u.preferred_username, ''), COALESCE(u.picture, ''), COALESCE(c.client_local_id, ''), c.original_file_name, c.content_type, c.size_bytes, c.width, c.height,
+			c.captured_at, c.uploaded_at, c.latitude, c.longitude, c.accuracy_meters, c.status, c.private_storage_key,
+			COALESCE(c.public_storage_key, ''), COALESCE(c.published_at, ''), COALESCE(c.coordinates_free, 0)
+		FROM photo_captures c
+		JOIN users u ON c.user_id = u.id
+		WHERE c.user_id = ? AND c.status = 'published' AND c.public_storage_key IS NOT NULL AND c.public_storage_key != ''
+		ORDER BY c.published_at DESC, c.captured_at DESC
+		LIMIT ? OFFSET ?
+	`, userID, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var captures []*models.Capture
+	for rows.Next() {
+		var c models.Capture
+		var capturedAt, uploadedAt, publishedAt string
+		var coordinatesFree int
+		if err := rows.Scan(
+			&c.ID, &c.UserID, &c.AuthorName, &c.AuthorAvatar, &c.ClientLocalID, &c.OriginalFileName, &c.ContentType, &c.SizeBytes, &c.Width, &c.Height,
+			&capturedAt, &uploadedAt, &c.Latitude, &c.Longitude, &c.AccuracyMeters, &c.Status, &c.PrivateStorageKey,
+			&c.PublicStorageKey, &publishedAt, &coordinatesFree,
+		); err != nil {
+			return nil, err
+		}
+		c.AuthorUserID = c.UserID
+		c.CapturedAt, _ = time.Parse(time.RFC3339, capturedAt)
+		if uploadedAt != "" {
+			c.UploadedAt, _ = time.Parse(time.RFC3339, uploadedAt)
+		}
 		if publishedAt != "" {
 			c.PublishedAt, _ = time.Parse(time.RFC3339, publishedAt)
 		}
@@ -1153,6 +1379,7 @@ func (db *DB) getCapturesForPost(postID string, viewerUserID int64) ([]*models.C
 		); err != nil {
 			return nil, err
 		}
+		c.AuthorUserID = c.UserID
 		c.CapturedAt, _ = time.Parse(time.RFC3339, capturedAt)
 		c.UploadedAt, _ = time.Parse(time.RFC3339, uploadedAt)
 		if publishedAt != "" {
@@ -1606,6 +1833,7 @@ func (db *DB) ListViewedCapturesByUser(viewerUserID int64, limit, offset int) ([
 		}
 
 		capture.PublicStorageKey = publicStorageKey.String
+		capture.AuthorUserID = capture.UserID
 		capture.CapturedAt, _ = time.Parse(time.RFC3339, capturedAtRaw)
 		capture.UploadedAt, _ = time.Parse(time.RFC3339, uploadedAtRaw)
 		capture.UnlockedAt, _ = time.Parse(time.RFC3339, unlockedAtRaw)
@@ -1633,6 +1861,16 @@ func (db *DB) ListViewedCapturesByUser(viewerUserID int64, limit, offset int) ([
 	return captures, nil
 }
 
+func (db *DB) CountViewedCapturesByUser(viewerUserID int64) (int, error) {
+	var total int
+	err := db.QueryRow(`
+		SELECT COUNT(*)
+		FROM capture_coordinate_unlocks
+		WHERE viewer_user_id = ?
+	`, viewerUserID).Scan(&total)
+	return total, err
+}
+
 func (db *DB) getCommentsForPost(postID string) ([]*models.Comment, error) {
 	rows, err := db.Query(`
 		SELECT pc.id, pc.post_id, pc.user_id, COALESCE(u.preferred_username, ''), COALESCE(u.picture, ''), pc.content, pc.created_at, pc.updated_at
@@ -1648,29 +1886,42 @@ func (db *DB) getCommentsForPost(postID string) ([]*models.Comment, error) {
 
 	var comments []*models.Comment
 	for rows.Next() {
-		var comment models.Comment
-		var createdAt string
-		var updatedAt string
-		if err := rows.Scan(
-			&comment.ID,
-			&comment.PostID,
-			&comment.UserID,
-			&comment.AuthorName,
-			&comment.AuthorAvatar,
-			&comment.Content,
-			&createdAt,
-			&updatedAt,
-		); err != nil {
+		comment, err := scanComment(rows)
+		if err != nil {
 			return nil, err
 		}
-		comment.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
-		comment.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
-		comments = append(comments, &comment)
+		comments = append(comments, comment)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 	return comments, nil
+}
+
+func scanCommentRow(row scanner) (*models.Comment, error) {
+	return scanComment(row)
+}
+
+func scanComment(row scanner) (*models.Comment, error) {
+	var comment models.Comment
+	var createdAt string
+	var updatedAt string
+	if err := row.Scan(
+		&comment.ID,
+		&comment.PostID,
+		&comment.UserID,
+		&comment.AuthorName,
+		&comment.AuthorAvatar,
+		&comment.Content,
+		&createdAt,
+		&updatedAt,
+	); err != nil {
+		return nil, err
+	}
+	comment.AuthorUserID = comment.UserID
+	comment.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
+	comment.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
+	return &comment, nil
 }
 
 func (db *DB) TogglePostLike(postID string, userID int64) (newLikesCount int, isLiked bool, err error) {

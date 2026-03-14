@@ -45,18 +45,7 @@ func (s *Server) handleListCaptures(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListPublicCaptures(w http.ResponseWriter, r *http.Request) {
-	limitStr := r.URL.Query().Get("limit")
-	offsetStr := r.URL.Query().Get("offset")
-
-	limit := 24
-	if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 100 {
-		limit = l
-	}
-
-	offset := 0
-	if o, err := strconv.Atoi(offsetStr); err == nil && o >= 0 {
-		offset = o
-	}
+	limit, offset := parseLimitOffset(r, 24)
 
 	currentUserID := s.currentUserIDFromOptionalSession(r)
 	captures, err := s.DB.ListPublicCaptures(limit, offset, currentUserID)
@@ -395,16 +384,7 @@ func (s *Server) handleDeleteCapture(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleListViewedCaptures(w http.ResponseWriter, r *http.Request) {
 	user := r.Context().Value("user").(*models.User)
-
-	limit := 24
-	if value, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && value > 0 && value <= 100 {
-		limit = value
-	}
-
-	offset := 0
-	if value, err := strconv.Atoi(r.URL.Query().Get("offset")); err == nil && value >= 0 {
-		offset = value
-	}
+	limit, offset := parseLimitOffset(r, 24)
 
 	captures, err := s.DB.ListViewedCapturesByUser(user.ID, limit, offset)
 	if err != nil {
@@ -418,10 +398,20 @@ func (s *Server) handleListViewedCaptures(w http.ResponseWriter, r *http.Request
 		attachPublicURLs(captures, s.Media)
 	}
 
+	total, err := s.DB.CountViewedCapturesByUser(user.ID)
+	if err != nil {
+		http.Error(w, "failed to count viewed captures", http.StatusInternalServerError)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"ok":       true,
 		"captures": captures,
+		"total":    total,
+		"limit":    limit,
+		"offset":   offset,
+		"has_more": offset+len(captures) < total,
 	})
 }
 

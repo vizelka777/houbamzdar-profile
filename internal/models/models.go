@@ -25,6 +25,7 @@ type User struct {
 type Capture struct {
 	ID                string    `json:"id"`
 	UserID            int64     `json:"-"`
+	AuthorUserID      int64     `json:"author_user_id,omitempty"`
 	AuthorName        string    `json:"author_name,omitempty"`
 	AuthorAvatar      string    `json:"author_avatar,omitempty"`
 	ClientLocalID     string    `json:"client_local_id,omitempty"`
@@ -51,6 +52,7 @@ type Capture struct {
 type Post struct {
 	ID           string     `json:"id"`
 	UserID       int64      `json:"-"`
+	AuthorUserID int64      `json:"author_user_id,omitempty"`
 	AuthorName   string     `json:"author_name,omitempty"`
 	AuthorAvatar string     `json:"author_avatar,omitempty"`
 	Content      string     `json:"content"`
@@ -72,6 +74,7 @@ type Comment struct {
 	ID           string    `json:"id"`
 	PostID       string    `json:"-"`
 	UserID       int64     `json:"-"`
+	AuthorUserID int64     `json:"author_user_id,omitempty"`
 	AuthorName   string    `json:"author_name,omitempty"`
 	AuthorAvatar string    `json:"author_avatar,omitempty"`
 	Content      string    `json:"content"`
@@ -128,4 +131,16 @@ type HoubickaEntry struct {
 	UserID       int64     `json:"user_id"`
 	AmountSigned int64     `json:"amount_signed"`
 	CreatedAt    time.Time `json:"created_at"`
+}
+
+type PublicUserProfile struct {
+	ID                  int64     `json:"id"`
+	PreferredUsername   string    `json:"preferred_username"`
+	Picture             string    `json:"picture"`
+	AboutMe             string    `json:"about_me"`
+	EmailVerified       bool      `json:"email_verified"`
+	PhoneVerified       bool      `json:"phone_verified"`
+	PublicPostsCount    int       `json:"public_posts_count"`
+	PublicCapturesCount int       `json:"public_captures_count"`
+	JoinedAt            time.Time `json:"joined_at"`
 }

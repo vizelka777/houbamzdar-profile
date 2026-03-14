@@ -3,8 +3,8 @@ package server
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -15,6 +15,22 @@ import (
 )
 
 const maxPostCommentLength = 1000
+
+func validatePostCommentContent(content string) (string, error) {
+	trimmed := strings.TrimSpace(content)
+	if trimmed == "" {
+		return "", errCommentContentRequired
+	}
+	if utf8.RuneCountInString(trimmed) > maxPostCommentLength {
+		return "", errCommentTooLong
+	}
+	return trimmed, nil
+}
+
+var (
+	errCommentContentRequired = errors.New("comment content is required")
+	errCommentTooLong         = errors.New("comment is too long")
+)
 
 func (s *Server) handleCreatePost(w http.ResponseWriter, r *http.Request) {
 	user := r.Context().Value("user").(*models.User)
@@ -194,13 +210,16 @@ func (s *Server) handleCreatePostComment(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	content := strings.TrimSpace(req.Content)
-	if content == "" {
-		http.Error(w, "content is required", http.StatusBadRequest)
-		return
-	}
-	if utf8.RuneCountInString(content) > maxPostCommentLength {
-		http.Error(w, "comment is too long", http.StatusBadRequest)
+	content, err := validatePostCommentContent(req.Content)
+	if err != nil {
+		switch err {
+		case errCommentContentRequired:
+			http.Error(w, "content is required", http.StatusBadRequest)
+		case errCommentTooLong:
+			http.Error(w, "comment is too long", http.StatusBadRequest)
+		default:
+			http.Error(w, "invalid comment content", http.StatusBadRequest)
+		}
 		return
 	}
 
@@ -219,6 +238,7 @@ func (s *Server) handleCreatePostComment(w http.ResponseWriter, r *http.Request)
 		ID:           uuid.New().String(),
 		PostID:       postID,
 		UserID:       user.ID,
+		AuthorUserID: user.ID,
 		AuthorName:   user.PreferredUsername,
 		AuthorAvatar: user.Picture,
 		Content:      content,
@@ -238,21 +258,70 @@ func (s *Server) handleCreatePostComment(w http.ResponseWriter, r *http.Request)
 	})
 }
 
+func (s *Server) handleUpdatePostComment(w http.ResponseWriter, r *http.Request) {
+	user := r.Context().Value("user").(*models.User)
+	postID := chi.URLParam(r, "postID")
+	commentID := chi.URLParam(r, "commentID")
+
+	var req models.CreateCommentRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	content, err := validatePostCommentContent(req.Content)
+	if err != nil {
+		switch err {
+		case errCommentContentRequired:
+			http.Error(w, "content is required", http.StatusBadRequest)
+		case errCommentTooLong:
+			http.Error(w, "comment is too long", http.StatusBadRequest)
+		default:
+			http.Error(w, "invalid comment content", http.StatusBadRequest)
+		}
+		return
+	}
+
+	comment, err := s.DB.UpdatePostComment(postID, commentID, user.ID, content, time.Now().UTC())
+	if err != nil {
+		if err == sql.ErrNoRows {
+			http.Error(w, "comment not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "failed to update comment", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"ok":      true,
+		"comment": comment,
+	})
+}
+
+func (s *Server) handleDeletePostComment(w http.ResponseWriter, r *http.Request) {
+	user := r.Context().Value("user").(*models.User)
+	postID := chi.URLParam(r, "postID")
+	commentID := chi.URLParam(r, "commentID")
+
+	if err := s.DB.DeletePostComment(postID, commentID, user.ID); err != nil {
+		if err == sql.ErrNoRows {
+			http.Error(w, "comment not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "failed to delete comment", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"ok": true,
+	})
+}
+
 func (s *Server) handleListPosts(w http.ResponseWriter, r *http.Request) {
 	user := r.Context().Value("user").(*models.User)
-
-	limitStr := r.URL.Query().Get("limit")
-	offsetStr := r.URL.Query().Get("offset")
-
-	limit := 20
-	if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 100 {
-		limit = l
-	}
-
-	offset := 0
-	if o, err := strconv.Atoi(offsetStr); err == nil && o >= 0 {
-		offset = o
-	}
+	limit, offset := parseLimitOffset(r, 20)
 
 	posts, err := s.DB.ListPosts(user.ID, limit, offset)
 	if err != nil {
@@ -276,18 +345,7 @@ func (s *Server) handleListPosts(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListPublicPosts(w http.ResponseWriter, r *http.Request) {
-	limitStr := r.URL.Query().Get("limit")
-	offsetStr := r.URL.Query().Get("offset")
-
-	limit := 10
-	if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 100 {
-		limit = l
-	}
-
-	offset := 0
-	if o, err := strconv.Atoi(offsetStr); err == nil && o >= 0 {
-		offset = o
-	}
+	limit, offset := parseLimitOffset(r, 10)
 
 	currentUserID := s.currentUserIDFromOptionalSession(r)
 

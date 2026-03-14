@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Veřejný profil | Houbam Zdar</title>
-    <meta name="description" content="Nastavení veřejného profilu v Houbam Zdar.">
+    <meta name="description" content="Veřejný profil uživatele Houbam Zdar.">
     <link rel="icon" href="/favicon.ico" sizes="any">
     <link rel="apple-touch-icon" href="/apple-touch-icon.png">
     <link rel="stylesheet" href="styles.css">
@@ -25,10 +25,10 @@
     <main class="content-main content-main-narrow">
         <section class="page-intro card">
             <p class="section-label">Veřejný profil</p>
-            <h1>Jak vás uvidí ostatní</h1>
+            <h1>Profil houbaře</h1>
             <p>
-                Tady upravujete krátké představení a náhled veřejného profilu. Obsah zůstává
-                oddělený od interního přehledu účtu.
+                Kliknutím na jméno nebo avatar v komunitě otevřete veřejnou stránku autora.
+                Tady jsou jeho publikace, mapa a veřejné představení.
             </p>
         </section>
 
@@ -36,9 +36,10 @@
             <div class="public-profile-head">
                 <div id="public-profile-picture" class="profile-picture profile-picture-large"></div>
                 <div>
-                    <p class="section-label">Náhled</p>
+                    <p class="section-label">Veřejná vizitka</p>
                     <h2 id="public-profile-name">Načítám profil...</h2>
                     <p id="public-profile-trust" class="muted-copy">Načítám informace...</p>
+                    <p id="public-profile-stats" class="muted-copy">Načítám přehled...</p>
                 </div>
             </div>
 
@@ -51,13 +52,22 @@
             
             <div class="public-profile-body" style="margin-top: 2rem;">
                 <h2>Veřejná mapa</h2>
-                <div id="public-map" style="width: 100%; height: 400px; border-radius: var(--radius-md); margin-top: 1rem; z-index: 1;"></div>
+                <p id="public-map-summary" class="muted-copy">Načítám veřejnou mapu...</p>
+                <div id="public-map" class="public-profile-map"></div>
+                <div id="public-map-empty" class="viewed-capture-empty" hidden></div>
+                <div class="action-row">
+                    <button id="public-map-load-more-btn" class="btn btn-secondary" style="display: none;">Načíst další body</button>
+                </div>
             </div>
 
             <div class="public-profile-body" style="margin-top: 2rem;">
                 <h2>Publikace</h2>
-                <div id="public-posts-container" style="display: flex; flex-direction: column; gap: 1.5rem; margin-top: 1rem;">
+                <p id="public-posts-summary" class="muted-copy">Načítám publikace...</p>
+                <div id="public-posts-container" class="public-posts-list">
                     <p class="muted-copy">Načítám publikace...</p>
+                </div>
+                <div class="action-row">
+                    <button id="public-posts-load-more-btn" class="btn btn-secondary" style="display: none;">Načíst další publikace</button>
                 </div>
             </div>
         </section>
@@ -76,11 +86,11 @@
             </div>
         </section>
 
-        <section class="about-shell card">
+        <section id="public-owner-panel" class="about-shell card" hidden>
             <div class="about-head">
                 <div>
-                    <p class="section-label">Text profilu</p>
-                    <h2>Upravte své představení</h2>
+                    <p class="section-label">Váš text profilu</p>
+                    <h2>Upravte své veřejné představení</h2>
                 </div>
                 <p class="muted-copy">
                     Napište pár vět o sobě, svých oblíbených lesích nebo plánech na další výpravu.
@@ -110,5 +120,6 @@
 
     <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
     <script src="app.js" defer></script>
+    <script src="feed.js" defer></script>
 </body>
 </html>

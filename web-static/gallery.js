@@ -68,11 +68,14 @@ function renderGallery(capturesToRender, container) {
         const authorName = capture.author_name || "Neznámý houbař";
         const accessBadge = buildCaptureAccessBadgeHtml(capture);
         const globalIdx = (state.page - 1) * state.pageSize + idx;
+        const authorURL = buildPublicProfileURL(capture.author_user_id);
 
         item.innerHTML = `
             <div class="gallery-item-header">
-                <img src="${escapeHtml(avatarUrl)}" class="gallery-item-avatar" alt="Avatar">
-                <span class="gallery-item-author">${escapeHtml(authorName)}</span>
+                <a href="${escapeHtml(authorURL)}" class="author-link">
+                    <img src="${escapeHtml(avatarUrl)}" class="gallery-item-avatar" alt="Avatar">
+                    <span class="gallery-item-author">${escapeHtml(authorName)}</span>
+                </a>
             </div>
             <div class="gallery-item-image">
                 <img src="${url}" loading="lazy" alt="Houbařský úlovek">
@@ -83,6 +86,10 @@ function renderGallery(capturesToRender, container) {
         item.addEventListener('click', () => {
             window.currentLightboxIndex = globalIdx;
             if (typeof openLightbox === "function") openLightbox();
+        });
+
+        item.querySelector(".author-link")?.addEventListener("click", (event) => {
+            event.stopPropagation();
         });
 
         container.appendChild(item);
