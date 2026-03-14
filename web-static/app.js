@@ -1,6 +1,88 @@
 const API_URL = "https://api.houbamzdar.cz";
 const DEFAULT_AVATAR_URL = "/default-avatar.png";
 const PROFILE_LAST_VISIT_KEY = "hzd_last_profile_visit_at";
+const PHOTO_INTAKE_DB_NAME = "hzd-photo-intake";
+const PHOTO_INTAKE_STORE_NAME = "pending-files";
+
+function photoIntakeAvailable() {
+    return typeof window !== "undefined" && typeof window.indexedDB !== "undefined";
+}
+
+function openPhotoIntakeDb() {
+    return new Promise((resolve, reject) => {
+        if (!photoIntakeAvailable()) {
+            reject(new Error("IndexedDB is not available"));
+            return;
+        }
+
+        const request = window.indexedDB.open(PHOTO_INTAKE_DB_NAME, 1);
+        request.onupgradeneeded = () => {
+            const db = request.result;
+            if (!db.objectStoreNames.contains(PHOTO_INTAKE_STORE_NAME)) {
+                const store = db.createObjectStore(PHOTO_INTAKE_STORE_NAME, { keyPath: "id" });
+                store.createIndex("queuedAt", "queuedAt");
+            }
+        };
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error || new Error("Failed to open photo intake database"));
+    });
+}
+
+function photoIntakeTxDone(tx) {
+    return new Promise((resolve, reject) => {
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error || new Error("IndexedDB transaction failed"));
+        tx.onabort = () => reject(tx.error || new Error("IndexedDB transaction aborted"));
+    });
+}
+
+function photoIntakeReqDone(request) {
+    return new Promise((resolve, reject) => {
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error || new Error("IndexedDB request failed"));
+    });
+}
+
+async function queuePendingCameraFiles(files) {
+    if (!photoIntakeAvailable()) {
+        return false;
+    }
+
+    const db = await openPhotoIntakeDb();
+    const tx = db.transaction(PHOTO_INTAKE_STORE_NAME, "readwrite");
+    const store = tx.objectStore(PHOTO_INTAKE_STORE_NAME);
+    await photoIntakeReqDone(store.clear());
+
+    const timestamp = Date.now();
+    files.forEach((file, index) => {
+        store.put({
+            id: typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `${timestamp}-${index}-${Math.random()}`,
+            file,
+            queuedAt: timestamp + index
+        });
+    });
+
+    await photoIntakeTxDone(tx);
+    return true;
+}
+
+async function consumePendingCameraFiles() {
+    if (!photoIntakeAvailable()) {
+        return [];
+    }
+
+    const db = await openPhotoIntakeDb();
+    const tx = db.transaction(PHOTO_INTAKE_STORE_NAME, "readwrite");
+    const store = tx.objectStore(PHOTO_INTAKE_STORE_NAME);
+    const items = await photoIntakeReqDone(store.getAll());
+    store.clear();
+    await photoIntakeTxDone(tx);
+
+    return (items || [])
+        .sort((left, right) => Number(left.queuedAt || 0) - Number(right.queuedAt || 0))
+        .map((item) => item.file)
+        .filter(Boolean);
+}
 
 function escapeHtml(unsafe) {
     if (!unsafe) return "";
@@ -104,6 +186,98 @@ function createIconLinkButton(href, label, iconSVG, className) {
         <span class="sr-only">${escapeHtml(label)}</span>
     `;
     return link;
+}
+
+function createLabeledIconLinkButton(href, label, iconSVG, className) {
+    const link = document.createElement("a");
+    link.className = `btn ${className} btn-icon btn-icon-labeled`;
+    link.href = href;
+    link.setAttribute("aria-label", label);
+    link.innerHTML = `
+        <span class="btn-icon-glyph" aria-hidden="true">${iconSVG}</span>
+        <span class="btn-icon-label">${escapeHtml(label)}</span>
+    `;
+    return link;
+}
+
+async function handleDirectCameraSelection(event) {
+    const input = event.currentTarget;
+    const selectedFiles = Array.from(input?.files || []);
+
+    if (!selectedFiles.length) {
+        return;
+    }
+
+    try {
+        await queuePendingCameraFiles(selectedFiles);
+    } catch (error) {
+        console.error("Failed to queue direct camera files", error);
+    } finally {
+        if (input) {
+            input.value = "";
+        }
+    }
+
+    window.location.href = "/capture.html?source=camera";
+}
+
+function createDirectCameraButton(label, iconSVG, className) {
+    const wrapper = document.createElement("label");
+    wrapper.className = `btn ${className} btn-icon`;
+    wrapper.setAttribute("aria-label", label);
+    wrapper.setAttribute("title", label);
+    wrapper.innerHTML = `
+        <span class="btn-icon-glyph" aria-hidden="true">${iconSVG}</span>
+        <span class="sr-only">${escapeHtml(label)}</span>
+    `;
+
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    input.capture = "environment";
+    input.multiple = true;
+    input.className = "sr-only";
+    input.addEventListener("change", handleDirectCameraSelection);
+    wrapper.appendChild(input);
+
+    return wrapper;
+}
+
+function createHeaderMenuButton(label, iconSVG, className, items) {
+    const details = document.createElement("details");
+    details.className = "header-menu";
+
+    const summary = document.createElement("summary");
+    summary.className = `btn ${className} btn-icon btn-icon-labeled`;
+    summary.setAttribute("aria-label", label);
+    summary.innerHTML = `
+        <span class="btn-icon-glyph" aria-hidden="true">${iconSVG}</span>
+        <span class="btn-icon-label">${escapeHtml(label)}</span>
+    `;
+    details.appendChild(summary);
+
+    const panel = document.createElement("div");
+    panel.className = "header-menu-panel";
+
+    items.forEach((item) => {
+        const link = document.createElement("a");
+        link.className = "header-menu-item";
+        link.href = item.href;
+        link.innerHTML = `
+            <span>${escapeHtml(item.label)}</span>
+            ${item.note ? `<small class="header-menu-note">${escapeHtml(item.note)}</small>` : ""}
+        `;
+        panel.appendChild(link);
+    });
+
+    details.appendChild(panel);
+    document.addEventListener("click", (event) => {
+        if (!details.contains(event.target)) {
+            details.removeAttribute("open");
+        }
+    });
+
+    return details;
 }
 
 function createActionButton(label, className, handler) {
@@ -322,14 +496,38 @@ function renderHeader(session, profile = null) {
         greeting.className = "user-greeting";
         greeting.textContent = `Ahoj, ${session.user?.preferred_username || "hoste"}`;
 
+        const composeIcon = `
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M6 3h8l4 4v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zm7 1.5V8h3.5"></path>
+                <path d="M9 14.5 15.2 8.3a1.4 1.4 0 0 1 2 2L11 16.5l-2.7.7z"></path>
+            </svg>
+        `;
         const cameraIcon = `
             <svg viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M4 7h3l1.4-2h7.2L17 7h3a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2zm8 2.5A4.5 4.5 0 1 0 12 18a4.5 4.5 0 0 0 0-9zm0 2A2.5 2.5 0 1 1 12 16a2.5 2.5 0 0 1 0-5z"></path>
             </svg>
         `;
+        const photoToolsIcon = `
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 7.5h8m4 0h4M9 7.5a2 2 0 1 1-4 0 2 2 0 0 1 4 0Zm10 0a2 2 0 1 1-4 0 2 2 0 0 1 4 0ZM4 16.5h4m4 0h8M13 16.5a2 2 0 1 1-4 0 2 2 0 0 1 4 0Zm10 0a2 2 0 1 1-4 0 2 2 0 0 1 4 0Z"></path>
+            </svg>
+        `;
 
         authButtons.appendChild(greeting);
-        authButtons.appendChild(createIconLinkButton("/capture.html", "Vyfotit nebo přidat snímky", cameraIcon, "btn-secondary"));
+        authButtons.appendChild(createLabeledIconLinkButton("/create-post.html", "Vytvořit publikaci", composeIcon, "btn-primary"));
+        authButtons.appendChild(createDirectCameraButton("Vyfotit nový nález", cameraIcon, "btn-secondary"));
+        authButtons.appendChild(createHeaderMenuButton("Foto", photoToolsIcon, "btn-secondary", [
+            {
+                href: "/capture.html",
+                label: "Zpracování fotek",
+                note: "lokální snímky, výběr a nahrání na server"
+            },
+            {
+                href: "/server-storage.html",
+                label: "Serverový archiv",
+                note: "to, co už je uložené v Bunny"
+            }
+        ]));
         authButtons.appendChild(createLinkButton("Zeď úlovků", "/feed.html", "btn-secondary"));
         authButtons.appendChild(createLinkButton("Galerie", "/gallery.html", "btn-secondary"));
         authButtons.appendChild(createLinkButton("Mapa", "/map.html", "btn-secondary"));
@@ -556,6 +754,30 @@ function buildPublicTrustProfile(profile) {
     };
 }
 
+function buildCapturePopupPreviewHtml(capture, altText) {
+    const imageUrl = capture?.public_url ? buildCaptureImageURL(capture) : "";
+    if (!imageUrl) {
+        return '<div class="map-popup-placeholder">Bez veřejného náhledu</div>';
+    }
+
+    return `<img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(altText)}" loading="lazy">`;
+}
+
+function buildPublicProfileMapPopupHtml(capture) {
+    const authorName = capture.author_name || publicProfileState.user?.preferred_username || "Neznámý houbař";
+    const imageUrl = capture.public_url ? buildCaptureImageURL(capture) : "";
+    const previewHtml = imageUrl
+        ? `<a href="${escapeHtml(imageUrl)}" target="_blank" rel="noreferrer">${buildCapturePopupPreviewHtml(capture, authorName)}</a>`
+        : buildCapturePopupPreviewHtml(capture, authorName);
+    return `
+        <div class="map-popup-content">
+            ${previewHtml}
+            <h4>${escapeHtml(authorName)}</h4>
+            <p>${escapeHtml(formatDateTime(capture.captured_at))}</p>
+        </div>
+    `;
+}
+
 function ensurePublicProfileMap() {
     const mapNode = document.getElementById("public-map");
     if (!mapNode || typeof L === "undefined") {
@@ -600,25 +822,31 @@ function renderPublicProfileMap() {
     }
 
     emptyNode.hidden = true;
-
-    const bounds = L.latLngBounds();
-    captures.forEach((capture) => {
-        const marker = L.marker([Number(capture.latitude), Number(capture.longitude)]).addTo(publicProfileState.markerLayer);
-        bounds.extend([Number(capture.latitude), Number(capture.longitude)]);
-
-        marker.bindPopup(`
-            <div class="map-popup-content">
-                <a href="${escapeHtml(buildCaptureImageURL(capture))}" target="_blank" rel="noreferrer">
-                    <img src="${escapeHtml(buildCaptureImageURL(capture))}" alt="${escapeHtml(capture.author_name || "Fotografie")}" loading="lazy">
-                </a>
-                <h4>${escapeHtml(capture.author_name || publicProfileState.user?.preferred_username || "Neznámý houbař")}</h4>
-                <p>${escapeHtml(formatDateTime(capture.captured_at))}</p>
-            </div>
-        `);
+    const markers = captures.map((capture) => {
+        const marker = L.marker([Number(capture.latitude), Number(capture.longitude)]);
+        marker.bindPopup(buildPublicProfileMapPopupHtml(capture));
+        return marker;
     });
 
-    if (bounds.isValid()) {
-        map.fitBounds(bounds, { padding: [30, 30] });
+    if (window.HZDMapClusters) {
+        publicProfileState.markerLayer = window.HZDMapClusters.replaceLayer(
+            map,
+            publicProfileState.markerLayer,
+            markers,
+            {
+                clusterOptions: {
+                    maxClusterRadius: 56,
+                    spiderfyDistanceMultiplier: 1.24
+                }
+            }
+        );
+        window.HZDMapClusters.fitLayer(map, publicProfileState.markerLayer, { padding: [30, 30], maxZoom: 15 });
+        return;
+    }
+
+    publicProfileState.markerLayer = L.featureGroup(markers).addTo(map);
+    if (publicProfileState.markerLayer.getBounds().isValid()) {
+        map.fitBounds(publicProfileState.markerLayer.getBounds(), { padding: [30, 30], maxZoom: 15 });
     }
 }
 

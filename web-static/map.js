@@ -49,38 +49,61 @@ async function loadGlobalMapBatch() {
     }
 
     const captures = result.captures.filter((capture) => captureHasCoordinates(capture));
-    captures.forEach((capture) => {
+    const markers = captures.map((capture) => {
         const lat = Number(capture.latitude);
         const lon = Number(capture.longitude);
         if (Number.isNaN(lat) || Number.isNaN(lon)) {
-            return;
+            return null;
         }
 
-        const marker = L.marker([lat, lon]).addTo(globalMapState.markerLayer);
         globalMapState.bounds.extend([lat, lon]);
-
-        const imgUrl = escapeHtml(buildCaptureImageURL(capture));
         const author = escapeHtml(capture.author_name || "Neznámý houbař");
         const authorUrl = escapeHtml(buildPublicProfileURL(capture.author_user_id));
         const date = escapeHtml(formatDateTime(capture.captured_at));
+        const imageHtml = capture.public_url
+            ? `<a href="${escapeHtml(buildCaptureImageURL(capture))}" target="_blank" rel="noreferrer"><img src="${escapeHtml(buildCaptureImageURL(capture))}" alt="${author}" loading="lazy"></a>`
+            : '<div class="map-popup-placeholder">Bez veřejného náhledu</div>';
 
+        const marker = L.marker([lat, lon]);
         marker.bindPopup(`
             <div class="map-popup-content">
-                <a href="${imgUrl}" target="_blank" rel="noreferrer">
-                    <img src="${imgUrl}" alt="Nález" loading="lazy">
-                </a>
+                ${imageHtml}
                 <h4><a href="${authorUrl}">${author}</a></h4>
                 <p>${date}</p>
             </div>
         `);
-    });
+        return marker;
+    }).filter(Boolean);
+
+    if (window.HZDMapClusters) {
+        const mergedMarkers = [];
+        if (globalMapState.markerLayer && typeof globalMapState.markerLayer.eachLayer === "function") {
+            globalMapState.markerLayer.eachLayer((layer) => mergedMarkers.push(layer));
+        }
+        markers.forEach((marker) => mergedMarkers.push(marker));
+        globalMapState.markerLayer = window.HZDMapClusters.replaceLayer(
+            map,
+            globalMapState.markerLayer,
+            mergedMarkers,
+            {
+                clusterOptions: {
+                    maxClusterRadius: 58,
+                    spiderfyDistanceMultiplier: 1.24
+                }
+            }
+        );
+    } else {
+        markers.forEach((marker) => marker.addTo(globalMapState.markerLayer));
+    }
 
     globalMapState.loaded += captures.length;
     globalMapState.offset += result.captures.length;
     globalMapState.hasMore = result.captures.length === globalMapState.pageSize;
 
-    if (globalMapState.bounds.isValid()) {
-        map.fitBounds(globalMapState.bounds, { padding: [30, 30] });
+    if (window.HZDMapClusters && globalMapState.markerLayer) {
+        window.HZDMapClusters.fitLayer(map, globalMapState.markerLayer, { padding: [30, 30], maxZoom: 15 });
+    } else if (globalMapState.bounds.isValid()) {
+        map.fitBounds(globalMapState.bounds, { padding: [30, 30], maxZoom: 15 });
     }
     updateGlobalMapSummary();
 }

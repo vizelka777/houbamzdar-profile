@@ -567,12 +567,28 @@ async function initCapturePage() {
     const uploadButton = document.getElementById("capture-upload-btn");
     const deleteButton = document.getElementById("capture-delete-btn");
     const statusNode = document.getElementById("capture-status");
+    const directCameraRequested = new URLSearchParams(window.location.search).get("source") === "camera";
     if (!indexedDbAvailable()) {
         setStatusMessage(statusNode, "Tento prohlížeč neumí IndexedDB. Zkuste moderní mobilní prohlížeč.", "error");
         return;
     }
 
     await refreshCaptureVault();
+
+    if (typeof consumePendingCameraFiles === "function") {
+        try {
+            const pendingFiles = await consumePendingCameraFiles();
+            if (pendingFiles.length) {
+                await handleCaptureSelection(pendingFiles);
+            }
+            if (pendingFiles.length || directCameraRequested) {
+                window.history.replaceState({}, "", "/capture.html");
+            }
+        } catch (error) {
+            console.error("Failed to process pending camera files", error);
+            setStatusMessage(statusNode, "Fotky z rychlé kamery se nepodařilo načíst.", "error");
+        }
+    }
 
     fileInput.addEventListener("change", async (event) => {
         const selectedFiles = Array.from(event.target.files || []);

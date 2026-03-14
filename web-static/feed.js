@@ -295,8 +295,41 @@ function attachCommentSectionHandlers(card, post, postsStore = state.posts) {
     attachCommentDeleteHandlers(card, post, postsStore);
 }
 
-function attachInlineMapToggle(card, post, mapId, mapData) {
-    if (!mapData.length || typeof L === "undefined") {
+function buildInlineMapPopupHtml(capture, post) {
+    const authorName = post.author_name || "Neznámý houbař";
+    const previewHtml = capture.public_url
+        ? `<img src="${escapeHtml(buildCaptureImageURL(capture))}" alt="${escapeHtml(authorName)}" loading="lazy">`
+        : '<div class="map-popup-placeholder">Bez veřejného náhledu</div>';
+
+    return `
+        <div class="map-popup-content">
+            ${previewHtml}
+            <h4>${escapeHtml(authorName)}</h4>
+            <p>${escapeHtml(formatDateTime(capture.captured_at || post.created_at))}</p>
+            <button type="button" class="btn btn-secondary map-popup-action feed-map-open-btn" data-capture-id="${escapeHtml(capture.id)}">
+                Otevřít fotku
+            </button>
+        </div>
+    `;
+}
+
+function openPostCaptureLightbox(post, captureID) {
+    const startIndex = post.captures.findIndex((capture) => capture.id === captureID);
+    if (startIndex === -1) {
+        return;
+    }
+
+    window.lightboxImages = post.captures.map((capture) => buildCaptureImageURL(capture));
+    window.lightboxCaptureData = post.captures;
+    window.lightboxMapData = post.captures.map((capture) => buildCaptureMapData(capture));
+    window.currentLightboxIndex = startIndex;
+    if (typeof openLightbox === "function") {
+        openLightbox();
+    }
+}
+
+function attachInlineMapToggle(card, post, mapId, mapCaptures) {
+    if (!mapCaptures.length || typeof L === "undefined") {
         return;
     }
 
@@ -319,20 +352,47 @@ function attachInlineMapToggle(card, post, mapId, mapData) {
         toggleBtn.textContent = "Skrýt mapu";
 
         if (!mapInitialized) {
-            const postMap = L.map(mapId).setView([mapData[0].lat, mapData[0].lon], 13);
+            const postMap = L.map(mapId).setView([Number(mapCaptures[0].latitude), Number(mapCaptures[0].longitude)], 13);
             mapDiv._leaflet_map = postMap;
             L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
                 attribution: "&copy; OpenStreetMap"
             }).addTo(postMap);
 
-            const bounds = L.latLngBounds();
-            mapData.forEach((point) => {
-                L.marker([point.lat, point.lon]).addTo(postMap);
-                bounds.extend([point.lat, point.lon]);
+            const markers = mapCaptures.map((capture) => {
+                const marker = L.marker([Number(capture.latitude), Number(capture.longitude)]);
+                marker.bindPopup(buildInlineMapPopupHtml(capture, post));
+                marker.on("popupopen", () => {
+                    const popupNode = marker.getPopup()?.getElement();
+                    const openButton = popupNode?.querySelector(".feed-map-open-btn");
+                    if (openButton) {
+                        openButton.onclick = () => openPostCaptureLightbox(post, capture.id);
+                    }
+                });
+                return marker;
             });
 
-            if (mapData.length > 1) {
-                postMap.fitBounds(bounds, { padding: [10, 10] });
+            if (window.HZDMapClusters) {
+                mapDiv._leaflet_layer = window.HZDMapClusters.replaceLayer(
+                    postMap,
+                    mapDiv._leaflet_layer,
+                    markers,
+                    {
+                        clusterOptions: {
+                            maxClusterRadius: 42,
+                            spiderfyDistanceMultiplier: 1.12
+                        }
+                    }
+                );
+                window.HZDMapClusters.fitLayer(postMap, mapDiv._leaflet_layer, { padding: [10, 10], maxZoom: 15 });
+            } else {
+                const bounds = L.latLngBounds();
+                markers.forEach((marker) => {
+                    marker.addTo(postMap);
+                    bounds.extend(marker.getLatLng());
+                });
+                if (bounds.isValid()) {
+                    postMap.fitBounds(bounds, { padding: [10, 10], maxZoom: 15 });
+                }
             }
             mapInitialized = true;
             return;
@@ -404,7 +464,7 @@ function renderPosts(postsToRender, container, options = {}) {
         const authorName = post.author_name || "Neznámý houbař";
 
         let capturesHtml = "";
-        const mapData = [];
+        const mapCaptures = [];
 
         if (post.captures && post.captures.length > 0) {
             capturesHtml = '<div class="feed-gallery">';
@@ -418,14 +478,14 @@ function renderPosts(postsToRender, container, options = {}) {
                     </div>
                 `;
                 if (captureHasCoordinates(capture)) {
-                    mapData.push(buildCaptureMapData(capture));
+                    mapCaptures.push(capture);
                 }
             });
             capturesHtml += "</div>";
         }
 
         const mapId = `feed-map-${post.id}`;
-        const hasCoords = mapData.length > 0;
+        const hasCoords = mapCaptures.length > 0;
         const mapBtnHtml = hasCoords
             ? `<button class="btn btn-secondary map-toggle-btn" data-target="${mapId}">Zobrazit na mapě</button>`
             : "";
@@ -508,7 +568,7 @@ function renderPosts(postsToRender, container, options = {}) {
             });
         }
 
-        attachInlineMapToggle(card, post, mapId, mapData);
+        attachInlineMapToggle(card, post, mapId, mapCaptures);
 
         card.querySelectorAll(".feed-photo").forEach((photo) => {
             photo.addEventListener("click", (event) => {

@@ -4,8 +4,6 @@ const profileMapState = {
     source: "own",
     map: null,
     markerLayer: null,
-    selectedCaptureID: "",
-    neighborhood: [],
     datasets: {
         own: {
             items: [],
@@ -29,14 +27,14 @@ function profileMapLabels(source) {
     if (source === "viewed") {
         return {
             title: "Prohlédnuté za houbičky",
-            note: "Odemčené souřadnice zůstávají ve vaší soukromé mapě. Kliknutím na značku mapu rozšíříte a zobrazíte sousední fotografie.",
+            note: "Mapa slučuje blízké body do animovaných clusterů. Kliknutím cluster rozbalíte a z popupu otevřete fotku.",
             empty: "Zatím jste si za houbičky neodemkli žádné souřadnice."
         };
     }
 
     return {
         title: "Kde jsem hledal(a)",
-        note: "Vaše vlastní fotografie s polohou. Kliknutím na značku mapu rozšíříte a zobrazíte okolní snímky.",
+        note: "Vaše vlastní fotografie s polohou. Blízké body se seskupují a po přiblížení se plynule rozpadnou na jednotlivé značky.",
         empty: "Zatím nemáte žádné fotografie s uloženou polohou."
     };
 }
@@ -46,7 +44,6 @@ function profileMapNodes() {
         shell: document.getElementById("profile-activity-map-shell"),
         map: document.getElementById("profile-activity-map"),
         empty: document.getElementById("profile-activity-empty"),
-        strip: document.getElementById("profile-activity-strip"),
         summary: document.getElementById("profile-activity-summary"),
         loadMore: document.getElementById("profile-activity-load-more-btn"),
         title: document.getElementById("profile-activity-title"),
@@ -65,33 +62,10 @@ function ensureProfileMap() {
         L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
             attribution: "&copy; OpenStreetMap"
         }).addTo(profileMapState.map);
-        profileMapState.markerLayer = L.layerGroup().addTo(profileMapState.map);
-        profileMapState.map.on("click", () => {
-            profileMapState.selectedCaptureID = "";
-            profileMapState.neighborhood = [];
-            renderProfileActivityMap();
-        });
+        profileMapState.markerLayer = L.featureGroup().addTo(profileMapState.map);
     }
 
     return profileMapState.map;
-}
-
-function toMetersOffset(lat, dx, dy) {
-    const latOffset = dy / 111111;
-    const lonOffset = dx / (111111 * Math.max(Math.cos((lat * Math.PI) / 180), 0.2));
-    return { latOffset, lonOffset };
-}
-
-function profileDistanceMeters(a, b) {
-    const toRadians = (value) => (value * Math.PI) / 180;
-    const earthRadius = 6371000;
-    const dLat = toRadians(Number(b.latitude) - Number(a.latitude));
-    const dLon = toRadians(Number(b.longitude) - Number(a.longitude));
-    const lat1 = toRadians(Number(a.latitude));
-    const lat2 = toRadians(Number(b.latitude));
-
-    const x = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
-    return 2 * earthRadius * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
 }
 
 function currentProfileDataset() {
@@ -102,159 +76,73 @@ function currentProfileMapItems() {
     return currentProfileDataset().items.filter((capture) => captureHasCoordinates(capture));
 }
 
-function buildMapNeighborhood(selectedCapture, items) {
-    if (!selectedCapture) {
-        return [];
-    }
-
-    const neighbors = items
-        .filter((capture) => capture.id !== selectedCapture.id)
-        .map((capture) => ({
-            capture,
-            distance: profileDistanceMeters(selectedCapture, capture)
-        }))
-        .sort((left, right) => left.distance - right.distance)
-        .filter((entry) => entry.distance <= 350)
-        .slice(0, 6)
-        .map((entry) => entry.capture);
-
-    return [selectedCapture].concat(neighbors);
-}
-
 function profileCaptureImageURL(capture) {
     if (!capture) {
         return "";
     }
+
     if (capture.public_url) {
         return buildCaptureImageURL(capture);
     }
+
     const me = window.appMe || null;
     if (me && Number(me.id) === Number(capture.user_id || capture.author_user_id)) {
         return buildCaptureImageURL(capture);
     }
+
     return "";
 }
 
-function buildSpreadMarkers(neighborhood) {
-    if (!neighborhood.length) {
-        return [];
+function openProfileMapLightbox(captureID) {
+    const capturesToOpen = currentProfileDataset().items.filter((capture) => profileCaptureImageURL(capture));
+    const startIndex = capturesToOpen.findIndex((capture) => capture.id === captureID);
+    if (startIndex === -1) {
+        return;
     }
 
-    const [selectedCapture, ...rest] = neighborhood;
-    const baseLat = Number(selectedCapture.latitude);
-    const baseLon = Number(selectedCapture.longitude);
-    const markers = [{
-        capture: selectedCapture,
-        lat: baseLat,
-        lon: baseLon,
-        selected: true
-    }];
+    window.lightboxImages = capturesToOpen.map((capture) => profileCaptureImageURL(capture));
+    window.lightboxCaptureData = capturesToOpen;
+    window.lightboxMapData = capturesToOpen.map((capture) => buildCaptureMapData(capture));
+    window.currentLightboxIndex = startIndex;
 
-    rest.forEach((capture, index) => {
-        const angle = (index / Math.max(rest.length, 1)) * Math.PI * 2;
-        const radius = 60 + (index % 3) * 28;
-        const offset = toMetersOffset(baseLat, Math.cos(angle) * radius, Math.sin(angle) * radius);
-        markers.push({
-            capture,
-            lat: baseLat + offset.latOffset,
-            lon: baseLon + offset.lonOffset,
-            selected: false
-        });
-    });
-
-    return markers;
+    if (typeof openLightbox === "function") {
+        openLightbox();
+    }
 }
 
-function markerThumbnailHtml(capture, selected) {
+function buildProfilePopupHtml(capture) {
     const imageURL = profileCaptureImageURL(capture);
-    const label = capture.author_name || "Houbar";
-    const badge = capture.coordinates_free ? '<span class="profile-map-thumb-badge">Zdarma</span>' : "";
+    const previewHtml = imageURL
+        ? `<img src="${escapeHtml(imageURL)}" alt="${escapeHtml(capture.author_name || "Fotografie")}" loading="lazy">`
+        : '<div class="map-popup-placeholder">Bez náhledu</div>';
+    const accessLine = capture.coordinates_free
+        ? '<p><strong>Souřadnice zdarma</strong></p>'
+        : '<p>Soukromý bod na mapě</p>';
 
     return `
-        <div class="profile-map-thumb ${selected ? "is-selected" : ""}">
+        <div class="map-popup-content">
+            ${previewHtml}
+            <h4>${escapeHtml(capture.author_name || "Neznámý houbař")}</h4>
+            <p>${escapeHtml(formatDateTime(capture.unlocked_at || capture.captured_at))}</p>
+            ${accessLine}
             ${imageURL
-                ? `<img src="${escapeHtml(imageURL)}" alt="${escapeHtml(label)}" loading="lazy">`
-                : `<span class="profile-map-thumb-placeholder">${escapeHtml(label.slice(0, 1).toUpperCase())}</span>`}
-            ${badge}
+                ? `<button type="button" class="btn btn-secondary map-popup-action profile-map-open-btn" data-capture-id="${escapeHtml(capture.id)}">Otevřít ve fotkách</button>`
+                : ""}
         </div>
     `;
 }
 
-function buildProfileMarker(capture, lat, lon, selected) {
-    const marker = L.marker([lat, lon], {
-        icon: L.divIcon({
-            className: "profile-map-thumb-icon",
-            html: markerThumbnailHtml(capture, selected),
-            iconSize: selected ? [78, 78] : [64, 64],
-            iconAnchor: selected ? [39, 72] : [32, 58]
-        })
-    });
-
-    marker.on("click", () => {
-        profileMapState.selectedCaptureID = capture.id;
-        renderProfileActivityMap();
-    });
-
-    return marker;
-}
-
-function buildStandardProfileMarker(capture) {
+function buildProfileMarker(capture) {
     const marker = L.marker([Number(capture.latitude), Number(capture.longitude)]);
-    marker.on("click", () => {
-        profileMapState.selectedCaptureID = capture.id;
-        renderProfileActivityMap();
+    marker.bindPopup(buildProfilePopupHtml(capture));
+    marker.on("popupopen", () => {
+        const popupNode = marker.getPopup()?.getElement();
+        const openButton = popupNode?.querySelector(".profile-map-open-btn");
+        if (openButton) {
+            openButton.onclick = () => openProfileMapLightbox(capture.id);
+        }
     });
-    marker.bindPopup(`
-        <div class="map-popup-content">
-            ${profileCaptureImageURL(capture)
-                ? `<img src="${escapeHtml(profileCaptureImageURL(capture))}" alt="${escapeHtml(capture.author_name || "Fotografie")}" loading="lazy">`
-                : `<div class="map-popup-placeholder">Bez náhledu</div>`}
-            <h4>${escapeHtml(capture.author_name || "Neznámý houbař")}</h4>
-            <p>${escapeHtml(formatDateTime(capture.unlocked_at || capture.captured_at))}</p>
-        </div>
-    `);
     return marker;
-}
-
-function renderProfileActivityStrip() {
-    const nodes = profileMapNodes();
-    if (!nodes.strip) {
-        return;
-    }
-
-    if (!profileMapState.neighborhood.length) {
-        nodes.strip.innerHTML = "";
-        return;
-    }
-
-    const captures = profileMapState.neighborhood;
-    nodes.strip.innerHTML = captures.map((capture) => `
-        <button type="button" class="profile-activity-strip-item ${capture.id === profileMapState.selectedCaptureID ? "is-active" : ""}" data-capture-id="${escapeHtml(capture.id)}" ${profileCaptureImageURL(capture) ? "" : "disabled"}>
-            ${profileCaptureImageURL(capture)
-                ? `<img src="${escapeHtml(profileCaptureImageURL(capture))}" alt="${escapeHtml(capture.author_name || "Fotografie")}" loading="lazy">`
-                : `<div class="profile-map-thumb-placeholder">Bez náhledu</div>`}
-            <span>${escapeHtml(capture.author_name || "Neznámý houbař")}</span>
-        </button>
-    `).join("");
-
-    nodes.strip.querySelectorAll(".profile-activity-strip-item").forEach((button) => {
-        button.addEventListener("click", () => {
-            const captureID = button.dataset.captureId;
-            const capturesToOpen = profileMapState.neighborhood.filter((capture) => profileCaptureImageURL(capture));
-            const startIndex = capturesToOpen.findIndex((capture) => capture.id === captureID);
-            if (!capturesToOpen.length) {
-                return;
-            }
-
-            window.lightboxImages = capturesToOpen.map((capture) => profileCaptureImageURL(capture));
-            window.lightboxCaptureData = capturesToOpen;
-            window.lightboxMapData = capturesToOpen.map((capture) => buildCaptureMapData(capture));
-            window.currentLightboxIndex = Math.max(startIndex, 0);
-            if (typeof openLightbox === "function") {
-                openLightbox();
-            }
-        });
-    });
 }
 
 function renderProfileActivitySummary() {
@@ -294,66 +182,42 @@ function renderProfileActivityMap() {
         return;
     }
 
-    if (profileMapState.markerLayer) {
-        profileMapState.markerLayer.clearLayers();
-    }
-
     if (!items.length) {
         nodes.empty.hidden = false;
         nodes.empty.textContent = labels.empty;
-        nodes.shell.classList.remove("is-expanded");
-        profileMapState.neighborhood = [];
-        renderProfileActivityStrip();
+        if (profileMapState.markerLayer && typeof profileMapState.markerLayer.clearLayers === "function") {
+            profileMapState.markerLayer.clearLayers();
+        }
         return;
     }
 
     nodes.empty.hidden = true;
 
-    const selectedCapture = items.find((capture) => capture.id === profileMapState.selectedCaptureID) || null;
-    const bounds = L.latLngBounds();
-
-    if (selectedCapture) {
-        const neighborhood = buildMapNeighborhood(selectedCapture, items);
-        const spreadMarkers = buildSpreadMarkers(neighborhood);
-        profileMapState.neighborhood = neighborhood;
-        nodes.shell.classList.add("is-expanded");
-
-        items.forEach((capture) => {
-            if (neighborhood.some((item) => item.id === capture.id)) {
-                return;
+    const markers = items.map((capture) => buildProfileMarker(capture));
+    if (window.HZDMapClusters) {
+        profileMapState.markerLayer = window.HZDMapClusters.replaceLayer(
+            map,
+            profileMapState.markerLayer,
+            markers,
+            {
+                clusterOptions: {
+                    maxClusterRadius: 54,
+                    spiderfyDistanceMultiplier: 1.22
+                }
             }
-            const marker = buildStandardProfileMarker(capture);
-            marker.addTo(profileMapState.markerLayer);
-            bounds.extend([Number(capture.latitude), Number(capture.longitude)]);
-        });
-
-        spreadMarkers.forEach((entry) => {
-            const marker = buildProfileMarker(entry.capture, entry.lat, entry.lon, entry.selected);
-            marker.addTo(profileMapState.markerLayer);
-            bounds.extend([entry.lat, entry.lon]);
-        });
-
-        if (bounds.isValid()) {
-            map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
-        } else {
-            map.setView([Number(selectedCapture.latitude), Number(selectedCapture.longitude)], 15);
-        }
+        );
+        window.HZDMapClusters.fitLayer(map, profileMapState.markerLayer, { padding: [30, 30], maxZoom: 15 });
     } else {
-        nodes.shell.classList.remove("is-expanded");
-        profileMapState.neighborhood = [];
-
-        items.forEach((capture) => {
-            const marker = buildStandardProfileMarker(capture);
-            marker.addTo(profileMapState.markerLayer);
-            bounds.extend([Number(capture.latitude), Number(capture.longitude)]);
-        });
-
+        if (profileMapState.markerLayer && map.hasLayer(profileMapState.markerLayer)) {
+            map.removeLayer(profileMapState.markerLayer);
+        }
+        profileMapState.markerLayer = L.featureGroup(markers).addTo(map);
+        const bounds = profileMapState.markerLayer.getBounds();
         if (bounds.isValid()) {
-            map.fitBounds(bounds, { padding: [32, 32] });
+            map.fitBounds(bounds, { padding: [30, 30], maxZoom: 15 });
         }
     }
 
-    renderProfileActivityStrip();
     window.setTimeout(() => map.invalidateSize(), 0);
 }
 
@@ -420,10 +284,8 @@ async function switchProfileActivitySource(source) {
     }
 
     profileMapState.source = source;
-    profileMapState.selectedCaptureID = "";
-    profileMapState.neighborhood = [];
-
     const dataset = currentProfileDataset();
+
     if (!dataset.items.length && dataset.hasMore) {
         if (source === "viewed") {
             await loadViewedProfileActivityPage();

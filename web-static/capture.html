@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Vyfotit nález | Houbam Zdar</title>
-    <meta name="description" content="Přímé focení hub do telefonu s uložením do IndexedDB a lokální fronty pro budoucí nahrání.">
+    <title>Zpracování fotek | Houbam Zdar</title>
+    <meta name="description" content="Lokální zpracování fotek hub s uložením do IndexedDB a přípravou pro pozdější nahrání.">
     <link rel="icon" href="/favicon.ico" sizes="any">
     <link rel="apple-touch-icon" href="/apple-touch-icon.png">
     <link rel="stylesheet" href="styles.css">
@@ -23,18 +23,18 @@
 
     <main class="content-main content-main-narrow">
         <section class="page-intro card">
-            <p class="section-label">Vyfotit nález</p>
-            <h1>Fotky hub přímo z lesa</h1>
+            <p class="section-label">Zpracování fotek</p>
+            <h1>Fotky hub připravené k dalšímu kroku</h1>
             <p>
-                Na telefonu můžete vyfotit houby, uložit snímek s datem a souřadnicemi do zařízení
-                a později si vybrat, co má jít na server pro mapu míst a budoucí publikace.
+                Přímé focení je nově v horní liště pod ikonou fotoaparátu. Tady spravujete lokální snímky,
+                přidáváte další fotky z telefonu a rozhodujete, co má jít na server pro mapu a publikace.
             </p>
         </section>
 
         <section class="capture-card card">
             <div class="capture-toolbar">
                 <input id="capture-file-input" class="sr-only" type="file" accept="image/*" capture="environment" multiple>
-                <label for="capture-file-input" class="btn btn-primary">Vyfotit nebo přidat snímky</label>
+                <label for="capture-file-input" class="btn btn-primary">Přidat fotky k zpracování</label>
                 <button id="capture-queue-btn" type="button" class="btn btn-secondary">Označit pro server</button>
                 <button id="capture-upload-btn" type="button" class="btn btn-secondary">Nahrát označené</button>
                 <button id="capture-delete-btn" type="button" class="btn btn-secondary">Smazat vybrané</button>
@@ -73,7 +73,7 @@
                     <p class="section-label">Archiv nálezů</p>
                     <h2>Co máte uložené v telefonu</h2>
                 </div>
-                <p class="muted-copy">Snímky zůstávají v zařízení, dokud je sami nesmažete nebo neodešlete v dalším kroku.</p>
+                <p class="muted-copy">Snímky zůstávají v zařízení, dokud je sami nesmažete nebo neposunete do dalšího kroku.</p>
             </div>
 
             <div id="capture-grid" class="capture-grid"></div>

@@ -43,12 +43,15 @@
 ## Статика: сайт
 
 1. Загрузить измененные файлы из `web-static/` в Bunny Storage для сайта.
+   Если менялись плагины или служебные ассеты фронтенда, отдельно проверить и загрузить вложенные каталоги вроде `web-static/vendor/...`.
 2. Сделать CDN purge.
 3. Проверить byte-match для ключевых файлов:
    - `index.html`
    - `feed.js`
    - `app.js`
    - `styles.css`
+   - `map-clusters.js`
+   - `vendor/leaflet-markercluster/*`
    - другие измененные страницы
 
 ## Custom hostname и TLS
@@ -93,6 +96,9 @@
 - logged-in flow
 - owner flow на своем public profile
 - unlock координат за houbičky
+- прямой запуск камеры из header-иконки
+- страницу `Zpracování fotek` и меню `Foto`
+- все карты с несколькими метками: cluster split/merge и spiderfy
 - pagination / load-more на страницах, где были изменения
 
 ## Завершение
