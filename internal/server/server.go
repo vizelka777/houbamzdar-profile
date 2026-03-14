@@ -8,6 +8,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 	"github.com/houbamzdar/bff/internal/auth"
+	"github.com/houbamzdar/bff/internal/bonus"
 	"github.com/houbamzdar/bff/internal/config"
 	"github.com/houbamzdar/bff/internal/db"
 	"github.com/houbamzdar/bff/internal/media"
@@ -18,6 +19,7 @@ type Server struct {
 	DB     *db.DB
 	OIDC   *auth.OIDC
 	Media  *media.BunnyStorage
+	Bonus  *bonus.Service
 	Router *chi.Mux
 }
 
@@ -33,11 +35,17 @@ func New(cfg *config.Config, database *db.DB, oidc *auth.OIDC, mediaStorage *med
 		AllowCredentials: true,
 	}))
 
+	var bonusService *bonus.Service
+	if database != nil {
+		bonusService = bonus.NewService(database.DB)
+	}
+
 	s := &Server{
 		Config: cfg,
 		DB:     database,
 		OIDC:   oidc,
 		Media:  mediaStorage,
+		Bonus:  bonusService,
 		Router: r,
 	}
 
@@ -77,6 +85,7 @@ func (s *Server) setupRoutes() {
 		r.Post("/api/posts/{postID}/like", s.handleTogglePostLike)
 		r.Put("/api/posts/{postID}", s.handleUpdatePost)
 		r.Delete("/api/posts/{postID}", s.handleDeletePost)
+		r.Post("/api/admin/bonus/grant", s.handleAdminManualGrant)
 	})
 }
 

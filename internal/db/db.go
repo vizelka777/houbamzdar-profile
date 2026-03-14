@@ -37,6 +37,7 @@ const migrationPhotoCapturesTableID = "20260308_create_photo_captures"
 const migrationPostsTableID = "20260312_create_posts_table"
 const migrationPostCommentsTableID = "20260314_create_post_comments_table"
 const migrationPostLikesTableID = "20260314_create_post_likes_table"
+const migrationFinanceLedgerTableID = "20260314_create_finance_ledger_tables"
 
 func New(cfg *config.Config) (*DB, error) {
 	url := cfg.DBURL
@@ -244,6 +245,56 @@ func migrate(db *sql.DB) error {
 					`CREATE INDEX IF NOT EXISTS idx_post_likes_post_id ON post_likes(post_id);`,
 					`CREATE INDEX IF NOT EXISTS idx_post_likes_user_id ON post_likes(user_id);`,
 				}
+				for _, query := range queries {
+					if _, err := tx.Exec(query); err != nil {
+						return err
+					}
+				}
+				return nil
+			},
+		},
+		{
+			id: migrationFinanceLedgerTableID,
+			apply: func(tx *sql.Tx) error {
+				queries := []string{
+					`CREATE TABLE IF NOT EXISTS reason_codes (
+						code TEXT PRIMARY KEY,
+						operation TEXT NOT NULL,
+						description TEXT NOT NULL
+					);`,
+					`INSERT OR IGNORE INTO reason_codes (code, operation, description) VALUES
+						('bonus.manual_grant', 'grant_bonus', 'Manual admin grant'),
+						('transfer.user_to_user', 'transfer', 'User to user transfer'),
+						('purchase.provider_charge', 'purchase', 'External provider purchase');`,
+					`CREATE TABLE IF NOT EXISTS wallet_accounts (
+						user_id INTEGER PRIMARY KEY,
+						balance INTEGER NOT NULL DEFAULT 0
+					);`,
+					`CREATE TABLE IF NOT EXISTS transaction_journal (
+						id TEXT PRIMARY KEY,
+						operation TEXT NOT NULL,
+						reason_code TEXT NOT NULL,
+						idempotency_key TEXT,
+						provider_ref TEXT,
+						metadata TEXT NOT NULL DEFAULT '{}',
+						created_at TEXT NOT NULL DEFAULT (datetime('now')),
+						FOREIGN KEY(reason_code) REFERENCES reason_codes(code)
+					);`,
+					`CREATE UNIQUE INDEX IF NOT EXISTS idx_transaction_journal_idempotency
+					ON transaction_journal(idempotency_key, operation)
+					WHERE idempotency_key IS NOT NULL;`,
+					`CREATE TABLE IF NOT EXISTS transaction_entries (
+						id INTEGER PRIMARY KEY AUTOINCREMENT,
+						journal_id TEXT NOT NULL,
+						user_id INTEGER NOT NULL,
+						entry_type TEXT NOT NULL CHECK(entry_type IN ('debit', 'credit')),
+						amount INTEGER NOT NULL CHECK(amount > 0),
+						created_at TEXT NOT NULL DEFAULT (datetime('now')),
+						FOREIGN KEY(journal_id) REFERENCES transaction_journal(id) ON DELETE CASCADE
+					);`,
+					`CREATE INDEX IF NOT EXISTS idx_transaction_entries_journal ON transaction_entries(journal_id);`,
+				}
+
 				for _, query := range queries {
 					if _, err := tx.Exec(query); err != nil {
 						return err

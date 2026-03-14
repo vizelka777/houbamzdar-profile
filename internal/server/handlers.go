@@ -162,7 +162,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	})
 
 	logoutURL := fmt.Sprintf("%s/logout?post_logout_redirect_uri=%s", s.Config.OIDCIssuer, url.QueryEscape(s.Config.FrontBaseURL+"/"))
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"ok":             true,
@@ -245,4 +245,41 @@ func (s *Server) handlePostMeAbout(w http.ResponseWriter, r *http.Request) {
 		"ok":       true,
 		"about_me": aboutMe,
 	})
+}
+
+func (s *Server) handleAdminManualGrant(w http.ResponseWriter, r *http.Request) {
+	if s.Bonus == nil {
+		http.Error(w, "bonus service unavailable", http.StatusInternalServerError)
+		return
+	}
+
+	var req struct {
+		UserID         int64             `json:"user_id"`
+		ReasonCode     string            `json:"reason_code"`
+		IdempotencyKey string            `json:"idempotency_key"`
+		Metadata       map[string]string `json:"metadata"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+
+	if req.IdempotencyKey == "" {
+		http.Error(w, "idempotency_key is required", http.StatusBadRequest)
+		return
+	}
+
+	if req.ReasonCode == "" {
+		req.ReasonCode = "bonus.manual_grant"
+	}
+
+	err := s.Bonus.GrantBonus(req.ReasonCode, req.UserID, req.IdempotencyKey, req.Metadata)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"ok": true})
 }
