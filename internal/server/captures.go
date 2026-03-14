@@ -56,7 +56,14 @@ func (s *Server) handleListPublicCaptures(w http.ResponseWriter, r *http.Request
 		offset = o
 	}
 
-	captures, err := s.DB.ListPublicCaptures(limit, offset)
+	var currentUserID int64
+	if cookie, err := r.Cookie(s.Config.SessionCookieName); err == nil {
+		if session, err := s.DB.GetSession(cookie.Value); err == nil {
+			currentUserID = session.UserID
+		}
+	}
+
+	captures, err := s.DB.ListPublicCaptures(limit, offset, currentUserID)
 	if err != nil {
 		http.Error(w, "failed to list public captures", http.StatusInternalServerError)
 		return
@@ -70,6 +77,56 @@ func (s *Server) handleListPublicCaptures(w http.ResponseWriter, r *http.Request
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
+		"ok":       true,
+		"captures": captures,
+	})
+}
+
+func (s *Server) handleUnlockCaptureCoordinates(w http.ResponseWriter, r *http.Request) {
+	user := r.Context().Value("user").(*models.User)
+	captureID := chi.URLParam(r, "captureID")
+
+	if captureID == "" {
+		http.Error(w, "capture id is required", http.StatusBadRequest)
+		return
+	}
+
+	if err := s.DB.UnlockCaptureCoordinates(captureID, user.ID); err != nil {
+		http.Error(w, "failed to unlock coordinates", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"ok": true,
+	})
+}
+
+func (s *Server) handleListUnlockedCaptures(w http.ResponseWriter, r *http.Request) {
+	user := r.Context().Value("user").(*models.User)
+
+	limit := 24
+	if l, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && l > 0 && l <= 100 {
+		limit = l
+	}
+	offset := 0
+	if o, err := strconv.Atoi(r.URL.Query().Get("offset")); err == nil && o >= 0 {
+		offset = o
+	}
+
+	captures, err := s.DB.ListUnlockedCapturesByViewer(user.ID, limit, offset)
+	if err != nil {
+		http.Error(w, "failed to list unlocked captures", http.StatusInternalServerError)
+		return
+	}
+	if captures == nil {
+		captures = []*models.Capture{}
+	} else {
+		attachPublicURLs(captures, s.Media)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"ok":       true,
 		"captures": captures,
 	})
