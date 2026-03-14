@@ -733,6 +733,24 @@ const publicProfileState = {
     markerLayer: null
 };
 
+function resolveRequestedPublicProfileUserID(params, me) {
+    const requestedParam = params.get("user");
+    if (requestedParam !== null) {
+        const parsed = Number.parseInt(requestedParam, 10);
+        if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+            return 0;
+        }
+        return parsed;
+    }
+
+    const ownID = Number(me && me.id);
+    if (!Number.isSafeInteger(ownID) || ownID <= 0) {
+        return 0;
+    }
+
+    return ownID;
+}
+
 function buildPublicTrustProfile(profile) {
     const score =
         (profile.preferred_username ? 28 : 0) +
@@ -938,16 +956,22 @@ async function initPublicProfilePage() {
     setAppIdentity(session, me);
     renderHeader(session, me);
 
+    publicProfileState.user = null;
+    publicProfileState.isOwner = false;
+    const ownerPanel = document.getElementById("public-owner-panel");
+    if (ownerPanel) {
+        ownerPanel.hidden = true;
+    }
+
     const params = new URLSearchParams(window.location.search);
-    const requestedUserID = Number(params.get("user")) || Number(me && me.id) || 0;
+    const requestedUserID = resolveRequestedPublicProfileUserID(params, me);
     if (!requestedUserID) {
         setText("public-profile-name", "Profil nenalezen");
-        setText("public-profile-trust", "Vyberte uživatele z veřejné zdi nebo galerie.");
+        setText("public-profile-trust", "Odkaz na veřejný profil je neplatný nebo chybí identita uživatele.");
         return;
     }
 
     publicProfileState.requestedUserID = requestedUserID;
-    publicProfileState.isOwner = Boolean(me && Number(me.id) === requestedUserID);
 
     const profileRes = await apiGet(`/api/public/users/${encodeURIComponent(requestedUserID)}`);
     if (!profileRes || !profileRes.ok || !profileRes.user) {
@@ -958,6 +982,12 @@ async function initPublicProfilePage() {
 
     const profile = profileRes.user;
     publicProfileState.user = profile;
+    publicProfileState.isOwner = Boolean(
+        me &&
+        Number.isSafeInteger(Number(me.id)) &&
+        Number(me.id) === Number(profile.id) &&
+        Number(profile.id) === requestedUserID
+    );
 
     const trust = buildPublicTrustProfile(profile);
     renderProfilePicture("public-profile-picture", profile.picture, "Veřejná profilová fotka");
@@ -973,7 +1003,6 @@ async function initPublicProfilePage() {
         trustFill.style.width = `${trust.score}%`;
     }
 
-    const ownerPanel = document.getElementById("public-owner-panel");
     if (ownerPanel) {
         ownerPanel.hidden = !publicProfileState.isOwner;
     }
