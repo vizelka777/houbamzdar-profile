@@ -717,6 +717,40 @@ function setupAboutEditor(initialValue, onSaved) {
     });
 }
 
+function renderPublicOwnerPanel(visible) {
+    const slot = document.getElementById("public-owner-panel-slot");
+    if (!slot) {
+        return;
+    }
+
+    if (!visible) {
+        slot.innerHTML = "";
+        return;
+    }
+
+    slot.innerHTML = `
+        <section id="public-owner-panel" class="about-shell card">
+            <div class="about-head">
+                <div>
+                    <p class="section-label">Váš text profilu</p>
+                    <h2>Upravte své veřejné představení</h2>
+                </div>
+                <p class="muted-copy">
+                    Napište pár vět o sobě, svých oblíbených lesích nebo plánech na další výpravu.
+                </p>
+            </div>
+
+            <label class="sr-only" for="about-me-input">Krátké představení</label>
+            <textarea id="about-me-input" rows="6" maxlength="2000" placeholder="Napište něco o sobě..."></textarea>
+
+            <div class="action-row">
+                <button id="save-about-btn" class="btn btn-primary">Uložit veřejný profil</button>
+                <span id="save-status" class="status-message" aria-live="polite"></span>
+            </div>
+        </section>
+    `;
+}
+
 const publicProfileState = {
     requestedUserID: 0,
     isOwner: false,
@@ -958,10 +992,7 @@ async function initPublicProfilePage() {
 
     publicProfileState.user = null;
     publicProfileState.isOwner = false;
-    const ownerPanel = document.getElementById("public-owner-panel");
-    if (ownerPanel) {
-        ownerPanel.hidden = true;
-    }
+    renderPublicOwnerPanel(false);
 
     const params = new URLSearchParams(window.location.search);
     const requestedUserID = resolveRequestedPublicProfileUserID(params, me);
@@ -1003,11 +1034,8 @@ async function initPublicProfilePage() {
         trustFill.style.width = `${trust.score}%`;
     }
 
-    if (ownerPanel) {
-        ownerPanel.hidden = !publicProfileState.isOwner;
-    }
-
     if (publicProfileState.isOwner) {
+        renderPublicOwnerPanel(true);
         setupAboutEditor(profile.about_me || "", (value) => {
             setText("public-about-preview", value || "Zatím bez veřejného představení.");
         });
