@@ -558,6 +558,44 @@ func (db *DB) GetUser(id int64) (*models.User, error) {
 	return &user, err
 }
 
+func (db *DB) GetUserByPreferredUsername(username string) (*models.User, error) {
+	username = strings.TrimSpace(username)
+	if username == "" {
+		return nil, sql.ErrNoRows
+	}
+
+	rows, err := db.Query(`
+		SELECT id
+		FROM users
+		WHERE lower(COALESCE(preferred_username, '')) = lower(?)
+		ORDER BY id
+	`, username)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(ids) == 0 {
+		return nil, sql.ErrNoRows
+	}
+	if len(ids) > 1 {
+		return nil, fmt.Errorf("multiple users found for preferred_username %q", username)
+	}
+
+	return db.GetUser(ids[0])
+}
+
 func (db *DB) GetPublicUserProfile(id int64) (*models.PublicUserProfile, error) {
 	var (
 		profile                models.PublicUserProfile

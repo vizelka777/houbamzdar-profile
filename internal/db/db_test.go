@@ -222,6 +222,56 @@ func TestMigrateIsIdempotentForFreshSchema(t *testing.T) {
 	}
 }
 
+func TestGetUserByPreferredUsername(t *testing.T) {
+	t.Parallel()
+
+	rawDB := openTestDB(t)
+	if err := migrate(rawDB); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	wrapped := &DB{rawDB}
+	token := &oauth2.Token{
+		AccessToken:  "access-token",
+		RefreshToken: "refresh-token",
+		TokenType:    "Bearer",
+		Expiry:       time.Now().Add(time.Hour).UTC(),
+	}
+
+	standa, _, err := wrapped.UpsertUser(&models.OIDCClaims{
+		Iss:               "https://ahoj420.eu",
+		Sub:               "standa-123",
+		PreferredUsername: "Standa",
+		Email:             "standa@example.test",
+		EmailVerified:     true,
+	}, token)
+	if err != nil {
+		t.Fatalf("upsert standa: %v", err)
+	}
+
+	if _, _, err := wrapped.UpsertUser(&models.OIDCClaims{
+		Iss:               "https://ahoj420.eu",
+		Sub:               "other-123",
+		PreferredUsername: "Jana",
+		Email:             "jana@example.test",
+		EmailVerified:     true,
+	}, token); err != nil {
+		t.Fatalf("upsert jana: %v", err)
+	}
+
+	got, err := wrapped.GetUserByPreferredUsername("standa")
+	if err != nil {
+		t.Fatalf("lookup standa: %v", err)
+	}
+	if got.ID != standa.ID {
+		t.Fatalf("expected user id %d, got %d", standa.ID, got.ID)
+	}
+
+	if _, err := wrapped.GetUserByPreferredUsername("missing"); err != sql.ErrNoRows {
+		t.Fatalf("expected sql.ErrNoRows for missing user, got %v", err)
+	}
+}
+
 func TestMigrateCreatesPhotoCapturesTableAndSupportsCRUD(t *testing.T) {
 	t.Parallel()
 
