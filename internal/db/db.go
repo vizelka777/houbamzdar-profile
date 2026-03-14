@@ -37,6 +37,7 @@ const migrationPhotoCapturesTableID = "20260308_create_photo_captures"
 const migrationPostsTableID = "20260312_create_posts_table"
 const migrationPostCommentsTableID = "20260314_create_post_comments_table"
 const migrationPostLikesTableID = "20260314_create_post_likes_table"
+const migrationCaptureCoordinatesFreeID = "20260314_add_capture_coordinates_free"
 
 func New(cfg *config.Config) (*DB, error) {
 	url := cfg.DBURL
@@ -252,6 +253,12 @@ func migrate(db *sql.DB) error {
 				return nil
 			},
 		},
+		{
+			id: migrationCaptureCoordinatesFreeID,
+			apply: func(tx *sql.Tx) error {
+				return ensureColumnExists(tx, "photo_captures", "coordinates_free", "INTEGER NOT NULL DEFAULT 0")
+			},
+		},
 	}
 
 	for _, migration := range migrations {
@@ -463,7 +470,7 @@ func (db *DB) UpdateAboutMe(id int64, aboutMe string) error {
 const captureSelectColumns = `
 	SELECT id, user_id, COALESCE(client_local_id, ''), original_file_name, content_type, size_bytes, width, height,
 		captured_at, uploaded_at, latitude, longitude, accuracy_meters, status, private_storage_key,
-		COALESCE(public_storage_key, ''), COALESCE(published_at, '')
+		COALESCE(public_storage_key, ''), COALESCE(published_at, ''), COALESCE(coordinates_free, 0)
 	FROM photo_captures
 `
 
@@ -472,8 +479,8 @@ func (db *DB) CreateCapture(capture *models.Capture) error {
 		INSERT INTO photo_captures (
 			id, user_id, client_local_id, original_file_name, content_type, size_bytes, width, height,
 			captured_at, uploaded_at, latitude, longitude, accuracy_meters, status, private_storage_key,
-			public_storage_key, published_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			public_storage_key, published_at, coordinates_free
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`,
 		capture.ID,
 		capture.UserID,
@@ -492,6 +499,7 @@ func (db *DB) CreateCapture(capture *models.Capture) error {
 		capture.PrivateStorageKey,
 		nullIfEmpty(capture.PublicStorageKey),
 		nullIfZeroTime(capture.PublishedAt),
+		capture.CoordinatesFree,
 	)
 	return err
 }
@@ -594,6 +602,15 @@ func (db *DB) UnpublishCapture(id string, userID int64) error {
 	return err
 }
 
+func (db *DB) SetCaptureCoordinatesFree(id string, userID int64, coordinatesFree bool) error {
+	_, err := db.Exec(`
+		UPDATE photo_captures
+		SET coordinates_free = ?
+		WHERE id = ? AND user_id = ?
+	`, coordinatesFree, id, userID)
+	return err
+}
+
 func (db *DB) DeleteCapture(id string, userID int64) error {
 	_, err := db.Exec(`DELETE FROM photo_captures WHERE id = ? AND user_id = ?`, id, userID)
 	return err
@@ -618,6 +635,7 @@ func scanCapture(row scanner) (*models.Capture, error) {
 		accuracyMeters   sql.NullFloat64
 		publicStorageKey sql.NullString
 		publishedAtRaw   sql.NullString
+		coordinatesFree  int
 	)
 
 	if err := row.Scan(
@@ -638,6 +656,7 @@ func scanCapture(row scanner) (*models.Capture, error) {
 		&capture.PrivateStorageKey,
 		&publicStorageKey,
 		&publishedAtRaw,
+		&coordinatesFree,
 	); err != nil {
 		return nil, err
 	}
@@ -661,6 +680,7 @@ func scanCapture(row scanner) (*models.Capture, error) {
 	if publishedAtRaw.Valid && publishedAtRaw.String != "" {
 		capture.PublishedAt, _ = time.Parse(time.RFC3339, publishedAtRaw.String)
 	}
+	capture.CoordinatesFree = coordinatesFree == 1
 
 	return &capture, nil
 }
@@ -949,7 +969,7 @@ func (db *DB) ListPublicCaptures(limit, offset int) ([]*models.Capture, error) {
 	rows, err := db.Query(`
 		SELECT c.id, c.user_id, u.preferred_username, COALESCE(u.picture, ''), COALESCE(c.client_local_id, ''), c.original_file_name, c.content_type, c.size_bytes, c.width, c.height,
 			c.captured_at, c.uploaded_at, c.latitude, c.longitude, c.accuracy_meters, c.status, c.private_storage_key,
-			COALESCE(c.public_storage_key, ''), COALESCE(c.published_at, '')
+			COALESCE(c.public_storage_key, ''), COALESCE(c.published_at, ''), COALESCE(c.coordinates_free, 0)
 		FROM photo_captures c
 		JOIN users u ON c.user_id = u.id
 		WHERE c.status = 'published' AND c.public_storage_key IS NOT NULL AND c.public_storage_key != ''
@@ -965,10 +985,11 @@ func (db *DB) ListPublicCaptures(limit, offset int) ([]*models.Capture, error) {
 	for rows.Next() {
 		var c models.Capture
 		var capturedAt, uploadedAt, publishedAt string
+		var coordinatesFree int
 		if err := rows.Scan(
 			&c.ID, &c.UserID, &c.AuthorName, &c.AuthorAvatar, &c.ClientLocalID, &c.OriginalFileName, &c.ContentType, &c.SizeBytes, &c.Width, &c.Height,
 			&capturedAt, &uploadedAt, &c.Latitude, &c.Longitude, &c.AccuracyMeters, &c.Status, &c.PrivateStorageKey,
-			&c.PublicStorageKey, &publishedAt,
+			&c.PublicStorageKey, &publishedAt, &coordinatesFree,
 		); err != nil {
 			return nil, err
 		}
@@ -977,6 +998,7 @@ func (db *DB) ListPublicCaptures(limit, offset int) ([]*models.Capture, error) {
 		if publishedAt != "" {
 			c.PublishedAt, _ = time.Parse(time.RFC3339, publishedAt)
 		}
+		c.CoordinatesFree = coordinatesFree == 1
 		captures = append(captures, &c)
 	}
 	if err := rows.Err(); err != nil {
@@ -990,7 +1012,7 @@ func (db *DB) getCapturesForPost(postID string) ([]*models.Capture, error) {
 	cRows, err := db.Query(`
 		SELECT c.id, c.user_id, COALESCE(c.client_local_id, ''), c.original_file_name, c.content_type, c.size_bytes, c.width, c.height,
 			c.captured_at, c.uploaded_at, c.latitude, c.longitude, c.accuracy_meters, c.status, c.private_storage_key,
-			COALESCE(c.public_storage_key, ''), COALESCE(c.published_at, '')
+			COALESCE(c.public_storage_key, ''), COALESCE(c.published_at, ''), COALESCE(c.coordinates_free, 0)
 		FROM photo_captures c
 		JOIN post_captures pc ON c.id = pc.capture_id
 		WHERE pc.post_id = ?
@@ -1005,10 +1027,11 @@ func (db *DB) getCapturesForPost(postID string) ([]*models.Capture, error) {
 	for cRows.Next() {
 		var c models.Capture
 		var capturedAt, uploadedAt, publishedAt string
+		var coordinatesFree int
 		if err := cRows.Scan(
 			&c.ID, &c.UserID, &c.ClientLocalID, &c.OriginalFileName, &c.ContentType, &c.SizeBytes, &c.Width, &c.Height,
 			&capturedAt, &uploadedAt, &c.Latitude, &c.Longitude, &c.AccuracyMeters, &c.Status, &c.PrivateStorageKey,
-			&c.PublicStorageKey, &publishedAt,
+			&c.PublicStorageKey, &publishedAt, &coordinatesFree,
 		); err != nil {
 			return nil, err
 		}
@@ -1017,6 +1040,7 @@ func (db *DB) getCapturesForPost(postID string) ([]*models.Capture, error) {
 		if publishedAt != "" {
 			c.PublishedAt, _ = time.Parse(time.RFC3339, publishedAt)
 		}
+		c.CoordinatesFree = coordinatesFree == 1
 		captures = append(captures, &c)
 	}
 	return captures, nil

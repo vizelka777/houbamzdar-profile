@@ -197,6 +197,43 @@ func (s *Server) handlePublishCapture(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) handleSetCaptureCoordinatesFree(w http.ResponseWriter, r *http.Request) {
+	user := r.Context().Value("user").(*models.User)
+	captureID := chi.URLParam(r, "captureID")
+
+	var req struct {
+		CoordinatesFree bool `json:"coordinates_free"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	capture, err := s.DB.GetCaptureForUser(captureID, user.ID)
+	if err != nil {
+		http.Error(w, "capture not found", http.StatusNotFound)
+		return
+	}
+
+	if err := s.DB.SetCaptureCoordinatesFree(capture.ID, user.ID, req.CoordinatesFree); err != nil {
+		http.Error(w, "failed to update coordinates access", http.StatusInternalServerError)
+		return
+	}
+
+	updated, err := s.DB.GetCaptureForUser(capture.ID, user.ID)
+	if err != nil {
+		http.Error(w, "failed to reload capture", http.StatusInternalServerError)
+		return
+	}
+	attachPublicURLs([]*models.Capture{updated}, s.Media)
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"ok":      true,
+		"capture": updated,
+	})
+}
+
 func (s *Server) handlePreviewCapture(w http.ResponseWriter, r *http.Request) {
 	user := r.Context().Value("user").(*models.User)
 	captureID := chi.URLParam(r, "captureID")

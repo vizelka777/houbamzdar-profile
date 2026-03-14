@@ -76,6 +76,7 @@ function renderGallery(capturesToRender, container) {
             <div class="gallery-item-header">
                 <img src="${escapeHtml(avatarUrl)}" class="gallery-item-avatar" alt="Avatar">
                 <span class="gallery-item-author">${escapeHtml(authorName)}</span>
+                ${capture.coordinates_free ? '<span class="coords-free-inline" title="Souřadnice zdarma">✅ Zdarma</span>' : ""}
             </div>
             <div class="gallery-item-image">
                 <img src="${url}" loading="lazy" alt="Houbařský úlovek">

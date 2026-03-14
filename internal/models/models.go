@@ -26,6 +26,7 @@ type Capture struct {
 	UserID            int64     `json:"-"`
 	AuthorName        string    `json:"author_name,omitempty"`
 	AuthorAvatar      string    `json:"author_avatar,omitempty"`
+	CoordinatesFree   bool      `json:"coordinates_free"`
 	ClientLocalID     string    `json:"client_local_id,omitempty"`
 	OriginalFileName  string    `json:"original_file_name"`
 	ContentType       string    `json:"content_type"`

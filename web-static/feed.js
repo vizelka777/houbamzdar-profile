@@ -198,6 +198,7 @@ function renderPosts(postsToRender, container) {
         let capturesHtml = "";
         const captureUrls = [];
         let hasCoords = false;
+        let hasFreeCoords = false;
         const mapData = [];
 
         if (post.captures && post.captures.length > 0) {
@@ -210,6 +211,9 @@ function renderPosts(postsToRender, container) {
                 capturesHtml += `<img src="${url}" class="feed-photo" loading="lazy" data-idx="${idx}">`;
                 if (capture.latitude && capture.longitude) {
                     hasCoords = true;
+                    if (capture.coordinates_free) {
+                        hasFreeCoords = true;
+                    }
                     mapData.push({ lat: capture.latitude, lon: capture.longitude });
                 }
             });
@@ -238,6 +242,7 @@ function renderPosts(postsToRender, container) {
                 ${escapeHtml(post.content).replace(/\n/g, "<br>")}
             </div>
             ${capturesHtml}
+            ${hasFreeCoords ? '<p class="coords-free-badge">✅ Souřadnice u fotek jsou zdarma</p>' : ""}
             ${mapDivHtml}
             <div class="feed-actions" style="display: flex; justify-content: flex-start; align-items: center; gap: 1rem;">
                 <button class="like-btn ${activeClass}" data-id="${post.id}">

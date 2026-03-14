@@ -145,6 +145,11 @@ function renderServerStorageGrid() {
             <img src="${escapeHtml(previewUrl)}" alt="Soukromý náhled nálezu" class="capture-thumb" loading="lazy">
             <div class="capture-meta">
                 <h3>${escapeHtml(capture.original_file_name || "Nález")}</h3>
+                ${capture.coordinates_free ? '<p class="coords-free-badge">✅ Souřadnice zdarma</p>' : ''}
+                <label class="coords-free-toggle">
+                    <input class="storage-coords-free-checkbox" type="checkbox" data-capture-id="${escapeHtml(capture.id)}" ${capture.coordinates_free ? "checked" : ""}>
+                    <span>Souřadnice volně přístupné</span>
+                </label>
                 <p>${escapeHtml(formatDateTime(capture.captured_at))}</p>
                 <p>${escapeHtml(formatStorageCoords(capture.latitude, capture.longitude))}</p>
                 <p>${escapeHtml(`${Math.round((capture.size_bytes || 0) / 1024)} KB`)}</p>
@@ -174,6 +179,24 @@ async function apiPostStorageAction(captureID, action) {
     if (!response.ok) {
         const text = await response.text();
         throw new Error(text || `Action ${action} failed`);
+    }
+
+    return response.json();
+}
+
+async function apiSetCoordinatesFree(captureID, coordinatesFree) {
+    const response = await fetch(`${API_URL}/api/captures/${encodeURIComponent(captureID)}/coordinates-free`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ coordinates_free: !!coordinatesFree })
+    });
+
+    if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || "Coordinates access update failed");
     }
 
     return response.json();
@@ -226,6 +249,15 @@ async function performStorageBulkAction(action) {
 }
 
 function handleStorageGridChange(event) {
+    const coordsToggle = event.target.closest(".storage-coords-free-checkbox");
+    if (coordsToggle) {
+        const capture = storageState.captures.find((item) => item.id === coordsToggle.dataset.captureId);
+        if (capture) {
+            capture.coordinates_free = coordsToggle.checked;
+        }
+        return;
+    }
+
     const checkbox = event.target.closest(".storage-capture-checkbox");
     if (!checkbox) return;
 
@@ -337,6 +369,35 @@ async function initServerStoragePage() {
 
     selectAll.addEventListener("change", handleStorageSelectAll);
     grid.addEventListener("change", handleStorageGridChange);
+    grid.addEventListener("change", async (event) => {
+        const coordsToggle = event.target.closest(".storage-coords-free-checkbox");
+        if (!coordsToggle) return;
+
+        const captureID = coordsToggle.dataset.captureId;
+        const desiredValue = coordsToggle.checked;
+        coordsToggle.disabled = true;
+
+        try {
+            setStatusMessage(statusNode, desiredValue ? "Nastavuji souřadnice do volného přístupu..." : "Vypínám volný přístup k souřadnicím...");
+            const result = await apiSetCoordinatesFree(captureID, desiredValue);
+            const updatedCapture = result && result.capture;
+            if (updatedCapture) {
+                const index = storageState.captures.findIndex((item) => item.id === captureID);
+                if (index >= 0) {
+                    storageState.captures[index] = updatedCapture;
+                }
+            }
+            renderServerStorageGrid();
+            setStatusMessage(statusNode, desiredValue ? "Souřadnice jsou nyní zdarma pro všechny." : "Souřadnice už nejsou volně přístupné.", "success");
+        } catch (error) {
+            console.error("Failed to update coordinates access", error);
+            coordsToggle.checked = !desiredValue;
+            setStatusMessage(statusNode, "Změnu volného přístupu se nepodařilo uložit.", "error");
+        } finally {
+            coordsToggle.disabled = false;
+        }
+    });
+
 
     prevButton.addEventListener("click", async () => {
         if (storageState.page <= 1) return;

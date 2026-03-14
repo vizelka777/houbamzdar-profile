@@ -249,6 +249,7 @@ func TestMigrateCreatesPhotoCapturesTableAndSupportsCRUD(t *testing.T) {
 		"private_storage_key",
 		"public_storage_key",
 		"published_at",
+		"coordinates_free",
 	} {
 		if _, ok := columns[name]; !ok {
 			t.Fatalf("expected photo_captures.%s to exist", name)
@@ -304,6 +305,7 @@ func TestMigrateCreatesPhotoCapturesTableAndSupportsCRUD(t *testing.T) {
 		Longitude:         &lng,
 		AccuracyMeters:    &acc,
 		Status:            "private",
+		CoordinatesFree:   true,
 		PrivateStorageKey: "captures/1/2026/03/capture-001/original.jpg",
 	}
 
@@ -320,6 +322,9 @@ func TestMigrateCreatesPhotoCapturesTableAndSupportsCRUD(t *testing.T) {
 	}
 	if captures[0].PrivateStorageKey != capture.PrivateStorageKey {
 		t.Fatalf("unexpected private storage key: %q", captures[0].PrivateStorageKey)
+	}
+	if !captures[0].CoordinatesFree {
+		t.Fatalf("expected coordinates_free to persist")
 	}
 
 	if err := database.PublishCapture(capture.ID, user.ID, "captures/published/1/2026/03/capture-001.jpg"); err != nil {
