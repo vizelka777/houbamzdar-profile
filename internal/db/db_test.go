@@ -743,3 +743,301 @@ func TestPostLikesSupportFeedStateAndDeleteCleanup(t *testing.T) {
 		t.Fatalf("expected 0 remaining likes after delete, got %d", remainingLikes)
 	}
 }
+
+func TestGrantAuthBonusesAreIdempotent(t *testing.T) {
+	t.Parallel()
+
+	rawDB := openTestDB(t)
+	if err := migrate(rawDB); err != nil {
+		t.Fatalf("migrate schema: %v", err)
+	}
+
+	database := &DB{rawDB}
+	user, _, err := database.UpsertUser(&models.OIDCClaims{
+		Iss:               "https://ahoj420.eu",
+		Sub:               "houbicka-bonus-user",
+		PreferredUsername: "bonusnik",
+		Email:             "bonusnik@example.test",
+		PhoneNumber:       "+420777000111",
+	}, &oauth2.Token{
+		AccessToken:  "bonus-access",
+		RefreshToken: "bonus-refresh",
+		Expiry:       time.Now().Add(time.Hour).UTC(),
+	})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	if err := database.GrantAuthBonuses(user.ID, true, false, false); err != nil {
+		t.Fatalf("grant signup bonus: %v", err)
+	}
+	if err := database.GrantAuthBonuses(user.ID, false, true, true); err != nil {
+		t.Fatalf("grant verification bonuses: %v", err)
+	}
+	if err := database.GrantAuthBonuses(user.ID, false, true, true); err != nil {
+		t.Fatalf("regrant verification bonuses: %v", err)
+	}
+
+	balance, err := database.GetHoubickaBalance(user.ID)
+	if err != nil {
+		t.Fatalf("get houbicka balance: %v", err)
+	}
+	if balance != 9 {
+		t.Fatalf("expected final balance 9, got %d", balance)
+	}
+
+	var operationCount int
+	if err := rawDB.QueryRow(`SELECT COUNT(*) FROM houbicka_operations WHERE target_user_id = ?`, user.ID).Scan(&operationCount); err != nil {
+		t.Fatalf("count houbicka operations: %v", err)
+	}
+	if operationCount != 3 {
+		t.Fatalf("expected 3 recorded operations, got %d", operationCount)
+	}
+}
+
+func TestUnlockCaptureCoordinatesTransfersBalanceAndKeepsViewedList(t *testing.T) {
+	t.Parallel()
+
+	rawDB := openTestDB(t)
+	if err := migrate(rawDB); err != nil {
+		t.Fatalf("migrate schema: %v", err)
+	}
+
+	database := &DB{rawDB}
+	author, _, err := database.UpsertUser(&models.OIDCClaims{
+		Iss:               "https://ahoj420.eu",
+		Sub:               "unlock-author",
+		PreferredUsername: "autor",
+		Email:             "unlock-author@example.test",
+		EmailVerified:     true,
+	}, &oauth2.Token{
+		AccessToken:  "author-access",
+		RefreshToken: "author-refresh",
+		Expiry:       time.Now().Add(time.Hour).UTC(),
+	})
+	if err != nil {
+		t.Fatalf("create author: %v", err)
+	}
+
+	viewer, _, err := database.UpsertUser(&models.OIDCClaims{
+		Iss:               "https://ahoj420.eu",
+		Sub:               "unlock-viewer",
+		PreferredUsername: "divak",
+		Email:             "unlock-viewer@example.test",
+	}, &oauth2.Token{
+		AccessToken:  "viewer-access",
+		RefreshToken: "viewer-refresh",
+		Expiry:       time.Now().Add(time.Hour).UTC(),
+	})
+	if err != nil {
+		t.Fatalf("create viewer: %v", err)
+	}
+
+	if err := database.GrantAuthBonuses(viewer.ID, true, false, false); err != nil {
+		t.Fatalf("grant initial viewer balance: %v", err)
+	}
+
+	lat := 49.2468
+	lon := 17.1357
+	capturedAt := time.Date(2026, time.March, 15, 9, 30, 0, 0, time.UTC)
+	capture := &models.Capture{
+		ID:                "unlock-capture-001",
+		UserID:            author.ID,
+		OriginalFileName:  "unlock.jpg",
+		ContentType:       "image/jpeg",
+		SizeBytes:         3000,
+		Width:             1200,
+		Height:            800,
+		CapturedAt:        capturedAt,
+		UploadedAt:        capturedAt,
+		Latitude:          &lat,
+		Longitude:         &lon,
+		Status:            "published",
+		PrivateStorageKey: "captures/author/unlock.jpg",
+		PublicStorageKey:  "captures/published/author/unlock.jpg",
+		PublishedAt:       capturedAt.Add(time.Minute),
+	}
+	if err := database.CreateCapture(capture); err != nil {
+		t.Fatalf("create capture: %v", err)
+	}
+
+	balance, alreadyUnlocked, err := database.UnlockCaptureCoordinates(viewer.ID, capture.ID)
+	if err != nil {
+		t.Fatalf("unlock capture coordinates: %v", err)
+	}
+	if alreadyUnlocked {
+		t.Fatalf("expected first unlock to be charged")
+	}
+	if balance != 0 {
+		t.Fatalf("expected viewer balance 0 after unlock, got %d", balance)
+	}
+
+	authorBalance, err := database.GetHoubickaBalance(author.ID)
+	if err != nil {
+		t.Fatalf("get author balance: %v", err)
+	}
+	if authorBalance != 1 {
+		t.Fatalf("expected author balance 1 after unlock, got %d", authorBalance)
+	}
+
+	viewedCaptures, err := database.ListViewedCapturesByUser(viewer.ID, 10, 0)
+	if err != nil {
+		t.Fatalf("list viewed captures: %v", err)
+	}
+	if len(viewedCaptures) != 1 {
+		t.Fatalf("expected 1 viewed capture, got %d", len(viewedCaptures))
+	}
+	if viewedCaptures[0].ID != capture.ID {
+		t.Fatalf("unexpected viewed capture id: %q", viewedCaptures[0].ID)
+	}
+	if viewedCaptures[0].UnlockedAt.IsZero() {
+		t.Fatalf("expected unlock timestamp to be stored")
+	}
+	if viewedCaptures[0].Latitude == nil || viewedCaptures[0].Longitude == nil {
+		t.Fatalf("expected viewed capture coordinates to remain visible")
+	}
+
+	balance, alreadyUnlocked, err = database.UnlockCaptureCoordinates(viewer.ID, capture.ID)
+	if err != nil {
+		t.Fatalf("unlock capture coordinates second time: %v", err)
+	}
+	if !alreadyUnlocked {
+		t.Fatalf("expected repeated unlock to be treated as already unlocked")
+	}
+	if balance != 0 {
+		t.Fatalf("expected repeated unlock to keep viewer balance 0, got %d", balance)
+	}
+
+	authorBalance, err = database.GetHoubickaBalance(author.ID)
+	if err != nil {
+		t.Fatalf("get author balance after repeated unlock: %v", err)
+	}
+	if authorBalance != 1 {
+		t.Fatalf("expected author balance to stay 1 after repeated unlock, got %d", authorBalance)
+	}
+}
+
+func TestListPublicCapturesMasksPaidCoordinatesAndLeavesFreeVisible(t *testing.T) {
+	t.Parallel()
+
+	rawDB := openTestDB(t)
+	if err := migrate(rawDB); err != nil {
+		t.Fatalf("migrate schema: %v", err)
+	}
+
+	database := &DB{rawDB}
+	author, _, err := database.UpsertUser(&models.OIDCClaims{
+		Iss:               "https://ahoj420.eu",
+		Sub:               "mask-author",
+		PreferredUsername: "maskautor",
+		Email:             "mask-author@example.test",
+		EmailVerified:     true,
+	}, &oauth2.Token{
+		AccessToken:  "mask-author-access",
+		RefreshToken: "mask-author-refresh",
+		Expiry:       time.Now().Add(time.Hour).UTC(),
+	})
+	if err != nil {
+		t.Fatalf("create author: %v", err)
+	}
+
+	viewer, _, err := database.UpsertUser(&models.OIDCClaims{
+		Iss:               "https://ahoj420.eu",
+		Sub:               "mask-viewer",
+		PreferredUsername: "maskviewer",
+		Email:             "mask-viewer@example.test",
+	}, &oauth2.Token{
+		AccessToken:  "mask-viewer-access",
+		RefreshToken: "mask-viewer-refresh",
+		Expiry:       time.Now().Add(time.Hour).UTC(),
+	})
+	if err != nil {
+		t.Fatalf("create viewer: %v", err)
+	}
+
+	if err := database.GrantAuthBonuses(viewer.ID, true, false, false); err != nil {
+		t.Fatalf("grant viewer signup bonus: %v", err)
+	}
+
+	makeCapture := func(id string, free bool, lat, lon float64, publishedAt time.Time) *models.Capture {
+		return &models.Capture{
+			ID:                id,
+			UserID:            author.ID,
+			OriginalFileName:  id + ".jpg",
+			ContentType:       "image/jpeg",
+			SizeBytes:         2048,
+			Width:             1400,
+			Height:            900,
+			CapturedAt:        publishedAt,
+			UploadedAt:        publishedAt,
+			Latitude:          &lat,
+			Longitude:         &lon,
+			CoordinatesFree:   free,
+			Status:            "published",
+			PrivateStorageKey: "captures/private/" + id + ".jpg",
+			PublicStorageKey:  "captures/public/" + id + ".jpg",
+			PublishedAt:       publishedAt,
+		}
+	}
+
+	paidCapture := makeCapture("mask-paid", false, 49.001, 17.001, time.Date(2026, time.March, 15, 10, 0, 0, 0, time.UTC))
+	freeCapture := makeCapture("mask-free", true, 49.002, 17.002, time.Date(2026, time.March, 15, 10, 5, 0, 0, time.UTC))
+
+	if err := database.CreateCapture(paidCapture); err != nil {
+		t.Fatalf("create paid capture: %v", err)
+	}
+	if err := database.CreateCapture(freeCapture); err != nil {
+		t.Fatalf("create free capture: %v", err)
+	}
+
+	guestCaptures, err := database.ListPublicCaptures(10, 0, 0)
+	if err != nil {
+		t.Fatalf("list guest public captures: %v", err)
+	}
+
+	captureByID := make(map[string]*models.Capture, len(guestCaptures))
+	for _, capture := range guestCaptures {
+		captureByID[capture.ID] = capture
+	}
+
+	if captureByID[paidCapture.ID] == nil || !captureByID[paidCapture.ID].CoordinatesLocked {
+		t.Fatalf("expected paid capture coordinates to be locked for guests")
+	}
+	if captureByID[paidCapture.ID].Latitude != nil || captureByID[paidCapture.ID].Longitude != nil {
+		t.Fatalf("expected paid capture coordinates to be hidden for guests")
+	}
+
+	if captureByID[freeCapture.ID] == nil {
+		t.Fatalf("expected free capture to appear in guest list")
+	}
+	if captureByID[freeCapture.ID].CoordinatesLocked {
+		t.Fatalf("expected free capture coordinates to stay visible")
+	}
+	if captureByID[freeCapture.ID].Latitude == nil || captureByID[freeCapture.ID].Longitude == nil {
+		t.Fatalf("expected free capture coordinates to be visible for guests")
+	}
+
+	if _, _, err := database.UnlockCaptureCoordinates(viewer.ID, paidCapture.ID); err != nil {
+		t.Fatalf("unlock paid capture for viewer: %v", err)
+	}
+
+	viewerCaptures, err := database.ListPublicCaptures(10, 0, viewer.ID)
+	if err != nil {
+		t.Fatalf("list viewer public captures: %v", err)
+	}
+
+	captureByID = make(map[string]*models.Capture, len(viewerCaptures))
+	for _, capture := range viewerCaptures {
+		captureByID[capture.ID] = capture
+	}
+
+	if captureByID[paidCapture.ID] == nil {
+		t.Fatalf("expected paid capture to appear for viewer after unlock")
+	}
+	if captureByID[paidCapture.ID].CoordinatesLocked {
+		t.Fatalf("expected paid capture coordinates to be visible after unlock")
+	}
+	if captureByID[paidCapture.ID].Latitude == nil || captureByID[paidCapture.ID].Longitude == nil {
+		t.Fatalf("expected paid capture coordinates after unlock")
+	}
+}

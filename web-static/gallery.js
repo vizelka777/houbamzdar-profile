@@ -2,7 +2,9 @@ const state = {
     captures: [],
     page: 1,
     pageSize: 24,
-    hasMore: true
+    hasMore: true,
+    session: null,
+    me: null
 };
 
 async function loadGallery(append = false) {
@@ -53,23 +55,18 @@ async function loadGallery(append = false) {
 }
 
 function renderGallery(capturesToRender, container) {
-    // Aktualizace polí pro lightbox
-    window.lightboxImages = state.captures.map(c => 
-        c.public_url ? escapeHtml(c.public_url) : `${API_URL}/api/captures/${encodeURIComponent(c.id)}/preview`
-    );
-    window.lightboxMapData = state.captures.map(c => 
-        (c.latitude && c.longitude) ? { lat: c.latitude, lon: c.longitude } : null
-    );
+    window.lightboxImages = state.captures.map((capture) => buildCaptureImageURL(capture));
+    window.lightboxCaptureData = state.captures;
+    window.lightboxMapData = state.captures.map((capture) => buildCaptureMapData(capture));
 
     capturesToRender.forEach((capture, idx) => {
         const item = document.createElement("div");
         item.className = "gallery-item";
 
-        const url = capture.public_url ? escapeHtml(capture.public_url) : `${API_URL}/api/captures/${encodeURIComponent(c.id)}/preview`;
+        const url = escapeHtml(buildCaptureImageURL(capture));
         const avatarUrl = capture.author_avatar || "/default-avatar.png";
         const authorName = capture.author_name || "Neznámý houbař";
-        
-        // Výpočet globálního indexu pro lightbox
+        const accessBadge = buildCaptureAccessBadgeHtml(capture);
         const globalIdx = (state.page - 1) * state.pageSize + idx;
 
         item.innerHTML = `
@@ -79,7 +76,7 @@ function renderGallery(capturesToRender, container) {
             </div>
             <div class="gallery-item-image">
                 <img src="${url}" loading="lazy" alt="Houbařský úlovek">
-                ${capture.latitude && capture.longitude ? '<svg viewBox="0 0 24 24" style="position: absolute; bottom: 8px; right: 8px; width: 20px; height: 20px; fill: white; drop-shadow(0 2px 2px rgba(0,0,0,0.5));"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>' : ''}
+                ${accessBadge}
             </div>
         `;
 
@@ -95,14 +92,13 @@ function renderGallery(capturesToRender, container) {
 async function initGalleryPage() {
     if (document.body.dataset.page !== "gallery") return;
 
-    const session = await apiGet("/api/session");
-    const me = await apiGet("/api/me");
-    
-    if (session && me) {
-        renderHeader(session, me);
-    } else {
-        renderHeader(session, null);
+    state.session = await apiGet("/api/session");
+    if (state.session && state.session.logged_in) {
+        state.me = await apiGet("/api/me");
     }
+
+    setAppIdentity(state.session, state.me);
+    renderHeader(state.session, state.me);
 
     const loadMoreBtn = document.getElementById("load-more-gallery-btn");
     if (loadMoreBtn) {

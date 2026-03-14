@@ -2,10 +2,13 @@ package db
 
 import (
 	"database/sql"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/houbamzdar/bff/internal/config"
 	"github.com/houbamzdar/bff/internal/models"
 	_ "github.com/tursodatabase/libsql-client-go/libsql"
@@ -37,6 +40,12 @@ const migrationPhotoCapturesTableID = "20260308_create_photo_captures"
 const migrationPostsTableID = "20260312_create_posts_table"
 const migrationPostCommentsTableID = "20260314_create_post_comments_table"
 const migrationPostLikesTableID = "20260314_create_post_likes_table"
+const migrationCaptureCoordinatesFreeID = "20260315_add_capture_coordinates_free"
+const migrationHoubickaLedgerTableID = "20260315_create_houbicka_ledger_tables"
+const migrationCaptureCoordinateUnlocksTableID = "20260315_create_capture_coordinate_unlocks_table"
+
+var ErrInsufficientHoubickaBalance = errors.New("insufficient houbicka balance")
+var ErrCaptureHasNoCoordinates = errors.New("capture has no coordinates")
 
 func New(cfg *config.Config) (*DB, error) {
 	url := cfg.DBURL
@@ -230,6 +239,12 @@ func migrate(db *sql.DB) error {
 			},
 		},
 		{
+			id: migrationCaptureCoordinatesFreeID,
+			apply: func(tx *sql.Tx) error {
+				return ensureColumnExists(tx, "photo_captures", "coordinates_free", "INTEGER NOT NULL DEFAULT 0")
+			},
+		},
+		{
 			id: migrationPostLikesTableID,
 			apply: func(tx *sql.Tx) error {
 				queries := []string{
@@ -243,6 +258,76 @@ func migrate(db *sql.DB) error {
 					);`,
 					`CREATE INDEX IF NOT EXISTS idx_post_likes_post_id ON post_likes(post_id);`,
 					`CREATE INDEX IF NOT EXISTS idx_post_likes_user_id ON post_likes(user_id);`,
+				}
+				for _, query := range queries {
+					if _, err := tx.Exec(query); err != nil {
+						return err
+					}
+				}
+				return nil
+			},
+		},
+		{
+			id: migrationHoubickaLedgerTableID,
+			apply: func(tx *sql.Tx) error {
+				queries := []string{
+					`CREATE TABLE IF NOT EXISTS houbicka_wallets (
+						user_id INTEGER PRIMARY KEY,
+						balance INTEGER NOT NULL DEFAULT 0,
+						updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+						FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+					);`,
+					`CREATE TABLE IF NOT EXISTS houbicka_operations (
+						id TEXT PRIMARY KEY,
+						kind TEXT NOT NULL,
+						reason_code TEXT NOT NULL,
+						idempotency_key TEXT UNIQUE,
+						actor_user_id INTEGER,
+						target_user_id INTEGER,
+						capture_id TEXT,
+						meta_json TEXT,
+						created_at TEXT NOT NULL,
+						FOREIGN KEY(actor_user_id) REFERENCES users(id) ON DELETE SET NULL,
+						FOREIGN KEY(target_user_id) REFERENCES users(id) ON DELETE SET NULL
+					);`,
+					`CREATE INDEX IF NOT EXISTS idx_houbicka_operations_kind_created ON houbicka_operations(kind, created_at DESC);`,
+					`CREATE INDEX IF NOT EXISTS idx_houbicka_operations_capture_created ON houbicka_operations(capture_id, created_at DESC);`,
+					`CREATE TABLE IF NOT EXISTS houbicka_entries (
+						id INTEGER PRIMARY KEY AUTOINCREMENT,
+						operation_id TEXT NOT NULL,
+						user_id INTEGER NOT NULL,
+						amount_signed INTEGER NOT NULL,
+						created_at TEXT NOT NULL,
+						FOREIGN KEY(operation_id) REFERENCES houbicka_operations(id) ON DELETE CASCADE,
+						FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+					);`,
+					`CREATE INDEX IF NOT EXISTS idx_houbicka_entries_user_created ON houbicka_entries(user_id, created_at DESC);`,
+					`CREATE INDEX IF NOT EXISTS idx_houbicka_entries_operation ON houbicka_entries(operation_id);`,
+				}
+				for _, query := range queries {
+					if _, err := tx.Exec(query); err != nil {
+						return err
+					}
+				}
+				return nil
+			},
+		},
+		{
+			id: migrationCaptureCoordinateUnlocksTableID,
+			apply: func(tx *sql.Tx) error {
+				queries := []string{
+					`CREATE TABLE IF NOT EXISTS capture_coordinate_unlocks (
+						viewer_user_id INTEGER NOT NULL,
+						capture_id TEXT NOT NULL,
+						operation_id TEXT NOT NULL,
+						unlocked_at TEXT NOT NULL,
+						PRIMARY KEY(viewer_user_id, capture_id),
+						FOREIGN KEY(viewer_user_id) REFERENCES users(id) ON DELETE CASCADE,
+						FOREIGN KEY(capture_id) REFERENCES photo_captures(id) ON DELETE CASCADE,
+						FOREIGN KEY(operation_id) REFERENCES houbicka_operations(id) ON DELETE CASCADE
+					);`,
+					`CREATE INDEX IF NOT EXISTS idx_capture_coordinate_unlocks_capture ON capture_coordinate_unlocks(capture_id, unlocked_at DESC);`,
+					`CREATE INDEX IF NOT EXISTS idx_capture_coordinate_unlocks_viewer ON capture_coordinate_unlocks(viewer_user_id, unlocked_at DESC);`,
 				}
 				for _, query := range queries {
 					if _, err := tx.Exec(query); err != nil {
@@ -446,8 +531,26 @@ func (db *DB) DeleteSession(sessionID string) error {
 func (db *DB) GetUser(id int64) (*models.User, error) {
 	var user models.User
 	var expiresAt sql.NullString
-	err := db.QueryRow("SELECT id, idp_issuer, idp_sub, COALESCE(preferred_username, ''), COALESCE(email, ''), email_verified, COALESCE(phone_number, ''), phone_number_verified, COALESCE(picture, ''), COALESCE(about_me, ''), COALESCE(access_token, ''), COALESCE(refresh_token, ''), token_expires_at FROM users WHERE id = ?", id).Scan(
-		&user.ID, &user.IDPIssuer, &user.IDPSub, &user.PreferredUsername, &user.Email, &user.EmailVerified, &user.PhoneNumber, &user.PhoneNumberVerified, &user.Picture, &user.AboutMe, &user.AccessToken, &user.RefreshToken, &expiresAt,
+	err := db.QueryRow(`
+		SELECT
+			id,
+			idp_issuer,
+			idp_sub,
+			COALESCE(preferred_username, ''),
+			COALESCE(email, ''),
+			email_verified,
+			COALESCE(phone_number, ''),
+			phone_number_verified,
+			COALESCE(picture, ''),
+			COALESCE(about_me, ''),
+			COALESCE(access_token, ''),
+			COALESCE(refresh_token, ''),
+			token_expires_at,
+			COALESCE((SELECT balance FROM houbicka_wallets WHERE user_id = users.id), 0)
+		FROM users
+		WHERE id = ?
+	`, id).Scan(
+		&user.ID, &user.IDPIssuer, &user.IDPSub, &user.PreferredUsername, &user.Email, &user.EmailVerified, &user.PhoneNumber, &user.PhoneNumberVerified, &user.Picture, &user.AboutMe, &user.AccessToken, &user.RefreshToken, &expiresAt, &user.HoubickaBalance,
 	)
 	if err == nil && expiresAt.Valid && expiresAt.String != "" {
 		user.TokenExpiresAt, _ = time.Parse(time.RFC3339, expiresAt.String)
@@ -463,7 +566,7 @@ func (db *DB) UpdateAboutMe(id int64, aboutMe string) error {
 const captureSelectColumns = `
 	SELECT id, user_id, COALESCE(client_local_id, ''), original_file_name, content_type, size_bytes, width, height,
 		captured_at, uploaded_at, latitude, longitude, accuracy_meters, status, private_storage_key,
-		COALESCE(public_storage_key, ''), COALESCE(published_at, '')
+		COALESCE(public_storage_key, ''), COALESCE(published_at, ''), COALESCE(coordinates_free, 0)
 	FROM photo_captures
 `
 
@@ -472,8 +575,8 @@ func (db *DB) CreateCapture(capture *models.Capture) error {
 		INSERT INTO photo_captures (
 			id, user_id, client_local_id, original_file_name, content_type, size_bytes, width, height,
 			captured_at, uploaded_at, latitude, longitude, accuracy_meters, status, private_storage_key,
-			public_storage_key, published_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			public_storage_key, published_at, coordinates_free
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`,
 		capture.ID,
 		capture.UserID,
@@ -492,6 +595,7 @@ func (db *DB) CreateCapture(capture *models.Capture) error {
 		capture.PrivateStorageKey,
 		nullIfEmpty(capture.PublicStorageKey),
 		nullIfZeroTime(capture.PublishedAt),
+		capture.CoordinatesFree,
 	)
 	return err
 }
@@ -594,9 +698,29 @@ func (db *DB) UnpublishCapture(id string, userID int64) error {
 	return err
 }
 
-func (db *DB) DeleteCapture(id string, userID int64) error {
-	_, err := db.Exec(`DELETE FROM photo_captures WHERE id = ? AND user_id = ?`, id, userID)
+func (db *DB) SetCaptureCoordinatesFree(id string, userID int64, coordinatesFree bool) error {
+	_, err := db.Exec(`
+		UPDATE photo_captures
+		SET coordinates_free = ?
+		WHERE id = ? AND user_id = ?
+	`, coordinatesFree, id, userID)
 	return err
+}
+
+func (db *DB) DeleteCapture(id string, userID int64) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`DELETE FROM capture_coordinate_unlocks WHERE capture_id = ?`, id); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM photo_captures WHERE id = ? AND user_id = ?`, id, userID); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 type scanner interface {
@@ -618,6 +742,7 @@ func scanCapture(row scanner) (*models.Capture, error) {
 		accuracyMeters   sql.NullFloat64
 		publicStorageKey sql.NullString
 		publishedAtRaw   sql.NullString
+		coordinatesFree  int
 	)
 
 	if err := row.Scan(
@@ -638,6 +763,7 @@ func scanCapture(row scanner) (*models.Capture, error) {
 		&capture.PrivateStorageKey,
 		&publicStorageKey,
 		&publishedAtRaw,
+		&coordinatesFree,
 	); err != nil {
 		return nil, err
 	}
@@ -661,6 +787,7 @@ func scanCapture(row scanner) (*models.Capture, error) {
 	if publishedAtRaw.Valid && publishedAtRaw.String != "" {
 		capture.PublishedAt, _ = time.Parse(time.RFC3339, publishedAtRaw.String)
 	}
+	capture.CoordinatesFree = coordinatesFree == 1
 
 	return &capture, nil
 }
@@ -684,6 +811,13 @@ func nullIfZeroTime(value time.Time) interface{} {
 		return nil
 	}
 	return value.UTC().Format(time.RFC3339)
+}
+
+func nullIfZeroInt64(value int64) interface{} {
+	if value == 0 {
+		return nil
+	}
+	return value
 }
 
 func normalizeCaptureListFilters(filters CaptureListFilters) CaptureListFilters {
@@ -747,7 +881,7 @@ func (db *DB) GetPost(postID string, userID int64) (*models.Post, error) {
 	p.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
 	p.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
 
-	captures, err := db.getCapturesForPost(p.ID)
+	captures, err := db.getCapturesForPost(p.ID, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -881,7 +1015,7 @@ func (db *DB) ListPosts(userID int64, limit, offset int) ([]*models.Post, error)
 	}
 
 	for _, p := range posts {
-		captures, err := db.getCapturesForPost(p.ID)
+		captures, err := db.getCapturesForPost(p.ID, userID)
 		if err != nil {
 			return nil, err
 		}
@@ -929,7 +1063,7 @@ func (db *DB) ListPublicPosts(limit, offset int, currentUserID int64) ([]*models
 	}
 
 	for _, p := range posts {
-		captures, err := db.getCapturesForPost(p.ID)
+		captures, err := db.getCapturesForPost(p.ID, currentUserID)
 		if err != nil {
 			return nil, err
 		}
@@ -945,11 +1079,11 @@ func (db *DB) ListPublicPosts(limit, offset int, currentUserID int64) ([]*models
 	return posts, nil
 }
 
-func (db *DB) ListPublicCaptures(limit, offset int) ([]*models.Capture, error) {
+func (db *DB) ListPublicCaptures(limit, offset int, viewerUserID int64) ([]*models.Capture, error) {
 	rows, err := db.Query(`
 		SELECT c.id, c.user_id, u.preferred_username, COALESCE(u.picture, ''), COALESCE(c.client_local_id, ''), c.original_file_name, c.content_type, c.size_bytes, c.width, c.height,
 			c.captured_at, c.uploaded_at, c.latitude, c.longitude, c.accuracy_meters, c.status, c.private_storage_key,
-			COALESCE(c.public_storage_key, ''), COALESCE(c.published_at, '')
+			COALESCE(c.public_storage_key, ''), COALESCE(c.published_at, ''), COALESCE(c.coordinates_free, 0)
 		FROM photo_captures c
 		JOIN users u ON c.user_id = u.id
 		WHERE c.status = 'published' AND c.public_storage_key IS NOT NULL AND c.public_storage_key != ''
@@ -965,10 +1099,11 @@ func (db *DB) ListPublicCaptures(limit, offset int) ([]*models.Capture, error) {
 	for rows.Next() {
 		var c models.Capture
 		var capturedAt, uploadedAt, publishedAt string
+		var coordinatesFree int
 		if err := rows.Scan(
 			&c.ID, &c.UserID, &c.AuthorName, &c.AuthorAvatar, &c.ClientLocalID, &c.OriginalFileName, &c.ContentType, &c.SizeBytes, &c.Width, &c.Height,
 			&capturedAt, &uploadedAt, &c.Latitude, &c.Longitude, &c.AccuracyMeters, &c.Status, &c.PrivateStorageKey,
-			&c.PublicStorageKey, &publishedAt,
+			&c.PublicStorageKey, &publishedAt, &coordinatesFree,
 		); err != nil {
 			return nil, err
 		}
@@ -977,20 +1112,25 @@ func (db *DB) ListPublicCaptures(limit, offset int) ([]*models.Capture, error) {
 		if publishedAt != "" {
 			c.PublishedAt, _ = time.Parse(time.RFC3339, publishedAt)
 		}
+		c.CoordinatesFree = coordinatesFree == 1
 		captures = append(captures, &c)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 
+	if err := db.maskCaptureCoordinatesForViewer(viewerUserID, captures); err != nil {
+		return nil, err
+	}
+
 	return captures, nil
 }
 
-func (db *DB) getCapturesForPost(postID string) ([]*models.Capture, error) {
+func (db *DB) getCapturesForPost(postID string, viewerUserID int64) ([]*models.Capture, error) {
 	cRows, err := db.Query(`
 		SELECT c.id, c.user_id, COALESCE(c.client_local_id, ''), c.original_file_name, c.content_type, c.size_bytes, c.width, c.height,
 			c.captured_at, c.uploaded_at, c.latitude, c.longitude, c.accuracy_meters, c.status, c.private_storage_key,
-			COALESCE(c.public_storage_key, ''), COALESCE(c.published_at, '')
+			COALESCE(c.public_storage_key, ''), COALESCE(c.published_at, ''), COALESCE(c.coordinates_free, 0)
 		FROM photo_captures c
 		JOIN post_captures pc ON c.id = pc.capture_id
 		WHERE pc.post_id = ?
@@ -1005,10 +1145,11 @@ func (db *DB) getCapturesForPost(postID string) ([]*models.Capture, error) {
 	for cRows.Next() {
 		var c models.Capture
 		var capturedAt, uploadedAt, publishedAt string
+		var coordinatesFree int
 		if err := cRows.Scan(
 			&c.ID, &c.UserID, &c.ClientLocalID, &c.OriginalFileName, &c.ContentType, &c.SizeBytes, &c.Width, &c.Height,
 			&capturedAt, &uploadedAt, &c.Latitude, &c.Longitude, &c.AccuracyMeters, &c.Status, &c.PrivateStorageKey,
-			&c.PublicStorageKey, &publishedAt,
+			&c.PublicStorageKey, &publishedAt, &coordinatesFree,
 		); err != nil {
 			return nil, err
 		}
@@ -1017,7 +1158,477 @@ func (db *DB) getCapturesForPost(postID string) ([]*models.Capture, error) {
 		if publishedAt != "" {
 			c.PublishedAt, _ = time.Parse(time.RFC3339, publishedAt)
 		}
+		c.CoordinatesFree = coordinatesFree == 1
 		captures = append(captures, &c)
+	}
+	if err := cRows.Err(); err != nil {
+		return nil, err
+	}
+	if err := db.maskCaptureCoordinatesForViewer(viewerUserID, captures); err != nil {
+		return nil, err
+	}
+	return captures, nil
+}
+
+func (db *DB) GetPublicCaptureByID(captureID string) (*models.Capture, error) {
+	row := db.QueryRow(captureSelectColumns+` WHERE id = ? AND status = 'published' LIMIT 1`, captureID)
+	return scanCaptureRow(row)
+}
+
+func (db *DB) HasCaptureUnlock(viewerUserID int64, captureID string) (bool, error) {
+	if viewerUserID == 0 || captureID == "" {
+		return false, nil
+	}
+	var exists int
+	err := db.QueryRow(`
+		SELECT 1
+		FROM capture_coordinate_unlocks
+		WHERE viewer_user_id = ? AND capture_id = ?
+		LIMIT 1
+	`, viewerUserID, captureID).Scan(&exists)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (db *DB) getUnlockedCaptureSet(viewerUserID int64, captureIDs []string) (map[string]struct{}, error) {
+	unlocked := make(map[string]struct{})
+	if viewerUserID == 0 || len(captureIDs) == 0 {
+		return unlocked, nil
+	}
+
+	placeholders := make([]string, 0, len(captureIDs))
+	args := make([]interface{}, 0, len(captureIDs)+1)
+	args = append(args, viewerUserID)
+	for _, captureID := range captureIDs {
+		placeholders = append(placeholders, "?")
+		args = append(args, captureID)
+	}
+
+	query := `
+		SELECT capture_id
+		FROM capture_coordinate_unlocks
+		WHERE viewer_user_id = ? AND capture_id IN (` + strings.Join(placeholders, ", ") + `)
+	`
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var captureID string
+		if err := rows.Scan(&captureID); err != nil {
+			return nil, err
+		}
+		unlocked[captureID] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return unlocked, nil
+}
+
+func (db *DB) maskCaptureCoordinatesForViewer(viewerUserID int64, captures []*models.Capture) error {
+	captureIDs := make([]string, 0, len(captures))
+	for _, capture := range captures {
+		if capture == nil {
+			continue
+		}
+		if capture.UserID == viewerUserID || capture.CoordinatesFree {
+			continue
+		}
+		if capture.Latitude == nil && capture.Longitude == nil {
+			continue
+		}
+		captureIDs = append(captureIDs, capture.ID)
+	}
+
+	unlocked, err := db.getUnlockedCaptureSet(viewerUserID, captureIDs)
+	if err != nil {
+		return err
+	}
+
+	for _, capture := range captures {
+		if capture == nil {
+			continue
+		}
+		hasCoordinates := capture.Latitude != nil && capture.Longitude != nil
+		if !hasCoordinates {
+			capture.CoordinatesLocked = false
+			continue
+		}
+		if capture.UserID == viewerUserID || capture.CoordinatesFree {
+			capture.CoordinatesLocked = false
+			continue
+		}
+		if _, ok := unlocked[capture.ID]; ok {
+			capture.CoordinatesLocked = false
+			continue
+		}
+		capture.Latitude = nil
+		capture.Longitude = nil
+		capture.AccuracyMeters = nil
+		capture.CoordinatesLocked = true
+	}
+	return nil
+}
+
+func (db *DB) ensureWalletTx(tx *sql.Tx, userID int64) error {
+	_, err := tx.Exec(`
+		INSERT OR IGNORE INTO houbicka_wallets (user_id, balance, updated_at)
+		VALUES (?, 0, ?)
+	`, userID, time.Now().UTC().Format(time.RFC3339))
+	return err
+}
+
+func (db *DB) getWalletBalanceTx(tx *sql.Tx, userID int64) (int64, error) {
+	if err := db.ensureWalletTx(tx, userID); err != nil {
+		return 0, err
+	}
+	var balance int64
+	err := tx.QueryRow(`SELECT balance FROM houbicka_wallets WHERE user_id = ?`, userID).Scan(&balance)
+	return balance, err
+}
+
+func (db *DB) GetHoubickaBalance(userID int64) (int64, error) {
+	tx, err := db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+
+	balance, err := db.getWalletBalanceTx(tx, userID)
+	if err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return balance, nil
+}
+
+func (db *DB) applyHoubickaOperationTx(tx *sql.Tx, operation *models.HoubickaOperation, entries []models.HoubickaEntry) (bool, error) {
+	if tx == nil {
+		return false, fmt.Errorf("transaction is required")
+	}
+	if operation == nil {
+		return false, fmt.Errorf("operation is required")
+	}
+	if len(entries) == 0 {
+		return false, fmt.Errorf("entries are required")
+	}
+
+	if operation.IdempotencyKey != "" {
+		var existing string
+		err := tx.QueryRow(`SELECT id FROM houbicka_operations WHERE idempotency_key = ?`, operation.IdempotencyKey).Scan(&existing)
+		if err == nil {
+			return false, nil
+		}
+		if err != nil && err != sql.ErrNoRows {
+			return false, err
+		}
+	}
+
+	deltas := make(map[int64]int64)
+	for _, entry := range entries {
+		deltas[entry.UserID] += entry.AmountSigned
+	}
+
+	for userID := range deltas {
+		if err := db.ensureWalletTx(tx, userID); err != nil {
+			return false, err
+		}
+	}
+
+	for userID, delta := range deltas {
+		if delta >= 0 {
+			continue
+		}
+		balance, err := db.getWalletBalanceTx(tx, userID)
+		if err != nil {
+			return false, err
+		}
+		if balance+delta < 0 {
+			return false, ErrInsufficientHoubickaBalance
+		}
+	}
+
+	if operation.ID == "" {
+		operation.ID = uuid.New().String()
+	}
+	now := time.Now().UTC()
+
+	if _, err := tx.Exec(`
+		INSERT INTO houbicka_operations (
+			id, kind, reason_code, idempotency_key, actor_user_id, target_user_id, capture_id, meta_json, created_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`,
+		operation.ID,
+		operation.Kind,
+		operation.ReasonCode,
+		nullIfEmpty(operation.IdempotencyKey),
+		nullIfZeroInt64(operation.ActorUserID),
+		nullIfZeroInt64(operation.TargetUserID),
+		nullIfEmpty(operation.CaptureID),
+		nullIfEmpty(operation.MetaJSON),
+		now.Format(time.RFC3339),
+	); err != nil {
+		return false, err
+	}
+
+	for _, entry := range entries {
+		if _, err := tx.Exec(`
+			INSERT INTO houbicka_entries (operation_id, user_id, amount_signed, created_at)
+			VALUES (?, ?, ?, ?)
+		`, operation.ID, entry.UserID, entry.AmountSigned, now.Format(time.RFC3339)); err != nil {
+			return false, err
+		}
+	}
+
+	for userID, delta := range deltas {
+		if _, err := tx.Exec(`
+			UPDATE houbicka_wallets
+			SET balance = balance + ?, updated_at = ?
+			WHERE user_id = ?
+		`, delta, now.Format(time.RFC3339), userID); err != nil {
+			return false, err
+		}
+	}
+
+	operation.CreatedAt = now
+	return true, nil
+}
+
+func (db *DB) GrantAuthBonuses(userID int64, isNew, emailVerified, phoneVerified bool) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if isNew {
+		_, err = db.applyHoubickaOperationTx(tx, &models.HoubickaOperation{
+			Kind:           "reward",
+			ReasonCode:     "signup_bonus",
+			IdempotencyKey: fmt.Sprintf("reward:signup:%d", userID),
+			TargetUserID:   userID,
+		}, []models.HoubickaEntry{{UserID: userID, AmountSigned: 1}})
+		if err != nil {
+			return err
+		}
+	}
+
+	if emailVerified {
+		_, err = db.applyHoubickaOperationTx(tx, &models.HoubickaOperation{
+			Kind:           "reward",
+			ReasonCode:     "email_verified_bonus",
+			IdempotencyKey: fmt.Sprintf("reward:email_verified:%d", userID),
+			TargetUserID:   userID,
+		}, []models.HoubickaEntry{{UserID: userID, AmountSigned: 3}})
+		if err != nil {
+			return err
+		}
+	}
+
+	if phoneVerified {
+		_, err = db.applyHoubickaOperationTx(tx, &models.HoubickaOperation{
+			Kind:           "reward",
+			ReasonCode:     "phone_verified_bonus",
+			IdempotencyKey: fmt.Sprintf("reward:phone_verified:%d", userID),
+			TargetUserID:   userID,
+		}, []models.HoubickaEntry{{UserID: userID, AmountSigned: 5}})
+		if err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
+
+func (db *DB) UnlockCaptureCoordinates(viewerUserID int64, captureID string) (int64, bool, error) {
+	tx, err := db.Begin()
+	if err != nil {
+		return 0, false, err
+	}
+	defer tx.Rollback()
+
+	capture, err := scanCaptureRow(tx.QueryRow(captureSelectColumns+` WHERE id = ? AND status = 'published' LIMIT 1`, captureID))
+	if err != nil {
+		return 0, false, err
+	}
+	if capture.Latitude == nil || capture.Longitude == nil {
+		return 0, false, ErrCaptureHasNoCoordinates
+	}
+	if capture.UserID == viewerUserID || capture.CoordinatesFree {
+		balance, err := db.getWalletBalanceTx(tx, viewerUserID)
+		if err != nil {
+			return 0, false, err
+		}
+		if err := tx.Commit(); err != nil {
+			return 0, false, err
+		}
+		return balance, true, nil
+	}
+
+	var existingOperationID string
+	err = tx.QueryRow(`
+		SELECT operation_id
+		FROM capture_coordinate_unlocks
+		WHERE viewer_user_id = ? AND capture_id = ?
+		LIMIT 1
+	`, viewerUserID, captureID).Scan(&existingOperationID)
+	if err == nil {
+		balance, err := db.getWalletBalanceTx(tx, viewerUserID)
+		if err != nil {
+			return 0, false, err
+		}
+		if err := tx.Commit(); err != nil {
+			return 0, false, err
+		}
+		return balance, true, nil
+	}
+	if err != nil && err != sql.ErrNoRows {
+		return 0, false, err
+	}
+
+	metaBytes, _ := json.Marshal(map[string]int64{"price": 1})
+	operation := &models.HoubickaOperation{
+		Kind:           "capture_unlock",
+		ReasonCode:     "capture_coordinates_unlock",
+		IdempotencyKey: fmt.Sprintf("unlock:capture:%d:%s", viewerUserID, captureID),
+		ActorUserID:    viewerUserID,
+		TargetUserID:   capture.UserID,
+		CaptureID:      captureID,
+		MetaJSON:       string(metaBytes),
+	}
+
+	applied, err := db.applyHoubickaOperationTx(tx, operation, []models.HoubickaEntry{
+		{UserID: viewerUserID, AmountSigned: -1},
+		{UserID: capture.UserID, AmountSigned: 1},
+	})
+	if err != nil {
+		return 0, false, err
+	}
+
+	if applied {
+		if _, err := tx.Exec(`
+			INSERT INTO capture_coordinate_unlocks (viewer_user_id, capture_id, operation_id, unlocked_at)
+			VALUES (?, ?, ?, ?)
+		`, viewerUserID, captureID, operation.ID, time.Now().UTC().Format(time.RFC3339)); err != nil {
+			return 0, false, err
+		}
+	}
+
+	balance, err := db.getWalletBalanceTx(tx, viewerUserID)
+	if err != nil {
+		return 0, false, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, false, err
+	}
+	return balance, !applied, nil
+}
+
+func (db *DB) ListViewedCapturesByUser(viewerUserID int64, limit, offset int) ([]*models.Capture, error) {
+	rows, err := db.Query(`
+		SELECT
+			c.id,
+			c.user_id,
+			COALESCE(u.preferred_username, ''),
+			COALESCE(u.picture, ''),
+			COALESCE(c.client_local_id, ''),
+			c.original_file_name,
+			c.content_type,
+			c.size_bytes,
+			c.width,
+			c.height,
+			c.captured_at,
+			c.uploaded_at,
+			c.latitude,
+			c.longitude,
+			c.accuracy_meters,
+			c.status,
+			c.private_storage_key,
+			COALESCE(c.public_storage_key, ''),
+			COALESCE(c.published_at, ''),
+			COALESCE(c.coordinates_free, 0),
+			cu.unlocked_at
+		FROM capture_coordinate_unlocks cu
+		JOIN photo_captures c ON c.id = cu.capture_id
+		JOIN users u ON u.id = c.user_id
+		WHERE cu.viewer_user_id = ?
+		ORDER BY cu.unlocked_at DESC
+		LIMIT ? OFFSET ?
+	`, viewerUserID, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var captures []*models.Capture
+	for rows.Next() {
+		var capture models.Capture
+		var capturedAtRaw, uploadedAtRaw, unlockedAtRaw string
+		var latitude, longitude, accuracyMeters sql.NullFloat64
+		var publicStorageKey, publishedAtRaw sql.NullString
+		var coordinatesFree int
+
+		if err := rows.Scan(
+			&capture.ID,
+			&capture.UserID,
+			&capture.AuthorName,
+			&capture.AuthorAvatar,
+			&capture.ClientLocalID,
+			&capture.OriginalFileName,
+			&capture.ContentType,
+			&capture.SizeBytes,
+			&capture.Width,
+			&capture.Height,
+			&capturedAtRaw,
+			&uploadedAtRaw,
+			&latitude,
+			&longitude,
+			&accuracyMeters,
+			&capture.Status,
+			&capture.PrivateStorageKey,
+			&publicStorageKey,
+			&publishedAtRaw,
+			&coordinatesFree,
+			&unlockedAtRaw,
+		); err != nil {
+			return nil, err
+		}
+
+		capture.PublicStorageKey = publicStorageKey.String
+		capture.CapturedAt, _ = time.Parse(time.RFC3339, capturedAtRaw)
+		capture.UploadedAt, _ = time.Parse(time.RFC3339, uploadedAtRaw)
+		capture.UnlockedAt, _ = time.Parse(time.RFC3339, unlockedAtRaw)
+		if latitude.Valid {
+			value := latitude.Float64
+			capture.Latitude = &value
+		}
+		if longitude.Valid {
+			value := longitude.Float64
+			capture.Longitude = &value
+		}
+		if accuracyMeters.Valid {
+			value := accuracyMeters.Float64
+			capture.AccuracyMeters = &value
+		}
+		if publishedAtRaw.Valid && publishedAtRaw.String != "" {
+			capture.PublishedAt, _ = time.Parse(time.RFC3339, publishedAtRaw.String)
+		}
+		capture.CoordinatesFree = coordinatesFree == 1
+		captures = append(captures, &capture)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return captures, nil
 }

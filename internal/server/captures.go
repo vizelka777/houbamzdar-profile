@@ -1,7 +1,9 @@
 package server
 
 import (
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -56,7 +58,8 @@ func (s *Server) handleListPublicCaptures(w http.ResponseWriter, r *http.Request
 		offset = o
 	}
 
-	captures, err := s.DB.ListPublicCaptures(limit, offset)
+	currentUserID := s.currentUserIDFromOptionalSession(r)
+	captures, err := s.DB.ListPublicCaptures(limit, offset, currentUserID)
 	if err != nil {
 		http.Error(w, "failed to list public captures", http.StatusInternalServerError)
 		return
@@ -197,6 +200,82 @@ func (s *Server) handlePublishCapture(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) handleSetCaptureCoordinatesFree(w http.ResponseWriter, r *http.Request) {
+	user := r.Context().Value("user").(*models.User)
+	captureID := chi.URLParam(r, "captureID")
+
+	capture, err := s.DB.GetCaptureForUser(captureID, user.ID)
+	if err != nil {
+		http.Error(w, "capture not found", http.StatusNotFound)
+		return
+	}
+	if capture.Latitude == nil || capture.Longitude == nil {
+		http.Error(w, "capture has no coordinates", http.StatusBadRequest)
+		return
+	}
+
+	var req struct {
+		CoordinatesFree bool `json:"coordinates_free"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if err := s.DB.SetCaptureCoordinatesFree(captureID, user.ID, req.CoordinatesFree); err != nil {
+		http.Error(w, "failed to update capture visibility", http.StatusInternalServerError)
+		return
+	}
+
+	updated, err := s.DB.GetCaptureForUser(captureID, user.ID)
+	if err != nil {
+		http.Error(w, "failed to reload capture", http.StatusInternalServerError)
+		return
+	}
+	attachPublicURLs([]*models.Capture{updated}, s.Media)
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"ok":      true,
+		"capture": updated,
+	})
+}
+
+func (s *Server) handleUnlockCaptureCoordinates(w http.ResponseWriter, r *http.Request) {
+	user := r.Context().Value("user").(*models.User)
+	captureID := chi.URLParam(r, "captureID")
+
+	balance, alreadyUnlocked, err := s.DB.UnlockCaptureCoordinates(user.ID, captureID)
+	if err != nil {
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+			http.Error(w, "capture not found", http.StatusNotFound)
+		case errors.Is(err, db.ErrCaptureHasNoCoordinates):
+			http.Error(w, "capture has no coordinates", http.StatusBadRequest)
+		case errors.Is(err, db.ErrInsufficientHoubickaBalance):
+			http.Error(w, "insufficient houbicka balance", http.StatusPaymentRequired)
+		default:
+			http.Error(w, "failed to unlock coordinates", http.StatusInternalServerError)
+		}
+		return
+	}
+
+	capture, err := s.DB.GetPublicCaptureByID(captureID)
+	if err != nil {
+		http.Error(w, "failed to reload capture", http.StatusInternalServerError)
+		return
+	}
+	attachPublicURLs([]*models.Capture{capture}, s.Media)
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"ok":               true,
+		"capture":          capture,
+		"balance":          balance,
+		"already_unlocked": alreadyUnlocked,
+	})
+}
+
 func (s *Server) handlePreviewCapture(w http.ResponseWriter, r *http.Request) {
 	user := r.Context().Value("user").(*models.User)
 	captureID := chi.URLParam(r, "captureID")
@@ -311,6 +390,38 @@ func (s *Server) handleDeleteCapture(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"ok": true,
+	})
+}
+
+func (s *Server) handleListViewedCaptures(w http.ResponseWriter, r *http.Request) {
+	user := r.Context().Value("user").(*models.User)
+
+	limit := 24
+	if value, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && value > 0 && value <= 100 {
+		limit = value
+	}
+
+	offset := 0
+	if value, err := strconv.Atoi(r.URL.Query().Get("offset")); err == nil && value >= 0 {
+		offset = value
+	}
+
+	captures, err := s.DB.ListViewedCapturesByUser(user.ID, limit, offset)
+	if err != nil {
+		http.Error(w, "failed to list viewed captures", http.StatusInternalServerError)
+		return
+	}
+
+	if captures == nil {
+		captures = []*models.Capture{}
+	} else {
+		attachPublicURLs(captures, s.Media)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"ok":       true,
+		"captures": captures,
 	})
 }
 

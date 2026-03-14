@@ -203,14 +203,18 @@ function renderPosts(postsToRender, container) {
         if (post.captures && post.captures.length > 0) {
             capturesHtml = '<div class="feed-gallery">';
             post.captures.forEach((capture, idx) => {
-                const url = capture.public_url
-                    ? escapeHtml(capture.public_url)
-                    : `${API_URL}/api/captures/${encodeURIComponent(capture.id)}/preview`;
+                const url = escapeHtml(buildCaptureImageURL(capture));
+                const accessBadge = buildCaptureAccessBadgeHtml(capture);
                 captureUrls.push(url);
-                capturesHtml += `<img src="${url}" class="feed-photo" loading="lazy" data-idx="${idx}">`;
-                if (capture.latitude && capture.longitude) {
+                capturesHtml += `
+                    <div class="feed-photo-frame">
+                        <img src="${url}" class="feed-photo" loading="lazy" data-idx="${idx}">
+                        ${accessBadge}
+                    </div>
+                `;
+                if (captureHasCoordinates(capture)) {
                     hasCoords = true;
-                    mapData.push({ lat: capture.latitude, lon: capture.longitude });
+                    mapData.push(buildCaptureMapData(capture));
                 }
             });
             capturesHtml += "</div>";
@@ -338,10 +342,9 @@ function renderPosts(postsToRender, container) {
         const photos = card.querySelectorAll(".feed-photo");
         photos.forEach((photo) => {
             photo.addEventListener("click", (event) => {
-                window.lightboxImages = captureUrls;
-                window.lightboxMapData = post.captures.map((capture) =>
-                    (capture.latitude && capture.longitude) ? { lat: capture.latitude, lon: capture.longitude } : null
-                );
+                window.lightboxImages = post.captures.map((capture) => buildCaptureImageURL(capture));
+                window.lightboxCaptureData = post.captures;
+                window.lightboxMapData = post.captures.map((capture) => buildCaptureMapData(capture));
                 window.currentLightboxIndex = parseInt(event.target.dataset.idx, 10);
                 if (typeof openLightbox === "function") openLightbox();
             });
@@ -358,6 +361,7 @@ async function initFeedPage() {
     if (state.session && state.session.logged_in) {
         state.me = await apiGet("/api/me");
     }
+    setAppIdentity(state.session, state.me);
     renderHeader(state.session, state.me);
 
     const loadMoreBtn = document.getElementById("load-more-feed-btn");

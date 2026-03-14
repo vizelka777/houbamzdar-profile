@@ -16,6 +16,7 @@ type User struct {
 	AccessToken         string    `json:"-"`
 	RefreshToken        string    `json:"-"`
 	TokenExpiresAt      time.Time `json:"-"`
+	HoubickaBalance     int64     `json:"houbicka_balance"`
 	CreatedAt           time.Time `json:"-"`
 	UpdatedAt           time.Time `json:"-"`
 	LastIDPSyncAt       time.Time `json:"-"`
@@ -37,11 +38,14 @@ type Capture struct {
 	Latitude          *float64  `json:"latitude,omitempty"`
 	Longitude         *float64  `json:"longitude,omitempty"`
 	AccuracyMeters    *float64  `json:"accuracy_meters,omitempty"`
+	CoordinatesFree   bool      `json:"coordinates_free"`
+	CoordinatesLocked bool      `json:"coordinates_locked"`
 	Status            string    `json:"status"`
 	PrivateStorageKey string    `json:"-"`
 	PublicStorageKey  string    `json:"-"`
 	PublicURL         string    `json:"public_url,omitempty"`
 	PublishedAt       time.Time `json:"published_at,omitempty"`
+	UnlockedAt        time.Time `json:"unlocked_at,omitempty"`
 }
 
 type Post struct {
@@ -104,4 +108,24 @@ type OIDCClaims struct {
 	PhoneNumber         string `json:"phone_number"`
 	PhoneNumberVerified bool   `json:"phone_number_verified"`
 	Picture             string `json:"picture"`
+}
+
+type HoubickaOperation struct {
+	ID             string    `json:"id"`
+	Kind           string    `json:"kind"`
+	ReasonCode     string    `json:"reason_code"`
+	IdempotencyKey string    `json:"idempotency_key,omitempty"`
+	ActorUserID    int64     `json:"actor_user_id,omitempty"`
+	TargetUserID   int64     `json:"target_user_id,omitempty"`
+	CaptureID      string    `json:"capture_id,omitempty"`
+	MetaJSON       string    `json:"meta_json,omitempty"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+
+type HoubickaEntry struct {
+	ID           int64     `json:"id"`
+	OperationID  string    `json:"operation_id"`
+	UserID       int64     `json:"user_id"`
+	AmountSigned int64     `json:"amount_signed"`
+	CreatedAt    time.Time `json:"created_at"`
 }

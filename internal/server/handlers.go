@@ -114,6 +114,10 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to upsert user: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	if err := s.DB.GrantAuthBonuses(user.ID, isNew, user.EmailVerified, user.PhoneNumberVerified); err != nil {
+		http.Error(w, "failed to grant auth bonuses: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 
 	sessionID := uuid.New().String()
 	ttl := time.Duration(s.Config.SessionTTLHours) * time.Hour
@@ -162,7 +166,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	})
 
 	logoutURL := fmt.Sprintf("%s/logout?post_logout_redirect_uri=%s", s.Config.OIDCIssuer, url.QueryEscape(s.Config.FrontBaseURL+"/"))
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"ok":             true,

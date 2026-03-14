@@ -82,6 +82,77 @@ function formatDateTime(dateString) {
     }).format(date);
 }
 
+function formatHoubickaCount(value) {
+    const amount = Number(value) || 0;
+    if (amount === 1) return "1 houbička";
+    if (amount >= 2 && amount <= 4) return `${amount} houbičky`;
+    return `${amount} houbiček`;
+}
+
+function buildCaptureImageURL(capture) {
+    if (!capture) return "";
+    if (capture.public_url) return capture.public_url;
+    return `${API_URL}/api/captures/${encodeURIComponent(capture.id)}/preview`;
+}
+
+function captureHasCoordinates(capture) {
+    return Boolean(
+        capture &&
+        capture.latitude !== null &&
+        capture.latitude !== undefined &&
+        capture.longitude !== null &&
+        capture.longitude !== undefined
+    );
+}
+
+function buildCaptureMapData(capture) {
+    if (!captureHasCoordinates(capture)) return null;
+    return {
+        lat: Number(capture.latitude),
+        lon: Number(capture.longitude)
+    };
+}
+
+function formatCaptureCoordinates(capture) {
+    if (!captureHasCoordinates(capture)) {
+        return "Souřadnice nejsou k dispozici.";
+    }
+
+    return `${Number(capture.latitude).toFixed(5)}, ${Number(capture.longitude).toFixed(5)}`;
+}
+
+function buildCaptureAccessBadgeHtml(capture) {
+    if (!capture) return "";
+
+    if (capture.coordinates_free && (captureHasCoordinates(capture) || capture.coordinates_locked)) {
+        return '<span class="capture-access-badge capture-access-badge-free">Zdarma</span>';
+    }
+
+    if (capture.coordinates_locked) {
+        return '<span class="capture-access-badge capture-access-badge-paid">1 houbička</span>';
+    }
+
+    if (captureHasCoordinates(capture)) {
+        return '<span class="capture-access-badge capture-access-badge-map">Mapa</span>';
+    }
+
+    return "";
+}
+
+function setAppIdentity(session, me) {
+    window.appSession = session || null;
+    window.appMe = me || null;
+}
+
+function refreshHoubickaBalanceViews() {
+    const balance = window.appMe && typeof window.appMe.houbicka_balance === "number"
+        ? window.appMe.houbicka_balance
+        : 0;
+
+    setText("metric-houbicky", formatHoubickaCount(balance));
+    setText("houbicka-balance", formatHoubickaCount(balance));
+}
+
 function getPreviousProfileVisit() {
     try {
         const previousVisit = window.localStorage.getItem(PROFILE_LAST_VISIT_KEY);
@@ -249,6 +320,7 @@ async function initIndexPage() {
     if (session && session.logged_in) {
         profile = await apiGet("/api/me");
     }
+    setAppIdentity(session, profile);
     renderHeader(session, profile);
     updateHomeHero(session);
 }
@@ -262,6 +334,48 @@ function setStatusMessage(node, text, kind = "") {
     }
 }
 
+function renderViewedCaptures(captures) {
+    const container = document.getElementById("viewed-captures-list");
+    if (!container) return;
+
+    const items = Array.isArray(captures) ? captures : [];
+    if (!items.length) {
+        container.innerHTML = `
+            <div class="viewed-capture-empty">
+                Zatím jste si za houbičky neodemkli žádné souřadnice.
+            </div>
+        `;
+        return;
+    }
+
+    container.innerHTML = items.map((capture) => {
+        const imageUrl = buildCaptureImageURL(capture);
+        const badge = buildCaptureAccessBadgeHtml(capture);
+        const imageHtml = capture.public_url
+            ? `<img src="${escapeHtml(imageUrl)}" alt="Odemčená fotografie" class="viewed-capture-thumb" loading="lazy">`
+            : `<div class="viewed-capture-thumb viewed-capture-thumb-placeholder">Náhled už není veřejný</div>`;
+
+        return `
+            <article class="viewed-capture-card">
+                <div class="viewed-capture-media">
+                    ${imageHtml}
+                    ${badge}
+                </div>
+                <div class="viewed-capture-meta">
+                    <div class="viewed-capture-head">
+                        <strong>${escapeHtml(capture.author_name || "Neznámý houbař")}</strong>
+                        <span>${escapeHtml(formatDateTime(capture.unlocked_at))}</span>
+                    </div>
+                    <p class="viewed-capture-coordinates">${escapeHtml(formatCaptureCoordinates(capture))}</p>
+                    <p class="subtle-note">
+                        Odemčeno za 1 houbičku. Fotografie zůstává v soukromém přehledu i po dalším vývoji profilu.
+                    </p>
+                </div>
+            </article>
+        `;
+    }).join("");
+}
+
 async function initMePage() {
     const session = await apiGet("/api/session");
     if (!session || !session.logged_in) {
@@ -271,16 +385,24 @@ async function initMePage() {
 
     const me = await apiGet("/api/me");
     if (!me) return;
+    setAppIdentity(session, me);
 
     renderHeader(session, me);
 
     const insights = buildProfileInsights(me);
+    const bonusRules = [
+        "Registrace: +1 houbička",
+        me.email_verified ? "E-mail potvrzen: +3 houbičky připsány" : "Potvrzení e-mailu: čeká bonus +3 houbičky",
+        me.phone_number_verified ? "Telefon potvrzen: +5 houbiček připsáno" : "Potvrzení telefonu: čeká bonus +5 houbiček"
+    ];
+
     renderProfilePicture("profile-picture", me.picture, "Profilová fotka");
     setText("account-name", me.preferred_username || "Bez uživatelského jména");
     setText("metric-last-visit", getPreviousProfileVisit());
     setText("metric-status", insights.statusLabel);
     setText("metric-bonuses", `${insights.bonusCount} / ${insights.bonusTotal}`);
     setText("metric-notifications", String(insights.alerts.length));
+    refreshHoubickaBalanceViews();
     setText("account-email-chip", me.email ? `E-mail · ${me.email_verified ? "ověřen" : "čeká na ověření"}` : "E-mail chybí");
     setText("account-phone-chip", me.phone_number ? `Telefon · ${me.phone_number_verified ? "ověřen" : "čeká na ověření"}` : "Telefon chybí");
     setText("account-sync-chip", "Synchronizováno přes AHOJ420");
@@ -297,16 +419,18 @@ async function initMePage() {
         "Profil je v dobré kondici. Teď už jen udržovat aktivitu."
     );
 
-    renderSimpleList(
-        "views-list",
-        [],
-        "Zatím bez návštěv veřejného profilu. Jakmile se objeví, uvidíte je tady."
-    );
+    renderSimpleList("houbicka-rules", bonusRules, "Bonusová pravidla se načtou později.");
+
+    const [viewedRes, capturesRes] = await Promise.all([
+        apiGet("/api/me/viewed-captures?limit=24&offset=0"),
+        apiGet("/api/captures?page_size=200")
+    ]);
+
+    renderViewedCaptures(viewedRes && viewedRes.ok ? viewedRes.captures : []);
 
     // Vykreslení soukromé mapy
     const mapContainer = document.getElementById("private-map");
     if (mapContainer && typeof L !== 'undefined') {
-        const capturesRes = await apiGet("/api/captures");
         if (capturesRes && capturesRes.ok && capturesRes.captures) {
             const captures = capturesRes.captures;
             const map = L.map('private-map').setView([49.8, 15.5], 7);
@@ -385,6 +509,7 @@ async function initPublicProfilePage() {
 
     const me = await apiGet("/api/me");
     if (!me) return;
+    setAppIdentity(session, me);
 
     renderHeader(session, me);
     renderProfilePicture("public-profile-picture", me.picture, "Veřejná profilová fotka");
@@ -528,11 +653,10 @@ async function initPublicProfilePage() {
                         const photos = postEl.querySelectorAll('.public-post-photo');
                         photos.forEach(photo => {
                             photo.addEventListener('click', (e) => {
-                                window.lightboxImages = captureUrls;
-                                window.lightboxMapData = post.captures.map(c => 
-                                    (c.latitude && c.longitude) ? {lat: c.latitude, lon: c.longitude} : null
-                                );
-                                window.currentLightboxIndex = parseInt(e.target.dataset.idx);
+                                window.lightboxImages = post.captures.map((capture) => buildCaptureImageURL(capture));
+                                window.lightboxCaptureData = post.captures;
+                                window.lightboxMapData = post.captures.map((capture) => buildCaptureMapData(capture));
+                                window.currentLightboxIndex = parseInt(e.target.dataset.idx, 10);
                                 openLightbox();
                             });
                         });
@@ -551,58 +675,190 @@ async function initPublicProfilePage() {
 // Společná Lightbox logika
 window.lightboxImages = [];
 window.lightboxMapData = []; // [{lat: 12.3, lon: 45.6}, null, ...]
+window.lightboxCaptureData = [];
 window.currentLightboxIndex = 0;
 let lightboxMapInstance = null;
+
+function currentLightboxCapture() {
+    return window.lightboxCaptureData[window.currentLightboxIndex] || null;
+}
+
+function setLightboxMessage(text, kind = "") {
+    const node = document.getElementById("lightbox-note");
+    if (!node) return;
+
+    node.textContent = text || "";
+    node.className = "lightbox-note";
+    if (kind) {
+        node.classList.add(`is-${kind}`);
+    }
+}
+
+function syncLightboxImage() {
+    const img = document.getElementById("lightbox-img");
+    if (!img || window.lightboxImages.length === 0) return;
+    img.src = window.lightboxImages[window.currentLightboxIndex];
+}
+
+async function unlockCurrentLightboxCapture() {
+    const capture = currentLightboxCapture();
+    const mapBtn = document.getElementById("lightbox-map-btn");
+
+    if (!capture || !capture.id || !capture.coordinates_locked || !mapBtn) {
+        return;
+    }
+
+    if (!window.appSession || !window.appSession.logged_in) {
+        window.location.href = `${API_URL}/auth/login`;
+        return;
+    }
+
+    mapBtn.disabled = true;
+    setLightboxMessage("Odemykám souřadnice za 1 houbičku...");
+
+    try {
+        const res = await fetch(`${API_URL}/api/captures/${encodeURIComponent(capture.id)}/unlock-coordinates`, {
+            method: "POST",
+            credentials: "include"
+        });
+
+        if (res.status === 402) {
+            setLightboxMessage("Na odemčení nemáte dost houbiček.", "error");
+            return;
+        }
+        if (res.status === 404) {
+            setLightboxMessage("Fotografie už není pro odemčení dostupná.", "error");
+            return;
+        }
+        if (res.status === 400) {
+            setLightboxMessage("Tato fotografie nemá GPS souřadnice.", "error");
+            return;
+        }
+        if (!res.ok) {
+            throw new Error(`HTTP error ${res.status}`);
+        }
+
+        const payload = await res.json();
+        if (!payload || !payload.ok || !payload.capture) {
+            throw new Error("Invalid unlock response");
+        }
+
+        const updatedCapture = payload.capture;
+        window.lightboxCaptureData[window.currentLightboxIndex] = updatedCapture;
+        window.lightboxImages[window.currentLightboxIndex] = buildCaptureImageURL(updatedCapture);
+        window.lightboxMapData[window.currentLightboxIndex] = buildCaptureMapData(updatedCapture);
+
+        if (window.appMe && typeof payload.balance === "number") {
+            window.appMe.houbicka_balance = payload.balance;
+            refreshHoubickaBalanceViews();
+        }
+
+        if (typeof window.onLightboxCaptureUpdated === "function") {
+            window.onLightboxCaptureUpdated(updatedCapture, window.currentLightboxIndex);
+        }
+
+        syncLightboxImage();
+        setLightboxMessage(
+            payload.already_unlocked
+                ? "Souřadnice už jste měli k dispozici."
+                : `Souřadnice odemčeny. Zůstatek: ${formatHoubickaCount(payload.balance)}.`,
+            "success"
+        );
+        updateLightboxMap();
+    } catch (error) {
+        console.error("Failed to unlock coordinates", error);
+        setLightboxMessage("Souřadnice se nepodařilo odemknout.", "error");
+    } finally {
+        mapBtn.disabled = false;
+    }
+}
 
 function updateLightboxMap() {
     const mapBtn = document.getElementById("lightbox-map-btn");
     const mapDiv = document.getElementById("lightbox-map");
     if (!mapBtn || !mapDiv) return;
 
-    const data = window.lightboxMapData[window.currentLightboxIndex];
-    if (data && data.lat && data.lon) {
-        mapBtn.style.display = "block";
-        mapBtn.textContent = "Zobrazit na mapě";
-        mapDiv.style.display = "none";
-        
-        mapBtn.onclick = (e) => {
-            e.stopPropagation();
-            if (mapDiv.style.display === "none") {
-                mapDiv.style.display = "block";
-                mapBtn.textContent = "Skrýt mapu";
-                if (!lightboxMapInstance && typeof L !== 'undefined') {
-                    lightboxMapInstance = L.map('lightbox-map').setView([data.lat, data.lon], 13);
-                    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                        attribution: '&copy; OpenStreetMap'
-                    }).addTo(lightboxMapInstance);
-                    L.marker([data.lat, data.lon]).addTo(lightboxMapInstance);
-                } else if (lightboxMapInstance) {
-                    lightboxMapInstance.setView([data.lat, data.lon], 13);
-                    // Odstranění starých markerů
-                    lightboxMapInstance.eachLayer((layer) => {
-                        if (layer instanceof L.Marker) {
-                            lightboxMapInstance.removeLayer(layer);
-                        }
-                    });
-                    L.marker([data.lat, data.lon]).addTo(lightboxMapInstance);
-                    lightboxMapInstance.invalidateSize();
-                }
-            } else {
-                mapDiv.style.display = "none";
-                mapBtn.textContent = "Zobrazit na mapě";
-            }
-        };
-    } else {
-        mapBtn.style.display = "none";
-        mapDiv.style.display = "none";
+    const capture = currentLightboxCapture();
+    const data = capture ? buildCaptureMapData(capture) : window.lightboxMapData[window.currentLightboxIndex];
+
+    mapBtn.style.display = "none";
+    mapBtn.disabled = false;
+    mapDiv.style.display = "none";
+    mapBtn.onclick = null;
+    setLightboxMessage("");
+
+    if (!capture) {
+        return;
     }
+
+    if (capture.coordinates_locked) {
+        mapBtn.style.display = "block";
+        if (window.appSession && window.appSession.logged_in) {
+            mapBtn.textContent = "Otevřít souřadnice za 1 houbičku";
+            mapBtn.onclick = (event) => {
+                event.stopPropagation();
+                unlockCurrentLightboxCapture();
+            };
+            setLightboxMessage("Po odemčení se fotografie uloží do přehledu „Prohlédnuté za houbičky“.");
+        } else {
+            mapBtn.textContent = "Přihlásit se pro souřadnice";
+            mapBtn.onclick = (event) => {
+                event.stopPropagation();
+                window.location.href = `${API_URL}/auth/login`;
+            };
+            setLightboxMessage("Souřadnice si mohou odemykat jen přihlášení uživatelé.");
+        }
+        return;
+    }
+
+    if (!data || Number.isNaN(data.lat) || Number.isNaN(data.lon)) {
+        return;
+    }
+
+    mapBtn.style.display = "block";
+    mapBtn.textContent = "Zobrazit na mapě";
+
+    if (capture.coordinates_free) {
+        setLightboxMessage("Souřadnice této fotografie jsou zdarma.", "success");
+    } else if (capture.unlocked_at) {
+        setLightboxMessage(`Souřadnice byly odemčeny ${formatDateTime(capture.unlocked_at)}.`, "success");
+    }
+
+    mapBtn.onclick = (event) => {
+        event.stopPropagation();
+
+        if (mapDiv.style.display === "none") {
+            mapDiv.style.display = "block";
+            mapBtn.textContent = "Skrýt mapu";
+
+            if (!lightboxMapInstance && typeof L !== "undefined") {
+                lightboxMapInstance = L.map("lightbox-map").setView([data.lat, data.lon], 13);
+                L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+                    attribution: "&copy; OpenStreetMap"
+                }).addTo(lightboxMapInstance);
+                L.marker([data.lat, data.lon]).addTo(lightboxMapInstance);
+            } else if (lightboxMapInstance) {
+                lightboxMapInstance.setView([data.lat, data.lon], 13);
+                lightboxMapInstance.eachLayer((layer) => {
+                    if (layer instanceof L.Marker) {
+                        lightboxMapInstance.removeLayer(layer);
+                    }
+                });
+                L.marker([data.lat, data.lon]).addTo(lightboxMapInstance);
+                lightboxMapInstance.invalidateSize();
+            }
+            return;
+        }
+
+        mapDiv.style.display = "none";
+        mapBtn.textContent = "Zobrazit na mapě";
+    };
 }
 
 function openLightbox() {
     const lb = document.getElementById("lightbox");
-    const img = document.getElementById("lightbox-img");
-    if (!lb || !img || window.lightboxImages.length === 0) return;
-    img.src = window.lightboxImages[window.currentLightboxIndex];
+    if (!lb || window.lightboxImages.length === 0) return;
+    syncLightboxImage();
     updateLightboxMap();
     lb.classList.add("active");
 }
@@ -612,19 +868,20 @@ function closeLightbox() {
     if (lb) lb.classList.remove("active");
     const mapDiv = document.getElementById("lightbox-map");
     if (mapDiv) mapDiv.style.display = "none";
+    setLightboxMessage("");
 }
 
 function lightboxNext() {
     if (window.lightboxImages.length === 0) return;
     window.currentLightboxIndex = (window.currentLightboxIndex + 1) % window.lightboxImages.length;
-    document.getElementById("lightbox-img").src = window.lightboxImages[window.currentLightboxIndex];
+    syncLightboxImage();
     updateLightboxMap();
 }
 
 function lightboxPrev() {
     if (window.lightboxImages.length === 0) return;
     window.currentLightboxIndex = (window.currentLightboxIndex - 1 + window.lightboxImages.length) % window.lightboxImages.length;
-    document.getElementById("lightbox-img").src = window.lightboxImages[window.currentLightboxIndex];
+    syncLightboxImage();
     updateLightboxMap();
 }
 
@@ -658,6 +915,7 @@ async function initCreatePostPage() {
 
     const me = await apiGet("/api/me");
     if (!me) return;
+    setAppIdentity(session, me);
 
     renderHeader(session, me);
     setText(

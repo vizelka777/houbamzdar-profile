@@ -62,12 +62,15 @@ func (s *Server) setupRoutes() {
 	s.Router.Group(func(r chi.Router) {
 		r.Use(s.authMiddleware)
 		r.Get("/api/me", s.handleGetMe)
+		r.Get("/api/me/viewed-captures", s.handleListViewedCaptures)
 		r.Post("/api/me/about", s.handlePostMeAbout)
 		r.Get("/api/captures", s.handleListCaptures)
 		r.Get("/api/captures/{captureID}/preview", s.handlePreviewCapture)
 		r.Post("/api/captures", s.handleCreateCapture)
 		r.Post("/api/captures/{captureID}/publish", s.handlePublishCapture)
 		r.Post("/api/captures/{captureID}/unpublish", s.handleUnpublishCapture)
+		r.Post("/api/captures/{captureID}/coordinates-free", s.handleSetCaptureCoordinatesFree)
+		r.Post("/api/captures/{captureID}/unlock-coordinates", s.handleUnlockCaptureCoordinates)
 		r.Delete("/api/captures/{captureID}", s.handleDeleteCapture)
 
 		r.Get("/api/posts", s.handleListPosts)
@@ -78,6 +81,20 @@ func (s *Server) setupRoutes() {
 		r.Put("/api/posts/{postID}", s.handleUpdatePost)
 		r.Delete("/api/posts/{postID}", s.handleDeletePost)
 	})
+}
+
+func (s *Server) currentUserIDFromOptionalSession(r *http.Request) int64 {
+	cookie, err := r.Cookie(s.Config.SessionCookieName)
+	if err != nil {
+		return 0
+	}
+
+	session, err := s.DB.GetSession(cookie.Value)
+	if err != nil {
+		return 0
+	}
+
+	return session.UserID
 }
 
 func (s *Server) authMiddleware(next http.Handler) http.Handler {

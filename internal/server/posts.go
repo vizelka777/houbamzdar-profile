@@ -289,12 +289,7 @@ func (s *Server) handleListPublicPosts(w http.ResponseWriter, r *http.Request) {
 		offset = o
 	}
 
-	var currentUserID int64
-	if cookie, err := r.Cookie(s.Config.SessionCookieName); err == nil {
-		if session, err := s.DB.GetSession(cookie.Value); err == nil {
-			currentUserID = session.UserID
-		}
-	}
+	currentUserID := s.currentUserIDFromOptionalSession(r)
 
 	posts, err := s.DB.ListPublicPosts(limit, offset, currentUserID)
 	if err != nil {

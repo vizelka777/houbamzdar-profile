@@ -131,6 +131,26 @@ function renderServerStorageGrid() {
         const publicLink = capture.public_url
             ? `<a href="${escapeHtml(capture.public_url)}" target="_blank" rel="noreferrer" class="capture-link">Otevřít veřejnou verzi</a>`
             : "";
+        const coordinatesAccessHtml = captureHasCoordinates(capture)
+            ? `
+                <div class="capture-free-panel">
+                    <label class="capture-free-toggle">
+                        <input
+                            class="capture-free-checkbox"
+                            type="checkbox"
+                            value="${escapeHtml(capture.id)}"
+                            ${capture.coordinates_free ? "checked" : ""}
+                        >
+                        <span>Souřadnice zdarma</span>
+                    </label>
+                    <p class="capture-free-help">
+                        ${capture.coordinates_free
+                            ? "Ostatní uvidí souřadnice bez houbičky."
+                            : "Ostatní zaplatí 1 houbičku za odemčení."}
+                    </p>
+                </div>
+            `
+            : '<p class="capture-free-help">Bez GPS, není co zpřístupnit.</p>';
 
         card.innerHTML = `
             <div class="capture-item-head">
@@ -149,6 +169,7 @@ function renderServerStorageGrid() {
                 <p>${escapeHtml(formatStorageCoords(capture.latitude, capture.longitude))}</p>
                 <p>${escapeHtml(`${Math.round((capture.size_bytes || 0) / 1024)} KB`)}</p>
                 ${publicLink}
+                ${coordinatesAccessHtml}
             </div>
         `;
 
@@ -193,6 +214,26 @@ async function apiDeleteStorageCapture(captureID) {
     return response.json();
 }
 
+async function apiSetCaptureCoordinatesFree(captureID, coordinatesFree) {
+    const response = await fetch(`${API_URL}/api/captures/${encodeURIComponent(captureID)}/coordinates-free`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            coordinates_free: coordinatesFree
+        })
+    });
+
+    if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || "Update of capture coordinate visibility failed");
+    }
+
+    return response.json();
+}
+
 async function performStorageBulkAction(action) {
     const selected = selectedStorageCaptures();
     if (!selected.length) {
@@ -225,7 +266,52 @@ async function performStorageBulkAction(action) {
     }
 }
 
-function handleStorageGridChange(event) {
+async function handleStorageGridChange(event) {
+    const freeCheckbox = event.target.closest(".capture-free-checkbox");
+    if (freeCheckbox) {
+        const statusNode = document.getElementById("storage-status");
+        const capture = storageState.captures.find((item) => item.id === freeCheckbox.value);
+        if (!capture) return;
+
+        const previousValue = Boolean(capture.coordinates_free);
+        const nextValue = Boolean(freeCheckbox.checked);
+
+        capture.coordinates_free = nextValue;
+        freeCheckbox.disabled = true;
+
+        try {
+            setStatusMessage(
+                statusNode,
+                nextValue
+                    ? "Zpřístupňuji souřadnice zdarma..."
+                    : "Vrácím souřadnice zpět do houbičkového režimu..."
+            );
+
+            const res = await apiSetCaptureCoordinatesFree(capture.id, nextValue);
+            if (!res || !res.ok || !res.capture) {
+                throw new Error("Server nevrátil aktualizovanou fotografii.");
+            }
+
+            Object.assign(capture, res.capture);
+            renderServerStorageGrid();
+            setStatusMessage(
+                statusNode,
+                nextValue
+                    ? "Souřadnice jsou teď zdarma pro všechny."
+                    : "Souřadnice jsou znovu chráněné houbičkou.",
+                "success"
+            );
+        } catch (error) {
+            console.error("Failed to update capture coordinates_free", error);
+            capture.coordinates_free = previousValue;
+            freeCheckbox.checked = previousValue;
+            setStatusMessage(statusNode, error.message || "Nepodařilo se změnit přístup k souřadnicím.", "error");
+        } finally {
+            freeCheckbox.disabled = false;
+        }
+        return;
+    }
+
     const checkbox = event.target.closest(".storage-capture-checkbox");
     if (!checkbox) return;
 
@@ -276,6 +362,7 @@ async function initServerStoragePage() {
     const me = await apiGet("/api/me");
     if (!me) return;
 
+    setAppIdentity(session, me);
     renderHeader(session, me);
 
     const statusNode = document.getElementById("storage-status");

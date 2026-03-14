@@ -83,6 +83,10 @@
                         <strong id="metric-bonuses" class="metric-value">0 / 0</strong>
                     </div>
                     <div class="metric-tile">
+                        <span class="metric-label">Houbičky</span>
+                        <strong id="metric-houbicky" class="metric-value">0 houbiček</strong>
+                    </div>
+                    <div class="metric-tile">
                         <span class="metric-label">Upozornění</span>
                         <strong id="metric-notifications" class="metric-value">0</strong>
                     </div>
@@ -95,6 +99,18 @@
                 <ul id="alerts-list" class="dashboard-list"></ul>
             </article>
 
+            <article class="dashboard-card card">
+                <p class="section-label">Houbičky</p>
+                <h2>Stav bonusové měny</h2>
+                <div class="houbicka-panel">
+                    <strong id="houbicka-balance" class="houbicka-balance">0 houbiček</strong>
+                    <p class="muted-copy">
+                        Za odemčení cizích souřadnic utrácíte 1 houbičku. Autor fotografie současně 1 houbičku získá.
+                    </p>
+                </div>
+                <ul id="houbicka-rules" class="dashboard-list"></ul>
+            </article>
+
             <article class="dashboard-card card" style="grid-column: 1 / -1;">
                 <p class="section-label">Moje mapa</p>
                 <h2>Kde jsem hledal(a)</h2>
@@ -102,13 +118,10 @@
                 <div id="private-map" style="width: 100%; height: 400px; border-radius: var(--radius-md); z-index: 1;"></div>
             </article>
 
-            <article class="dashboard-card card">
-                <p class="section-label">Poslední návštěvy</p>
-                <h2>Profil si zatím prohlíželi</h2>
-                <ul id="views-list" class="dashboard-list"></ul>
-                <p class="subtle-note">
-                    Návštěvy ostatních uživatelů se začnou zobrazovat, jakmile je začneme sbírat na backendu.
-                </p>
+            <article class="dashboard-card card" style="grid-column: 1 / -1;">
+                <p class="section-label">Za houbičky</p>
+                <h2>Prohlédnuté za houbičky</h2>
+                <div id="viewed-captures-list" class="viewed-captures-list"></div>
             </article>
         </section>
     </main>
