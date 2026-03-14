@@ -201,6 +201,7 @@ function renderHeader(session, profile = null) {
         authButtons.appendChild(createLinkButton("Zeď úlovků", "/feed.html", "btn-secondary"));
         authButtons.appendChild(createLinkButton("Galerie", "/gallery.html", "btn-secondary"));
         authButtons.appendChild(createLinkButton("Mapa", "/map.html", "btn-secondary"));
+        authButtons.appendChild(createLinkButton("Odemčené houbičky", "/viewed-houbicki.html", "btn-secondary"));
 
         authButtons.appendChild(createLinkButton("Můj profil", "/me.html", "btn-primary"));
         authButtons.appendChild(createActionButton("Odhlásit", "btn-secondary", logoutFlow));

@@ -283,3 +283,108 @@ func TestCreatePostCommentRequiresAuthAndAppearsInPublicFeed(t *testing.T) {
 		t.Fatalf("unexpected public comment content: %q", publicPayload.Posts[0].Comments[0].Content)
 	}
 }
+
+func TestListUnlockedCapturesEndpoint(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{
+		DBURL:                  "file:" + filepath.Join(t.TempDir(), "test.db"),
+		FrontOrigin:            "https://houbamzdar.cz",
+		SessionCookieName:      "hzd_session",
+		BunnyPublicBaseURL:     "https://foto.houbamzdar.cz",
+		BunnyStorageHost:       "storage.bunnycdn.com",
+		BunnyPrivateZone:       "private-zone",
+		BunnyPrivateStorageKey: "private-key",
+		BunnyPublicZone:        "public-zone",
+		BunnyPublicStorageKey:  "public-key",
+	}
+
+	database, err := db.New(cfg)
+	if err != nil {
+		t.Fatalf("open test database: %v", err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+
+	token := &oauth2.Token{AccessToken: "a", RefreshToken: "r", Expiry: time.Now().Add(time.Hour).UTC()}
+	author, _, err := database.UpsertUser(&models.OIDCClaims{Iss: "https://ahoj420.eu", Sub: "author-api", PreferredUsername: "autor"}, token)
+	if err != nil {
+		t.Fatalf("create author: %v", err)
+	}
+	viewer, _, err := database.UpsertUser(&models.OIDCClaims{Iss: "https://ahoj420.eu", Sub: "viewer-api", PreferredUsername: "divak"}, token)
+	if err != nil {
+		t.Fatalf("create viewer: %v", err)
+	}
+
+	capturedAt := time.Date(2026, time.March, 14, 12, 0, 0, 0, time.UTC)
+	capture := &models.Capture{
+		ID:                "capture-api-001",
+		UserID:            author.ID,
+		OriginalFileName:  "api.jpg",
+		ContentType:       "image/jpeg",
+		SizeBytes:         123,
+		Width:             100,
+		Height:            100,
+		CapturedAt:        capturedAt,
+		UploadedAt:        capturedAt,
+		Status:            "published",
+		PrivateStorageKey: "private/api.jpg",
+		PublicStorageKey:  "public/api.jpg",
+		PublishedAt:       capturedAt,
+	}
+	if err := database.CreateCapture(capture); err != nil {
+		t.Fatalf("create capture: %v", err)
+	}
+	post := &models.Post{ID: "post-api-001", UserID: author.ID, Content: "post", Status: "published", CreatedAt: capturedAt, UpdatedAt: capturedAt, Captures: []*models.Capture{capture}}
+	if err := database.CreatePost(post); err != nil {
+		t.Fatalf("create post: %v", err)
+	}
+	if _, err := database.Exec(`INSERT INTO capture_coordinate_unlocks (viewer_user_id, capture_id, author_user_id, unlocked_at, cost) VALUES (?, ?, ?, ?, ?)`, viewer.ID, capture.ID, author.ID, capturedAt.Add(time.Minute).Format(time.RFC3339), 77); err != nil {
+		t.Fatalf("insert unlock: %v", err)
+	}
+
+	sessionID := "session-unlocked-api"
+	if err := database.CreateSession(&models.Session{SessionID: sessionID, UserID: viewer.ID, ExpiresAt: time.Now().Add(time.Hour).UTC()}); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	srv := New(cfg, database, nil, media.NewBunnyStorage(cfg))
+
+	unauthReq := httptest.NewRequest(http.MethodGet, "/api/me/unlocked-captures", nil)
+	unauthRec := httptest.NewRecorder()
+	srv.Router.ServeHTTP(unauthRec, unauthReq)
+	if unauthRec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for unauthorized request, got %d", unauthRec.Code)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/me/unlocked-captures", nil)
+	req.AddCookie(&http.Cookie{Name: cfg.SessionCookieName, Value: sessionID})
+	rec := httptest.NewRecorder()
+	srv.Router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var payload struct {
+		OK               bool `json:"ok"`
+		UnlockedCaptures []struct {
+			CaptureID string `json:"capture_id"`
+			PostID    string `json:"post_id"`
+			Capture   struct {
+				PublicURL string `json:"public_url"`
+			} `json:"capture"`
+		} `json:"unlocked_captures"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !payload.OK || len(payload.UnlockedCaptures) != 1 {
+		t.Fatalf("unexpected payload: %+v", payload)
+	}
+	if payload.UnlockedCaptures[0].PostID != post.ID {
+		t.Fatalf("expected post id %q, got %q", post.ID, payload.UnlockedCaptures[0].PostID)
+	}
+	if payload.UnlockedCaptures[0].Capture.PublicURL == "" {
+		t.Fatalf("expected capture public_url to be set")
+	}
+}

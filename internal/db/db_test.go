@@ -743,3 +743,101 @@ func TestPostLikesSupportFeedStateAndDeleteCleanup(t *testing.T) {
 		t.Fatalf("expected 0 remaining likes after delete, got %d", remainingLikes)
 	}
 }
+
+func TestMigrateCreatesCaptureCoordinateUnlocksTable(t *testing.T) {
+	t.Parallel()
+
+	rawDB := openTestDB(t)
+	if err := migrate(rawDB); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	columns := tableColumnSet(t, rawDB, "capture_coordinate_unlocks")
+	for _, name := range []string{"viewer_user_id", "capture_id", "author_user_id", "unlocked_at", "cost"} {
+		if _, ok := columns[name]; !ok {
+			t.Fatalf("expected capture_coordinate_unlocks.%s to exist", name)
+		}
+	}
+
+	var applied int
+	if err := rawDB.QueryRow(
+		`SELECT COUNT(*) FROM schema_migrations WHERE id = ?`,
+		migrationCaptureCoordinateUnlocksTableID,
+	).Scan(&applied); err != nil {
+		t.Fatalf("query schema migration row: %v", err)
+	}
+	if applied != 1 {
+		t.Fatalf("expected one migration row for %s, got %d", migrationCaptureCoordinateUnlocksTableID, applied)
+	}
+}
+
+func TestListUnlockedCapturesByViewer(t *testing.T) {
+	t.Parallel()
+
+	rawDB := openTestDB(t)
+	if err := migrate(rawDB); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	wrapped := &DB{rawDB}
+
+	token := &oauth2.Token{AccessToken: "a", RefreshToken: "r", Expiry: time.Now().Add(time.Hour).UTC()}
+	author, _, err := wrapped.UpsertUser(&models.OIDCClaims{Iss: "https://ahoj420.eu", Sub: "author-unlocked", PreferredUsername: "autor"}, token)
+	if err != nil {
+		t.Fatalf("create author: %v", err)
+	}
+	viewer, _, err := wrapped.UpsertUser(&models.OIDCClaims{Iss: "https://ahoj420.eu", Sub: "viewer-unlocked", PreferredUsername: "divak"}, token)
+	if err != nil {
+		t.Fatalf("create viewer: %v", err)
+	}
+
+	capturedAt := time.Date(2026, time.March, 14, 10, 0, 0, 0, time.UTC)
+	capture := &models.Capture{
+		ID:                "capture-unlocked-001",
+		UserID:            author.ID,
+		OriginalFileName:  "houba.jpg",
+		ContentType:       "image/jpeg",
+		SizeBytes:         100,
+		Width:             100,
+		Height:            100,
+		CapturedAt:        capturedAt,
+		UploadedAt:        capturedAt,
+		Latitude:          func() *float64 { v := 50.123456; return &v }(),
+		Longitude:         func() *float64 { v := 14.654321; return &v }(),
+		Status:            "published",
+		PrivateStorageKey: "private/key.jpg",
+		PublicStorageKey:  "public/key.jpg",
+		PublishedAt:       capturedAt,
+	}
+	if err := wrapped.CreateCapture(capture); err != nil {
+		t.Fatalf("create capture: %v", err)
+	}
+
+	post := &models.Post{ID: "post-unlocked-001", UserID: author.ID, Content: "post", Status: "published", CreatedAt: capturedAt, UpdatedAt: capturedAt, Captures: []*models.Capture{capture}}
+	if err := wrapped.CreatePost(post); err != nil {
+		t.Fatalf("create post: %v", err)
+	}
+
+	if _, err := rawDB.Exec(`
+		INSERT INTO capture_coordinate_unlocks (viewer_user_id, capture_id, author_user_id, unlocked_at, cost)
+		VALUES (?, ?, ?, ?, ?)
+	`, viewer.ID, capture.ID, author.ID, capturedAt.Add(time.Hour).Format(time.RFC3339), 33); err != nil {
+		t.Fatalf("insert unlock: %v", err)
+	}
+
+	items, err := wrapped.ListUnlockedCapturesByViewer(viewer.ID, 10, 0)
+	if err != nil {
+		t.Fatalf("list unlocked captures: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected 1 unlocked item, got %d", len(items))
+	}
+	if items[0].Capture == nil {
+		t.Fatalf("expected joined capture data")
+	}
+	if items[0].PostID != post.ID {
+		t.Fatalf("expected post_id %s, got %s", post.ID, items[0].PostID)
+	}
+	if items[0].AuthorUserID != author.ID {
+		t.Fatalf("expected author_user_id %d, got %d", author.ID, items[0].AuthorUserID)
+	}
+}

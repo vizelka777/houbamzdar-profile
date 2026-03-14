@@ -75,6 +75,45 @@ func (s *Server) handleListPublicCaptures(w http.ResponseWriter, r *http.Request
 	})
 }
 
+func (s *Server) handleListUnlockedCaptures(w http.ResponseWriter, r *http.Request) {
+	user := r.Context().Value("user").(*models.User)
+
+	limit := 24
+	if l, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && l > 0 && l <= 100 {
+		limit = l
+	}
+
+	offset := 0
+	if o, err := strconv.Atoi(r.URL.Query().Get("offset")); err == nil && o >= 0 {
+		offset = o
+	}
+
+	unlocked, err := s.DB.ListUnlockedCapturesByViewer(user.ID, limit, offset)
+	if err != nil {
+		http.Error(w, "failed to list unlocked captures", http.StatusInternalServerError)
+		return
+	}
+
+	if unlocked == nil {
+		unlocked = []*models.UnlockedCapture{}
+	} else {
+		for _, item := range unlocked {
+			if item.Capture == nil {
+				continue
+			}
+			if s.Media != nil && item.Capture.PublicStorageKey != "" {
+				item.Capture.PublicURL = s.Media.PublicURL(item.Capture.PublicStorageKey)
+			}
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"ok":                true,
+		"unlocked_captures": unlocked,
+	})
+}
+
 func (s *Server) handleCreateCapture(w http.ResponseWriter, r *http.Request) {
 	user := r.Context().Value("user").(*models.User)
 

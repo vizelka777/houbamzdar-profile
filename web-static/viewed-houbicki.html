@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odemčené houbičky | Houbam Zdar</title>
+    <meta name="description" content="Přehled odemčených souřadnic fotografií.">
+    <link rel="icon" href="/favicon.ico" sizes="any">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body data-page="viewed-houbicki" class="page-shell page-profile">
+<header class="site-header">
+    <a href="/" class="brand-link" aria-label="Houbam Zdar">
+        <img src="/logo.png" alt="Logo Houbam Zdar" class="brand-mark">
+        <div class="brand-copy">
+            <span class="brand-eyebrow">Moje odemčení</span>
+            <strong>Houbam Zdar</strong>
+        </div>
+    </a>
+    <div id="auth-buttons" class="header-actions"></div>
+</header>
+
+<main class="content-main content-main-narrow">
+    <section class="page-intro card">
+        <p class="section-label">Moje data</p>
+        <h1>Odemčené houbičky</h1>
+        <p>Seznam nálezů, u kterých jste odemkli souřadnice.</p>
+    </section>
+
+    <section class="card">
+        <div id="unlocked-status" class="status-message" aria-live="polite"></div>
+        <div id="unlocked-list" class="capture-grid"></div>
+    </section>
+</main>
+
+<script src="app.js" defer></script>
+<script src="viewed-houbicki.js" defer></script>
+</body>
+</html>

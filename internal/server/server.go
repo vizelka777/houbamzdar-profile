@@ -63,6 +63,7 @@ func (s *Server) setupRoutes() {
 		r.Use(s.authMiddleware)
 		r.Get("/api/me", s.handleGetMe)
 		r.Post("/api/me/about", s.handlePostMeAbout)
+		r.Get("/api/me/unlocked-captures", s.handleListUnlockedCaptures)
 		r.Get("/api/captures", s.handleListCaptures)
 		r.Get("/api/captures/{captureID}/preview", s.handlePreviewCapture)
 		r.Post("/api/captures", s.handleCreateCapture)
