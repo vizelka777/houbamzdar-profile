@@ -37,6 +37,8 @@ const migrationPhotoCapturesTableID = "20260308_create_photo_captures"
 const migrationPostsTableID = "20260312_create_posts_table"
 const migrationPostCommentsTableID = "20260314_create_post_comments_table"
 const migrationPostLikesTableID = "20260314_create_post_likes_table"
+const migrationHoubickaWalletsTableID = "20260314_create_user_houbicka_wallets_table"
+const migrationHoubickaTransactionsTableID = "20260314_create_houbicka_transactions_table"
 
 func New(cfg *config.Config) (*DB, error) {
 	url := cfg.DBURL
@@ -243,6 +245,50 @@ func migrate(db *sql.DB) error {
 					);`,
 					`CREATE INDEX IF NOT EXISTS idx_post_likes_post_id ON post_likes(post_id);`,
 					`CREATE INDEX IF NOT EXISTS idx_post_likes_user_id ON post_likes(user_id);`,
+				}
+				for _, query := range queries {
+					if _, err := tx.Exec(query); err != nil {
+						return err
+					}
+				}
+				return nil
+			},
+		},
+		{
+			id: migrationHoubickaWalletsTableID,
+			apply: func(tx *sql.Tx) error {
+				queries := []string{
+					`CREATE TABLE IF NOT EXISTS user_houbicka_wallets (
+						user_id INTEGER PRIMARY KEY,
+						balance INTEGER NOT NULL DEFAULT 0,
+						updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+						FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+					);`,
+				}
+				for _, query := range queries {
+					if _, err := tx.Exec(query); err != nil {
+						return err
+					}
+				}
+				return nil
+			},
+		},
+		{
+			id: migrationHoubickaTransactionsTableID,
+			apply: func(tx *sql.Tx) error {
+				queries := []string{
+					`CREATE TABLE IF NOT EXISTS houbicka_transactions (
+						id INTEGER PRIMARY KEY AUTOINCREMENT,
+						user_id INTEGER NOT NULL,
+						type TEXT NOT NULL,
+						amount_signed INTEGER NOT NULL,
+						reason_code TEXT NOT NULL,
+						idempotency_key TEXT NOT NULL UNIQUE,
+						metadata_json TEXT,
+						created_at TEXT NOT NULL DEFAULT (datetime('now')),
+						FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+					);`,
+					`CREATE INDEX IF NOT EXISTS idx_houbicka_transactions_user_created_at ON houbicka_transactions(user_id, created_at DESC);`,
 				}
 				for _, query := range queries {
 					if _, err := tx.Exec(query); err != nil {
@@ -684,6 +730,135 @@ func nullIfZeroTime(value time.Time) interface{} {
 		return nil
 	}
 	return value.UTC().Format(time.RFC3339)
+}
+
+func (db *DB) EnsureWallet(userID int64) (*models.HoubickaWallet, error) {
+	_, err := db.Exec(`
+		INSERT OR IGNORE INTO user_houbicka_wallets (user_id, balance, updated_at)
+		VALUES (?, 0, datetime('now'))
+	`, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	return db.GetWallet(userID)
+}
+
+func (db *DB) GetWallet(userID int64) (*models.HoubickaWallet, error) {
+	var wallet models.HoubickaWallet
+	var updatedAtRaw string
+
+	err := db.QueryRow(`
+		SELECT user_id, balance, updated_at
+		FROM user_houbicka_wallets
+		WHERE user_id = ?
+	`, userID).Scan(&wallet.UserID, &wallet.Balance, &updatedAtRaw)
+	if err != nil {
+		return nil, err
+	}
+
+	wallet.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAtRaw)
+	if wallet.UpdatedAt.IsZero() {
+		if parsed, parseErr := time.Parse("2006-01-02 15:04:05", updatedAtRaw); parseErr == nil {
+			wallet.UpdatedAt = parsed.UTC()
+		}
+	}
+
+	return &wallet, nil
+}
+
+func (db *DB) ApplyTransactionTx(tx *sql.Tx, userID int64, txType string, amountSigned int64, reasonCode, idempotencyKey, metadataJSON string) (*models.HoubickaTransaction, error) {
+	if tx == nil {
+		return nil, fmt.Errorf("sql transaction is required")
+	}
+
+	if txType != models.HoubickaTransactionTypeCredit && txType != models.HoubickaTransactionTypeDebit {
+		return nil, fmt.Errorf("invalid transaction type: %s", txType)
+	}
+
+	if idempotencyKey == "" {
+		return nil, fmt.Errorf("idempotency key is required")
+	}
+
+	if amountSigned == 0 {
+		return nil, fmt.Errorf("amount_signed must be non-zero")
+	}
+	if txType == models.HoubickaTransactionTypeCredit && amountSigned < 0 {
+		return nil, fmt.Errorf("credit must have positive amount_signed")
+	}
+	if txType == models.HoubickaTransactionTypeDebit && amountSigned > 0 {
+		return nil, fmt.Errorf("debit must have negative amount_signed")
+	}
+
+	if _, err := tx.Exec(`
+		INSERT OR IGNORE INTO user_houbicka_wallets (user_id, balance, updated_at)
+		VALUES (?, 0, datetime('now'))
+	`, userID); err != nil {
+		return nil, err
+	}
+
+	if txType == models.HoubickaTransactionTypeDebit {
+		result, err := tx.Exec(`
+			UPDATE user_houbicka_wallets
+			SET balance = balance + ?, updated_at = datetime('now')
+			WHERE user_id = ? AND balance + ? >= 0
+		`, amountSigned, userID, amountSigned)
+		if err != nil {
+			return nil, err
+		}
+		rows, err := result.RowsAffected()
+		if err != nil {
+			return nil, err
+		}
+		if rows == 0 {
+			return nil, fmt.Errorf("insufficient houbicka balance")
+		}
+	} else {
+		if _, err := tx.Exec(`
+			UPDATE user_houbicka_wallets
+			SET balance = balance + ?, updated_at = datetime('now')
+			WHERE user_id = ?
+		`, amountSigned, userID); err != nil {
+			return nil, err
+		}
+	}
+
+	result, err := tx.Exec(`
+		INSERT INTO houbicka_transactions (
+			user_id, type, amount_signed, reason_code, idempotency_key, metadata_json, created_at
+		) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+	`, userID, txType, amountSigned, reasonCode, idempotencyKey, nullIfEmpty(metadataJSON))
+	if err != nil {
+		return nil, err
+	}
+
+	id, err := result.LastInsertId()
+	if err != nil {
+		return nil, err
+	}
+
+	return scanHoubickaTransactionRow(tx.QueryRow(`
+		SELECT id, user_id, type, amount_signed, reason_code, idempotency_key, COALESCE(metadata_json, ''), created_at
+		FROM houbicka_transactions
+		WHERE id = ?
+	`, id))
+}
+
+func scanHoubickaTransactionRow(scanner interface {
+	Scan(dest ...interface{}) error
+}) (*models.HoubickaTransaction, error) {
+	var tr models.HoubickaTransaction
+	var createdAtRaw string
+	if err := scanner.Scan(&tr.ID, &tr.UserID, &tr.Type, &tr.AmountSigned, &tr.ReasonCode, &tr.IdempotencyKey, &tr.MetadataJSON, &createdAtRaw); err != nil {
+		return nil, err
+	}
+	tr.CreatedAt, _ = time.Parse(time.RFC3339, createdAtRaw)
+	if tr.CreatedAt.IsZero() {
+		if parsed, parseErr := time.Parse("2006-01-02 15:04:05", createdAtRaw); parseErr == nil {
+			tr.CreatedAt = parsed.UTC()
+		}
+	}
+	return &tr, nil
 }
 
 func normalizeCaptureListFilters(filters CaptureListFilters) CaptureListFilters {

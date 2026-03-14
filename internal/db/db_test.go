@@ -743,3 +743,108 @@ func TestPostLikesSupportFeedStateAndDeleteCleanup(t *testing.T) {
 		t.Fatalf("expected 0 remaining likes after delete, got %d", remainingLikes)
 	}
 }
+
+func TestMigrateCreatesHoubickaTables(t *testing.T) {
+	t.Parallel()
+
+	rawDB := openTestDB(t)
+	if err := migrate(rawDB); err != nil {
+		t.Fatalf("migrate schema: %v", err)
+	}
+
+	walletColumns := tableColumnSet(t, rawDB, "user_houbicka_wallets")
+	for _, name := range []string{"user_id", "balance", "updated_at"} {
+		if _, ok := walletColumns[name]; !ok {
+			t.Fatalf("expected user_houbicka_wallets.%s to exist", name)
+		}
+	}
+
+	transactionColumns := tableColumnSet(t, rawDB, "houbicka_transactions")
+	for _, name := range []string{"id", "user_id", "type", "amount_signed", "reason_code", "idempotency_key", "metadata_json", "created_at"} {
+		if _, ok := transactionColumns[name]; !ok {
+			t.Fatalf("expected houbicka_transactions.%s to exist", name)
+		}
+	}
+
+	for _, migrationID := range []string{migrationHoubickaWalletsTableID, migrationHoubickaTransactionsTableID} {
+		var applied int
+		if err := rawDB.QueryRow(`SELECT COUNT(*) FROM schema_migrations WHERE id = ?`, migrationID).Scan(&applied); err != nil {
+			t.Fatalf("query migration %s: %v", migrationID, err)
+		}
+		if applied != 1 {
+			t.Fatalf("expected migration %s to be recorded once, got %d", migrationID, applied)
+		}
+	}
+}
+
+func TestEnsureWalletAndApplyTransactionTx(t *testing.T) {
+	t.Parallel()
+
+	rawDB := openTestDB(t)
+	if err := migrate(rawDB); err != nil {
+		t.Fatalf("migrate schema: %v", err)
+	}
+	database := &DB{rawDB}
+
+	user, _, err := database.UpsertUser(&models.OIDCClaims{
+		Iss:               "https://ahoj420.eu",
+		Sub:               "wallet-user",
+		PreferredUsername: "walletnik",
+		Email:             "wallet@example.test",
+		EmailVerified:     true,
+	}, &oauth2.Token{AccessToken: "a", RefreshToken: "r", Expiry: time.Now().Add(time.Hour).UTC()})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	wallet, err := database.EnsureWallet(user.ID)
+	if err != nil {
+		t.Fatalf("ensure wallet: %v", err)
+	}
+	if wallet.Balance != 0 {
+		t.Fatalf("expected zero balance, got %d", wallet.Balance)
+	}
+
+	tx, err := rawDB.Begin()
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	creditTx, err := database.ApplyTransactionTx(tx, user.ID, models.HoubickaTransactionTypeCredit, 100, models.HoubickaReasonSignupBonus, "idem-credit-1", `{"source":"test"}`)
+	if err != nil {
+		_ = tx.Rollback()
+		t.Fatalf("apply credit tx: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit credit tx: %v", err)
+	}
+	if creditTx.AmountSigned != 100 {
+		t.Fatalf("expected credit amount 100, got %d", creditTx.AmountSigned)
+	}
+
+	wallet, err = database.GetWallet(user.ID)
+	if err != nil {
+		t.Fatalf("get wallet after credit: %v", err)
+	}
+	if wallet.Balance != 100 {
+		t.Fatalf("expected balance 100, got %d", wallet.Balance)
+	}
+
+	tx, err = rawDB.Begin()
+	if err != nil {
+		t.Fatalf("begin debit tx: %v", err)
+	}
+	_, err = database.ApplyTransactionTx(tx, user.ID, models.HoubickaTransactionTypeDebit, -150, models.HoubickaReasonCoordsViewDebit, "idem-debit-1", "")
+	if err == nil {
+		_ = tx.Rollback()
+		t.Fatalf("expected insufficient balance error")
+	}
+	_ = tx.Rollback()
+
+	wallet, err = database.GetWallet(user.ID)
+	if err != nil {
+		t.Fatalf("get wallet after failed debit: %v", err)
+	}
+	if wallet.Balance != 100 {
+		t.Fatalf("expected unchanged balance 100, got %d", wallet.Balance)
+	}
+}
