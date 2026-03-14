@@ -743,3 +743,100 @@ func TestPostLikesSupportFeedStateAndDeleteCleanup(t *testing.T) {
 		t.Fatalf("expected 0 remaining likes after delete, got %d", remainingLikes)
 	}
 }
+
+func TestMigrateCreatesAccrualTransactionsTable(t *testing.T) {
+	t.Parallel()
+
+	rawDB := openTestDB(t)
+	if err := migrate(rawDB); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	columns := tableColumnSet(t, rawDB, "accrual_transactions")
+	for _, name := range []string{"id", "user_id", "amount", "reason", "idempotency_key", "created_at"} {
+		if _, ok := columns[name]; !ok {
+			t.Fatalf("expected accrual_transactions.%s to exist", name)
+		}
+	}
+
+	var applied int
+	if err := rawDB.QueryRow(
+		`SELECT COUNT(*) FROM schema_migrations WHERE id = ?`,
+		migrationAccrualTransactionsTableID,
+	).Scan(&applied); err != nil {
+		t.Fatalf("query accrual migration row: %v", err)
+	}
+	if applied != 1 {
+		t.Fatalf("expected accrual migration row once, got %d", applied)
+	}
+}
+
+func TestAddAuthBonuses_IsIdempotentForVerificationBonuses(t *testing.T) {
+	t.Parallel()
+
+	rawDB := openTestDB(t)
+	if err := migrate(rawDB); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	database := &DB{rawDB}
+	user, _, err := database.UpsertUser(&models.OIDCClaims{
+		Iss:                 "https://ahoj420.eu",
+		Sub:                 "bonus-user",
+		PreferredUsername:   "bonusnik",
+		Email:               "bonus@example.test",
+		EmailVerified:       true,
+		PhoneNumber:         "+420123456789",
+		PhoneNumberVerified: true,
+	}, &oauth2.Token{AccessToken: "a"})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	emailKey := "email_verified_bonus:test"
+	phoneKey := "phone_verified_bonus:test"
+
+	if err := database.AddAuthBonuses(user.ID, true, true, true, emailKey, phoneKey); err != nil {
+		t.Fatalf("first add auth bonuses: %v", err)
+	}
+	if err := database.AddAuthBonuses(user.ID, false, true, true, emailKey, phoneKey); err != nil {
+		t.Fatalf("second add auth bonuses: %v", err)
+	}
+
+	var (
+		totalAmount int
+		txCount     int
+		emailCount  int
+		phoneCount  int
+		signupCount int
+	)
+
+	if err := rawDB.QueryRow(`SELECT COALESCE(SUM(amount), 0), COUNT(*) FROM accrual_transactions WHERE user_id = ?`, user.ID).Scan(&totalAmount, &txCount); err != nil {
+		t.Fatalf("query totals: %v", err)
+	}
+	if err := rawDB.QueryRow(`SELECT COUNT(*) FROM accrual_transactions WHERE idempotency_key = ?`, emailKey).Scan(&emailCount); err != nil {
+		t.Fatalf("query email bonus count: %v", err)
+	}
+	if err := rawDB.QueryRow(`SELECT COUNT(*) FROM accrual_transactions WHERE idempotency_key = ?`, phoneKey).Scan(&phoneCount); err != nil {
+		t.Fatalf("query phone bonus count: %v", err)
+	}
+	if err := rawDB.QueryRow(`SELECT COUNT(*) FROM accrual_transactions WHERE reason = 'signup' AND user_id = ?`, user.ID).Scan(&signupCount); err != nil {
+		t.Fatalf("query signup count: %v", err)
+	}
+
+	if totalAmount != 9 {
+		t.Fatalf("expected total bonus amount 9, got %d", totalAmount)
+	}
+	if txCount != 3 {
+		t.Fatalf("expected exactly 3 bonus transactions, got %d", txCount)
+	}
+	if emailCount != 1 {
+		t.Fatalf("expected one email bonus transaction, got %d", emailCount)
+	}
+	if phoneCount != 1 {
+		t.Fatalf("expected one phone bonus transaction, got %d", phoneCount)
+	}
+	if signupCount != 1 {
+		t.Fatalf("expected one signup transaction, got %d", signupCount)
+	}
+}

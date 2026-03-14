@@ -115,6 +115,13 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	emailBonusKey := fmt.Sprintf("email_verified_bonus:%d", user.ID)
+	phoneBonusKey := fmt.Sprintf("phone_verified_bonus:%d", user.ID)
+	if err := s.DB.AddAuthBonuses(user.ID, isNew, user.EmailVerified, user.PhoneNumberVerified, emailBonusKey, phoneBonusKey); err != nil {
+		http.Error(w, "failed to apply auth bonuses", http.StatusInternalServerError)
+		return
+	}
+
 	sessionID := uuid.New().String()
 	ttl := time.Duration(s.Config.SessionTTLHours) * time.Hour
 	err = s.DB.CreateSession(&models.Session{
@@ -162,7 +169,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	})
 
 	logoutURL := fmt.Sprintf("%s/logout?post_logout_redirect_uri=%s", s.Config.OIDCIssuer, url.QueryEscape(s.Config.FrontBaseURL+"/"))
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"ok":             true,

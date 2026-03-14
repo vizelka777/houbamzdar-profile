@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/houbamzdar/bff/internal/config"
 	"github.com/houbamzdar/bff/internal/models"
 	_ "github.com/tursodatabase/libsql-client-go/libsql"
@@ -37,6 +38,7 @@ const migrationPhotoCapturesTableID = "20260308_create_photo_captures"
 const migrationPostsTableID = "20260312_create_posts_table"
 const migrationPostCommentsTableID = "20260314_create_post_comments_table"
 const migrationPostLikesTableID = "20260314_create_post_likes_table"
+const migrationAccrualTransactionsTableID = "20260314_create_accrual_transactions_table"
 
 func New(cfg *config.Config) (*DB, error) {
 	url := cfg.DBURL
@@ -252,6 +254,30 @@ func migrate(db *sql.DB) error {
 				return nil
 			},
 		},
+		{
+			id: migrationAccrualTransactionsTableID,
+			apply: func(tx *sql.Tx) error {
+				queries := []string{
+					`CREATE TABLE IF NOT EXISTS accrual_transactions (
+						id TEXT PRIMARY KEY,
+						user_id INTEGER NOT NULL,
+						amount INTEGER NOT NULL,
+						reason TEXT NOT NULL,
+						idempotency_key TEXT,
+						created_at TEXT NOT NULL DEFAULT (datetime('now')),
+						FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+					);`,
+					`CREATE UNIQUE INDEX IF NOT EXISTS idx_accrual_transactions_idempotency_key ON accrual_transactions(idempotency_key) WHERE idempotency_key IS NOT NULL;`,
+					`CREATE INDEX IF NOT EXISTS idx_accrual_transactions_user_created ON accrual_transactions(user_id, created_at DESC);`,
+				}
+				for _, query := range queries {
+					if _, err := tx.Exec(query); err != nil {
+						return err
+					}
+				}
+				return nil
+			},
+		},
 	}
 
 	for _, migration := range migrations {
@@ -457,6 +483,63 @@ func (db *DB) GetUser(id int64) (*models.User, error) {
 
 func (db *DB) UpdateAboutMe(id int64, aboutMe string) error {
 	_, err := db.Exec("UPDATE users SET about_me = ?, updated_at = datetime('now') WHERE id = ?", aboutMe, id)
+	return err
+}
+
+func (db *DB) AddAuthBonuses(userID int64, isNew bool, emailVerified bool, phoneVerified bool, emailBonusKey string, phoneBonusKey string) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if isNew {
+		if err := insertAccrualTx(tx, userID, 1, "signup", ""); err != nil {
+			return err
+		}
+	}
+
+	if emailVerified {
+		exists, err := accrualTxExists(tx, emailBonusKey)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			if err := insertAccrualTx(tx, userID, 3, "email_verified_bonus", emailBonusKey); err != nil {
+				return err
+			}
+		}
+	}
+
+	if phoneVerified {
+		exists, err := accrualTxExists(tx, phoneBonusKey)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			if err := insertAccrualTx(tx, userID, 5, "phone_verified_bonus", phoneBonusKey); err != nil {
+				return err
+			}
+		}
+	}
+
+	return tx.Commit()
+}
+
+func accrualTxExists(tx *sql.Tx, idempotencyKey string) (bool, error) {
+	var exists bool
+	err := tx.QueryRow("SELECT EXISTS(SELECT 1 FROM accrual_transactions WHERE idempotency_key = ?)", idempotencyKey).Scan(&exists)
+	if err != nil {
+		return false, err
+	}
+	return exists, nil
+}
+
+func insertAccrualTx(tx *sql.Tx, userID int64, amount int, reason string, idempotencyKey string) error {
+	_, err := tx.Exec(`
+		INSERT INTO accrual_transactions (id, user_id, amount, reason, idempotency_key, created_at)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`, uuid.New().String(), userID, amount, reason, nullIfEmpty(idempotencyKey), time.Now().UTC().Format(time.RFC3339))
 	return err
 }
 
