@@ -58,7 +58,7 @@ func (s *Server) setupRoutes() {
 	s.Router.Get("/api/session", s.handleSession)
 	s.Router.Get("/api/public/posts", s.handleListPublicPosts)
 	s.Router.Get("/api/public/captures", s.handleListPublicCaptures)
-	
+
 	s.Router.Group(func(r chi.Router) {
 		r.Use(s.authMiddleware)
 		r.Get("/api/me", s.handleGetMe)
@@ -69,10 +69,11 @@ func (s *Server) setupRoutes() {
 		r.Post("/api/captures/{captureID}/publish", s.handlePublishCapture)
 		r.Post("/api/captures/{captureID}/unpublish", s.handleUnpublishCapture)
 		r.Delete("/api/captures/{captureID}", s.handleDeleteCapture)
-		
+
 		r.Get("/api/posts", s.handleListPosts)
 		r.Post("/api/posts", s.handleCreatePost)
 		r.Get("/api/posts/{postID}", s.handleGetPost)
+		r.Post("/api/posts/{postID}/comments", s.handleCreatePostComment)
 		r.Put("/api/posts/{postID}", s.handleUpdatePost)
 		r.Delete("/api/posts/{postID}", s.handleDeletePost)
 	})

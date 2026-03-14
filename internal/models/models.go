@@ -55,11 +55,27 @@ type Post struct {
 	CreatedAt    time.Time  `json:"created_at"`
 	UpdatedAt    time.Time  `json:"updated_at"`
 	Captures     []*Capture `json:"captures,omitempty"`
+	Comments     []*Comment `json:"comments,omitempty"`
 }
 
 type CreatePostRequest struct {
 	Content    string   `json:"content"`
 	CaptureIDs []string `json:"capture_ids"`
+}
+
+type Comment struct {
+	ID           string    `json:"id"`
+	PostID       string    `json:"-"`
+	UserID       int64     `json:"-"`
+	AuthorName   string    `json:"author_name,omitempty"`
+	AuthorAvatar string    `json:"author_avatar,omitempty"`
+	Content      string    `json:"content"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+type CreateCommentRequest struct {
+	Content string `json:"content"`
 }
 
 type Session struct {
@@ -79,12 +95,12 @@ type OIDCLoginState struct {
 }
 
 type OIDCClaims struct {
-	Iss               string `json:"iss"`
-	Sub               string `json:"sub"`
-	PreferredUsername string `json:"preferred_username"`
-	Email             string `json:"email"`
-	EmailVerified     bool   `json:"email_verified"`
-	PhoneNumber       string `json:"phone_number"`
-	PhoneNumberVerified bool `json:"phone_number_verified"`
-	Picture           string `json:"picture"`
+	Iss                 string `json:"iss"`
+	Sub                 string `json:"sub"`
+	PreferredUsername   string `json:"preferred_username"`
+	Email               string `json:"email"`
+	EmailVerified       bool   `json:"email_verified"`
+	PhoneNumber         string `json:"phone_number"`
+	PhoneNumberVerified bool   `json:"phone_number_verified"`
+	Picture             string `json:"picture"`
 }

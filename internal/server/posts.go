@@ -4,12 +4,16 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/houbamzdar/bff/internal/models"
 )
+
+const maxPostCommentLength = 1000
 
 func (s *Server) handleCreatePost(w http.ResponseWriter, r *http.Request) {
 	user := r.Context().Value("user").(*models.User)
@@ -174,6 +178,60 @@ func (s *Server) handleDeletePost(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"ok": true,
+	})
+}
+
+func (s *Server) handleCreatePostComment(w http.ResponseWriter, r *http.Request) {
+	user := r.Context().Value("user").(*models.User)
+	postID := chi.URLParam(r, "postID")
+
+	var req models.CreateCommentRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	content := strings.TrimSpace(req.Content)
+	if content == "" {
+		http.Error(w, "content is required", http.StatusBadRequest)
+		return
+	}
+	if utf8.RuneCountInString(content) > maxPostCommentLength {
+		http.Error(w, "comment is too long", http.StatusBadRequest)
+		return
+	}
+
+	exists, err := s.DB.PublicPostExists(postID)
+	if err != nil {
+		http.Error(w, "failed to validate post", http.StatusInternalServerError)
+		return
+	}
+	if !exists {
+		http.Error(w, "post not found", http.StatusNotFound)
+		return
+	}
+
+	now := time.Now().UTC()
+	comment := &models.Comment{
+		ID:           uuid.New().String(),
+		PostID:       postID,
+		UserID:       user.ID,
+		AuthorName:   user.PreferredUsername,
+		AuthorAvatar: user.Picture,
+		Content:      content,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+
+	if err := s.DB.CreatePostComment(comment); err != nil {
+		http.Error(w, "failed to create comment", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"ok":      true,
+		"comment": comment,
 	})
 }
 

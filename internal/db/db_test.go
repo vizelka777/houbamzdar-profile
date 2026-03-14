@@ -8,8 +8,8 @@ import (
 
 	"github.com/houbamzdar/bff/internal/models"
 	_ "github.com/tursodatabase/libsql-client-go/libsql"
-	_ "modernc.org/sqlite"
 	"golang.org/x/oauth2"
+	_ "modernc.org/sqlite"
 )
 
 func openTestDB(t *testing.T) *sql.DB {
@@ -484,5 +484,148 @@ func TestListCapturesPageSupportsStatusDateAndPagination(t *testing.T) {
 	}
 	if publishedPage.Total != 1 || len(publishedPage.Captures) != 1 || publishedPage.Captures[0].ID != "cap-2" {
 		t.Fatalf("unexpected published page: %+v", publishedPage.Captures)
+	}
+}
+
+func TestPostsSupportComments(t *testing.T) {
+	t.Parallel()
+
+	rawDB := openTestDB(t)
+	if err := migrate(rawDB); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	columns := tableColumnSet(t, rawDB, "post_comments")
+	for _, name := range []string{"id", "post_id", "user_id", "content", "created_at", "updated_at"} {
+		if _, ok := columns[name]; !ok {
+			t.Fatalf("expected post_comments.%s to exist", name)
+		}
+	}
+
+	var applied int
+	if err := rawDB.QueryRow(
+		`SELECT COUNT(*) FROM schema_migrations WHERE id = ?`,
+		migrationPostCommentsTableID,
+	).Scan(&applied); err != nil {
+		t.Fatalf("query post comments migration row: %v", err)
+	}
+	if applied != 1 {
+		t.Fatalf("expected post comments migration row once, got %d", applied)
+	}
+
+	database := &DB{rawDB}
+	author, _, err := database.UpsertUser(&models.OIDCClaims{
+		Iss:               "https://ahoj420.eu",
+		Sub:               "author-user",
+		PreferredUsername: "autor",
+		Email:             "author@example.test",
+		EmailVerified:     true,
+	}, &oauth2.Token{
+		AccessToken:  "author-access",
+		RefreshToken: "author-refresh",
+		Expiry:       time.Now().Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatalf("create author: %v", err)
+	}
+
+	commenter, _, err := database.UpsertUser(&models.OIDCClaims{
+		Iss:               "https://ahoj420.eu",
+		Sub:               "commenter-user",
+		PreferredUsername: "komentator",
+		Email:             "commenter@example.test",
+		EmailVerified:     true,
+	}, &oauth2.Token{
+		AccessToken:  "commenter-access",
+		RefreshToken: "commenter-refresh",
+		Expiry:       time.Now().Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatalf("create commenter: %v", err)
+	}
+
+	postCreatedAt := time.Date(2026, time.March, 14, 10, 0, 0, 0, time.UTC)
+	post := &models.Post{
+		ID:        "post-comments-001",
+		UserID:    author.ID,
+		Content:   "Prispevek s komentari",
+		Status:    "published",
+		CreatedAt: postCreatedAt,
+		UpdatedAt: postCreatedAt,
+	}
+	if err := database.CreatePost(post); err != nil {
+		t.Fatalf("create post: %v", err)
+	}
+
+	firstComment := &models.Comment{
+		ID:        "comment-001",
+		PostID:    post.ID,
+		UserID:    commenter.ID,
+		Content:   "Tohle je skvely nalez.",
+		CreatedAt: postCreatedAt.Add(5 * time.Minute),
+		UpdatedAt: postCreatedAt.Add(5 * time.Minute),
+	}
+	if err := database.CreatePostComment(firstComment); err != nil {
+		t.Fatalf("create first comment: %v", err)
+	}
+
+	secondComment := &models.Comment{
+		ID:        "comment-002",
+		PostID:    post.ID,
+		UserID:    author.ID,
+		Content:   "Diky, zitra jdu znovu.",
+		CreatedAt: postCreatedAt.Add(8 * time.Minute),
+		UpdatedAt: postCreatedAt.Add(8 * time.Minute),
+	}
+	if err := database.CreatePostComment(secondComment); err != nil {
+		t.Fatalf("create second comment: %v", err)
+	}
+
+	publicPosts, err := database.ListPublicPosts(10, 0)
+	if err != nil {
+		t.Fatalf("list public posts: %v", err)
+	}
+	if len(publicPosts) != 1 {
+		t.Fatalf("expected 1 public post, got %d", len(publicPosts))
+	}
+	if len(publicPosts[0].Comments) != 2 {
+		t.Fatalf("expected 2 comments, got %d", len(publicPosts[0].Comments))
+	}
+	if publicPosts[0].Comments[0].Content != firstComment.Content {
+		t.Fatalf("unexpected first comment content: %q", publicPosts[0].Comments[0].Content)
+	}
+	if publicPosts[0].Comments[0].AuthorName != commenter.PreferredUsername {
+		t.Fatalf("unexpected first comment author: %q", publicPosts[0].Comments[0].AuthorName)
+	}
+	if publicPosts[0].Comments[1].AuthorName != author.PreferredUsername {
+		t.Fatalf("unexpected second comment author: %q", publicPosts[0].Comments[1].AuthorName)
+	}
+
+	ownerPost, err := database.GetPost(post.ID, author.ID)
+	if err != nil {
+		t.Fatalf("get owner post: %v", err)
+	}
+	if len(ownerPost.Comments) != 2 {
+		t.Fatalf("expected comments on owner post, got %d", len(ownerPost.Comments))
+	}
+
+	if err := database.DeletePost(post.ID, author.ID); err != nil {
+		t.Fatalf("delete post: %v", err)
+	}
+
+	var remainingComments int
+	if err := rawDB.QueryRow(`SELECT COUNT(*) FROM post_comments WHERE post_id = ?`, post.ID).Scan(&remainingComments); err != nil {
+		t.Fatalf("count remaining comments: %v", err)
+	}
+	if remainingComments != 0 {
+		t.Fatalf("expected 0 remaining comments after delete, got %d", remainingComments)
+	}
+
+	var remainingPosts int
+	if err := rawDB.QueryRow(`SELECT COUNT(*) FROM posts WHERE id = ?`, post.ID).Scan(&remainingPosts); err != nil {
+		t.Fatalf("count remaining posts: %v", err)
+	}
+	if remainingPosts != 0 {
+		t.Fatalf("expected post to be deleted, got %d rows", remainingPosts)
 	}
 }

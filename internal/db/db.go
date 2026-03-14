@@ -35,6 +35,7 @@ type CaptureListPage struct {
 const migrationUsersTokenColumnsID = "20260308_add_user_token_columns"
 const migrationPhotoCapturesTableID = "20260308_create_photo_captures"
 const migrationPostsTableID = "20260312_create_posts_table"
+const migrationPostCommentsTableID = "20260314_create_post_comments_table"
 
 func New(cfg *config.Config) (*DB, error) {
 	url := cfg.DBURL
@@ -193,6 +194,31 @@ func migrate(db *sql.DB) error {
 						FOREIGN KEY(capture_id) REFERENCES photo_captures(id) ON DELETE CASCADE
 					);`,
 					`CREATE INDEX IF NOT EXISTS idx_post_captures_post_id ON post_captures(post_id);`,
+				}
+				for _, query := range queries {
+					if _, err := tx.Exec(query); err != nil {
+						return err
+					}
+				}
+				return nil
+			},
+		},
+		{
+			id: migrationPostCommentsTableID,
+			apply: func(tx *sql.Tx) error {
+				queries := []string{
+					`CREATE TABLE IF NOT EXISTS post_comments (
+						id TEXT PRIMARY KEY,
+						post_id TEXT NOT NULL,
+						user_id INTEGER NOT NULL,
+						content TEXT NOT NULL,
+						created_at TEXT NOT NULL,
+						updated_at TEXT NOT NULL,
+						FOREIGN KEY(post_id) REFERENCES posts(id) ON DELETE CASCADE,
+						FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+					);`,
+					`CREATE INDEX IF NOT EXISTS idx_post_comments_post_created ON post_comments(post_id, created_at ASC);`,
+					`CREATE INDEX IF NOT EXISTS idx_post_comments_user_created ON post_comments(user_id, created_at DESC);`,
 				}
 				for _, query := range queries {
 					if _, err := tx.Exec(query); err != nil {
@@ -559,15 +585,15 @@ func scanCaptureRow(row scanner) (*models.Capture, error) {
 
 func scanCapture(row scanner) (*models.Capture, error) {
 	var (
-		capture            models.Capture
-		clientLocalID      sql.NullString
-		capturedAtRaw      string
-		uploadedAtRaw      string
-		latitude           sql.NullFloat64
-		longitude          sql.NullFloat64
-		accuracyMeters     sql.NullFloat64
-		publicStorageKey   sql.NullString
-		publishedAtRaw     sql.NullString
+		capture          models.Capture
+		clientLocalID    sql.NullString
+		capturedAtRaw    string
+		uploadedAtRaw    string
+		latitude         sql.NullFloat64
+		longitude        sql.NullFloat64
+		accuracyMeters   sql.NullFloat64
+		publicStorageKey sql.NullString
+		publishedAtRaw   sql.NullString
 	)
 
 	if err := row.Scan(
@@ -701,6 +727,12 @@ func (db *DB) GetPost(postID string, userID int64) (*models.Post, error) {
 	}
 	p.Captures = captures
 
+	comments, err := db.getCommentsForPost(p.ID)
+	if err != nil {
+		return nil, err
+	}
+	p.Comments = comments
+
 	return &p, nil
 }
 
@@ -738,7 +770,54 @@ func (db *DB) UpdatePost(post *models.Post) error {
 }
 
 func (db *DB) DeletePost(postID string, userID int64) error {
-	_, err := db.Exec(`DELETE FROM posts WHERE id = ? AND user_id = ?`, postID, userID)
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`DELETE FROM post_comments WHERE post_id = ?`, postID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM post_captures WHERE post_id = ?`, postID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM posts WHERE id = ? AND user_id = ?`, postID, userID); err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+func (db *DB) PublicPostExists(postID string) (bool, error) {
+	var exists int
+	err := db.QueryRow(`
+		SELECT 1
+		FROM posts
+		WHERE id = ? AND status = 'published'
+		LIMIT 1
+	`, postID).Scan(&exists)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (db *DB) CreatePostComment(comment *models.Comment) error {
+	_, err := db.Exec(`
+		INSERT INTO post_comments (id, post_id, user_id, content, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`,
+		comment.ID,
+		comment.PostID,
+		comment.UserID,
+		comment.Content,
+		comment.CreatedAt.UTC().Format(time.RFC3339),
+		comment.UpdatedAt.UTC().Format(time.RFC3339),
+	)
 	return err
 }
 
@@ -777,6 +856,12 @@ func (db *DB) ListPosts(userID int64, limit, offset int) ([]*models.Post, error)
 			return nil, err
 		}
 		p.Captures = captures
+
+		comments, err := db.getCommentsForPost(p.ID)
+		if err != nil {
+			return nil, err
+		}
+		p.Comments = comments
 	}
 
 	return posts, nil
@@ -818,6 +903,12 @@ func (db *DB) ListPublicPosts(limit, offset int) ([]*models.Post, error) {
 			return nil, err
 		}
 		p.Captures = captures
+
+		comments, err := db.getCommentsForPost(p.ID)
+		if err != nil {
+			return nil, err
+		}
+		p.Comments = comments
 	}
 
 	return posts, nil
@@ -898,4 +989,44 @@ func (db *DB) getCapturesForPost(postID string) ([]*models.Capture, error) {
 		captures = append(captures, &c)
 	}
 	return captures, nil
+}
+
+func (db *DB) getCommentsForPost(postID string) ([]*models.Comment, error) {
+	rows, err := db.Query(`
+		SELECT pc.id, pc.post_id, pc.user_id, COALESCE(u.preferred_username, ''), COALESCE(u.picture, ''), pc.content, pc.created_at, pc.updated_at
+		FROM post_comments pc
+		JOIN users u ON pc.user_id = u.id
+		WHERE pc.post_id = ?
+		ORDER BY pc.created_at ASC, pc.id ASC
+	`, postID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var comments []*models.Comment
+	for rows.Next() {
+		var comment models.Comment
+		var createdAt string
+		var updatedAt string
+		if err := rows.Scan(
+			&comment.ID,
+			&comment.PostID,
+			&comment.UserID,
+			&comment.AuthorName,
+			&comment.AuthorAvatar,
+			&comment.Content,
+			&createdAt,
+			&updatedAt,
+		); err != nil {
+			return nil, err
+		}
+		comment.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
+		comment.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
+		comments = append(comments, &comment)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return comments, nil
 }
