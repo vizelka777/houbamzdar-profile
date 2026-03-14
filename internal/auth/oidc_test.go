@@ -67,8 +67,8 @@ func TestExchangeCodeUsesSingleBasicAuthRequest(t *testing.T) {
 
 	oidcClient := &OIDC{
 		OAuth2Config: newOAuth2Config(cfg, oauth2.Endpoint{
-		AuthURL:  "https://example.com/authorize",
-		TokenURL: server.URL,
+			AuthURL:  "https://example.com/authorize",
+			TokenURL: server.URL,
 		}),
 	}
 

@@ -2,8 +2,8 @@ package config
 
 import (
 	"os"
-	"strings"
 	"strconv"
+	"strings"
 
 	"github.com/joho/godotenv"
 )

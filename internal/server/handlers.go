@@ -162,7 +162,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	})
 
 	logoutURL := fmt.Sprintf("%s/logout?post_logout_redirect_uri=%s", s.Config.OIDCIssuer, url.QueryEscape(s.Config.FrontBaseURL+"/"))
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"ok":             true,
