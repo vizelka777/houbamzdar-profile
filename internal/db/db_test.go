@@ -630,6 +630,123 @@ func TestPostsSupportComments(t *testing.T) {
 	}
 }
 
+func TestUnlockCaptureCoordinatesDebitsOnceAndReturnsIdempotentResult(t *testing.T) {
+	t.Parallel()
+
+	rawDB := openTestDB(t)
+	if err := migrate(rawDB); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	unlockColumns := tableColumnSet(t, rawDB, "capture_coordinate_unlocks")
+	for _, name := range []string{"viewer_id", "capture_id", "unlocked_at"} {
+		if _, ok := unlockColumns[name]; !ok {
+			t.Fatalf("expected capture_coordinate_unlocks.%s to exist", name)
+		}
+	}
+
+	transactionColumns := tableColumnSet(t, rawDB, "balance_transactions")
+	for _, name := range []string{"id", "user_id", "capture_id", "delta", "type", "created_at"} {
+		if _, ok := transactionColumns[name]; !ok {
+			t.Fatalf("expected balance_transactions.%s to exist", name)
+		}
+	}
+
+	database := &DB{rawDB}
+	owner, _, err := database.UpsertUser(&models.OIDCClaims{
+		Iss:               "https://ahoj420.eu",
+		Sub:               "unlock-owner",
+		PreferredUsername: "owner",
+		Email:             "owner@example.test",
+		EmailVerified:     true,
+	}, &oauth2.Token{AccessToken: "owner-access", RefreshToken: "owner-refresh", Expiry: time.Now().Add(time.Hour).UTC()})
+	if err != nil {
+		t.Fatalf("create owner: %v", err)
+	}
+
+	viewer, _, err := database.UpsertUser(&models.OIDCClaims{
+		Iss:               "https://ahoj420.eu",
+		Sub:               "unlock-viewer",
+		PreferredUsername: "viewer",
+		Email:             "viewer@example.test",
+		EmailVerified:     true,
+	}, &oauth2.Token{AccessToken: "viewer-access", RefreshToken: "viewer-refresh", Expiry: time.Now().Add(time.Hour).UTC()})
+	if err != nil {
+		t.Fatalf("create viewer: %v", err)
+	}
+
+	if _, err := rawDB.Exec(`UPDATE users SET balance = 2 WHERE id = ?`, viewer.ID); err != nil {
+		t.Fatalf("seed viewer balance: %v", err)
+	}
+
+	capture := &models.Capture{
+		ID:                "unlock-cap-001",
+		UserID:            owner.ID,
+		OriginalFileName:  "capture.jpg",
+		ContentType:       "image/jpeg",
+		SizeBytes:         100,
+		Width:             1200,
+		Height:            900,
+		CapturedAt:        time.Now().UTC().Add(-time.Hour),
+		UploadedAt:        time.Now().UTC().Add(-time.Hour),
+		Status:            "published",
+		PrivateStorageKey: "captures/private/unlock-cap-001.jpg",
+		PublicStorageKey:  "captures/public/unlock-cap-001.jpg",
+		PublishedAt:       time.Now().UTC().Add(-30 * time.Minute),
+	}
+	if err := database.CreateCapture(capture); err != nil {
+		t.Fatalf("create capture: %v", err)
+	}
+
+	alreadyUnlocked, err := database.UnlockCaptureCoordinates(viewer.ID, capture.ID)
+	if err != nil {
+		t.Fatalf("unlock capture first time: %v", err)
+	}
+	if alreadyUnlocked {
+		t.Fatalf("expected first unlock to report not previously unlocked")
+	}
+
+	alreadyUnlocked, err = database.UnlockCaptureCoordinates(viewer.ID, capture.ID)
+	if err != nil {
+		t.Fatalf("unlock capture second time: %v", err)
+	}
+	if !alreadyUnlocked {
+		t.Fatalf("expected second unlock to report already unlocked")
+	}
+
+	var viewerBalance int
+	if err := rawDB.QueryRow(`SELECT balance FROM users WHERE id = ?`, viewer.ID).Scan(&viewerBalance); err != nil {
+		t.Fatalf("select viewer balance: %v", err)
+	}
+	if viewerBalance != 1 {
+		t.Fatalf("expected viewer balance=1 after one debit, got %d", viewerBalance)
+	}
+
+	var ownerBalance int
+	if err := rawDB.QueryRow(`SELECT balance FROM users WHERE id = ?`, owner.ID).Scan(&ownerBalance); err != nil {
+		t.Fatalf("select owner balance: %v", err)
+	}
+	if ownerBalance != 1 {
+		t.Fatalf("expected owner balance=1 after one credit, got %d", ownerBalance)
+	}
+
+	var unlockCount int
+	if err := rawDB.QueryRow(`SELECT COUNT(*) FROM capture_coordinate_unlocks WHERE viewer_id = ? AND capture_id = ?`, viewer.ID, capture.ID).Scan(&unlockCount); err != nil {
+		t.Fatalf("count unlock rows: %v", err)
+	}
+	if unlockCount != 1 {
+		t.Fatalf("expected one unlock row, got %d", unlockCount)
+	}
+
+	var debitCount int
+	if err := rawDB.QueryRow(`SELECT COUNT(*) FROM balance_transactions WHERE user_id = ? AND capture_id = ? AND type = 'coords_view_debit'`, viewer.ID, capture.ID).Scan(&debitCount); err != nil {
+		t.Fatalf("count debit tx: %v", err)
+	}
+	if debitCount != 1 {
+		t.Fatalf("expected one debit tx, got %d", debitCount)
+	}
+}
+
 func TestPostLikesSupportFeedStateAndDeleteCleanup(t *testing.T) {
 	t.Parallel()
 

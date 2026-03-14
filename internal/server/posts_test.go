@@ -283,3 +283,130 @@ func TestCreatePostCommentRequiresAuthAndAppearsInPublicFeed(t *testing.T) {
 		t.Fatalf("unexpected public comment content: %q", publicPayload.Posts[0].Comments[0].Content)
 	}
 }
+
+func TestUnlockCaptureCoordinatesEndpointIsIdempotent(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{
+		DBURL:             "file:" + filepath.Join(t.TempDir(), "test.db"),
+		FrontOrigin:       "https://houbamzdar.cz",
+		SessionCookieName: "hzd_session",
+	}
+
+	database, err := db.New(cfg)
+	if err != nil {
+		t.Fatalf("open test database: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = database.Close()
+	})
+
+	owner, _, err := database.UpsertUser(&models.OIDCClaims{
+		Iss:               "https://ahoj420.eu",
+		Sub:               "unlock-endpoint-owner",
+		PreferredUsername: "owner",
+		Email:             "owner@example.test",
+		EmailVerified:     true,
+	}, &oauth2.Token{AccessToken: "owner-access", RefreshToken: "owner-refresh", Expiry: time.Now().Add(time.Hour).UTC()})
+	if err != nil {
+		t.Fatalf("create owner: %v", err)
+	}
+
+	viewer, _, err := database.UpsertUser(&models.OIDCClaims{
+		Iss:               "https://ahoj420.eu",
+		Sub:               "unlock-endpoint-viewer",
+		PreferredUsername: "viewer",
+		Email:             "viewer@example.test",
+		EmailVerified:     true,
+	}, &oauth2.Token{AccessToken: "viewer-access", RefreshToken: "viewer-refresh", Expiry: time.Now().Add(time.Hour).UTC()})
+	if err != nil {
+		t.Fatalf("create viewer: %v", err)
+	}
+
+	if _, err := database.Exec(`UPDATE users SET balance = 2 WHERE id = ?`, viewer.ID); err != nil {
+		t.Fatalf("seed viewer balance: %v", err)
+	}
+
+	lat := 49.123
+	lng := 17.456
+	acc := 3.2
+	capture := &models.Capture{
+		ID:                "unlock-endpoint-cap",
+		UserID:            owner.ID,
+		OriginalFileName:  "capture.jpg",
+		ContentType:       "image/jpeg",
+		SizeBytes:         111,
+		Width:             1000,
+		Height:            700,
+		CapturedAt:        time.Now().UTC().Add(-2 * time.Hour),
+		UploadedAt:        time.Now().UTC().Add(-2 * time.Hour),
+		Latitude:          &lat,
+		Longitude:         &lng,
+		AccuracyMeters:    &acc,
+		Status:            "published",
+		PrivateStorageKey: "captures/private/unlock-endpoint-cap.jpg",
+		PublicStorageKey:  "captures/public/unlock-endpoint-cap.jpg",
+		PublishedAt:       time.Now().UTC().Add(-time.Hour),
+	}
+	if err := database.CreateCapture(capture); err != nil {
+		t.Fatalf("create capture: %v", err)
+	}
+
+	if err := database.CreateSession(&models.Session{
+		SessionID: "unlock-session",
+		UserID:    viewer.ID,
+		ExpiresAt: time.Now().Add(time.Hour).UTC(),
+	}); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	srv := New(cfg, database, nil, nil)
+
+	firstReq := httptest.NewRequest(http.MethodPost, "/api/captures/"+capture.ID+"/unlock-coordinates", nil)
+	firstReq.AddCookie(&http.Cookie{Name: cfg.SessionCookieName, Value: "unlock-session"})
+	firstRec := httptest.NewRecorder()
+	srv.Router.ServeHTTP(firstRec, firstReq)
+	if firstRec.Code != http.StatusOK {
+		t.Fatalf("expected first unlock status 200, got %d: %s", firstRec.Code, firstRec.Body.String())
+	}
+
+	var firstPayload struct {
+		OK              bool    `json:"ok"`
+		AlreadyUnlocked bool    `json:"already_unlocked"`
+		Latitude        float64 `json:"latitude"`
+		Longitude       float64 `json:"longitude"`
+	}
+	if err := json.NewDecoder(firstRec.Body).Decode(&firstPayload); err != nil {
+		t.Fatalf("decode first unlock payload: %v", err)
+	}
+	if !firstPayload.OK || firstPayload.AlreadyUnlocked {
+		t.Fatalf("unexpected first unlock payload: %+v", firstPayload)
+	}
+
+	secondReq := httptest.NewRequest(http.MethodPost, "/api/captures/"+capture.ID+"/unlock-coordinates", nil)
+	secondReq.AddCookie(&http.Cookie{Name: cfg.SessionCookieName, Value: "unlock-session"})
+	secondRec := httptest.NewRecorder()
+	srv.Router.ServeHTTP(secondRec, secondReq)
+	if secondRec.Code != http.StatusOK {
+		t.Fatalf("expected second unlock status 200, got %d: %s", secondRec.Code, secondRec.Body.String())
+	}
+
+	var secondPayload struct {
+		OK              bool `json:"ok"`
+		AlreadyUnlocked bool `json:"already_unlocked"`
+	}
+	if err := json.NewDecoder(secondRec.Body).Decode(&secondPayload); err != nil {
+		t.Fatalf("decode second unlock payload: %v", err)
+	}
+	if !secondPayload.OK || !secondPayload.AlreadyUnlocked {
+		t.Fatalf("unexpected second unlock payload: %+v", secondPayload)
+	}
+
+	var viewerBalance int
+	if err := database.QueryRow(`SELECT balance FROM users WHERE id = ?`, viewer.ID).Scan(&viewerBalance); err != nil {
+		t.Fatalf("select viewer balance: %v", err)
+	}
+	if viewerBalance != 1 {
+		t.Fatalf("expected viewer balance=1 after idempotent unlock, got %d", viewerBalance)
+	}
+}

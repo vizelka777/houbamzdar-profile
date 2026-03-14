@@ -68,6 +68,7 @@ func (s *Server) setupRoutes() {
 		r.Post("/api/captures", s.handleCreateCapture)
 		r.Post("/api/captures/{captureID}/publish", s.handlePublishCapture)
 		r.Post("/api/captures/{captureID}/unpublish", s.handleUnpublishCapture)
+		r.Post("/api/captures/{captureID}/unlock-coordinates", s.handleUnlockCaptureCoordinates)
 		r.Delete("/api/captures/{captureID}", s.handleDeleteCapture)
 
 		r.Get("/api/posts", s.handleListPosts)

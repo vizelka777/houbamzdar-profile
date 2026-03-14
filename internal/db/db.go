@@ -2,6 +2,7 @@ package db
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -37,6 +38,9 @@ const migrationPhotoCapturesTableID = "20260308_create_photo_captures"
 const migrationPostsTableID = "20260312_create_posts_table"
 const migrationPostCommentsTableID = "20260314_create_post_comments_table"
 const migrationPostLikesTableID = "20260314_create_post_likes_table"
+const migrationCaptureCoordinateUnlocksTableID = "20260314_create_capture_coordinate_unlocks_table"
+
+var ErrInsufficientBalance = errors.New("insufficient balance")
 
 func New(cfg *config.Config) (*DB, error) {
 	url := cfg.DBURL
@@ -130,6 +134,9 @@ func migrate(db *sql.DB) error {
 					return err
 				}
 				if err := ensureColumnExists(tx, "users", "token_expires_at", "TEXT"); err != nil {
+					return err
+				}
+				if err := ensureColumnExists(tx, "users", "balance", "INTEGER NOT NULL DEFAULT 0"); err != nil {
 					return err
 				}
 				return nil
@@ -249,6 +256,45 @@ func migrate(db *sql.DB) error {
 						return err
 					}
 				}
+				return nil
+			},
+		},
+		{
+			id: migrationCaptureCoordinateUnlocksTableID,
+			apply: func(tx *sql.Tx) error {
+				queries := []string{
+					`CREATE TABLE IF NOT EXISTS capture_coordinate_unlocks (
+						viewer_id INTEGER NOT NULL,
+						capture_id TEXT NOT NULL,
+						unlocked_at TEXT NOT NULL DEFAULT (datetime('now')),
+						PRIMARY KEY(viewer_id, capture_id),
+						FOREIGN KEY(viewer_id) REFERENCES users(id) ON DELETE CASCADE,
+						FOREIGN KEY(capture_id) REFERENCES photo_captures(id) ON DELETE CASCADE
+					);`,
+					`CREATE INDEX IF NOT EXISTS idx_capture_coordinate_unlocks_capture ON capture_coordinate_unlocks(capture_id);`,
+					`CREATE TABLE IF NOT EXISTS balance_transactions (
+						id INTEGER PRIMARY KEY AUTOINCREMENT,
+						user_id INTEGER NOT NULL,
+						capture_id TEXT,
+						delta INTEGER NOT NULL,
+						type TEXT NOT NULL,
+						created_at TEXT NOT NULL DEFAULT (datetime('now')),
+						FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+						FOREIGN KEY(capture_id) REFERENCES photo_captures(id) ON DELETE SET NULL
+					);`,
+					`CREATE INDEX IF NOT EXISTS idx_balance_transactions_user_created ON balance_transactions(user_id, created_at DESC);`,
+				}
+
+				for _, query := range queries {
+					if _, err := tx.Exec(query); err != nil {
+						return err
+					}
+				}
+
+				if err := ensureColumnExists(tx, "users", "balance", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+					return err
+				}
+
 				return nil
 			},
 		},
@@ -453,6 +499,103 @@ func (db *DB) GetUser(id int64) (*models.User, error) {
 		user.TokenExpiresAt, _ = time.Parse(time.RFC3339, expiresAt.String)
 	}
 	return &user, err
+}
+
+func (db *DB) GetCaptureByID(id string) (*models.Capture, error) {
+	row := db.QueryRow(captureSelectColumns+` WHERE id = ? LIMIT 1`, id)
+	return scanCaptureRow(row)
+}
+
+func (db *DB) UnlockCaptureCoordinates(viewerID int64, captureID string) (bool, error) {
+	tx, err := db.Begin()
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+
+	var ownerID int64
+	err = tx.QueryRow(`
+		SELECT user_id FROM photo_captures
+		WHERE id = ? AND status = 'published'
+		LIMIT 1
+	`, captureID).Scan(&ownerID)
+	if err != nil {
+		return false, err
+	}
+
+	if viewerID == ownerID {
+		if err := tx.Commit(); err != nil {
+			return false, err
+		}
+		return true, nil
+	}
+
+	var exists int
+	err = tx.QueryRow(`
+		SELECT 1 FROM capture_coordinate_unlocks
+		WHERE viewer_id = ? AND capture_id = ?
+		LIMIT 1
+	`, viewerID, captureID).Scan(&exists)
+	if err == nil {
+		if err := tx.Commit(); err != nil {
+			return false, err
+		}
+		return true, nil
+	}
+	if err != sql.ErrNoRows {
+		return false, err
+	}
+
+	debitResult, err := tx.Exec(`
+		UPDATE users
+		SET balance = balance - 1, updated_at = datetime('now')
+		WHERE id = ? AND balance >= 1
+	`, viewerID)
+	if err != nil {
+		return false, err
+	}
+	debitRows, err := debitResult.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	if debitRows == 0 {
+		return false, ErrInsufficientBalance
+	}
+
+	if _, err := tx.Exec(`
+		UPDATE users
+		SET balance = balance + 1, updated_at = datetime('now')
+		WHERE id = ?
+	`, ownerID); err != nil {
+		return false, err
+	}
+
+	if _, err := tx.Exec(`
+		INSERT INTO balance_transactions (user_id, capture_id, delta, type)
+		VALUES (?, ?, -1, 'coords_view_debit')
+	`, viewerID, captureID); err != nil {
+		return false, err
+	}
+
+	if _, err := tx.Exec(`
+		INSERT INTO balance_transactions (user_id, capture_id, delta, type)
+		VALUES (?, ?, 1, 'coords_view_credit')
+	`, ownerID, captureID); err != nil {
+		return false, err
+	}
+
+	if _, err := tx.Exec(`
+		INSERT INTO capture_coordinate_unlocks (viewer_id, capture_id, unlocked_at)
+		VALUES (?, ?, ?)
+	`, viewerID, captureID, time.Now().UTC().Format(time.RFC3339)); err != nil {
+		return false, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+
+	return false, nil
 }
 
 func (db *DB) UpdateAboutMe(id int64, aboutMe string) error {

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -312,6 +313,56 @@ func (s *Server) handleDeleteCapture(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"ok": true,
 	})
+}
+
+func (s *Server) handleUnlockCaptureCoordinates(w http.ResponseWriter, r *http.Request) {
+	user := r.Context().Value("user").(*models.User)
+	captureID := chi.URLParam(r, "captureID")
+
+	capture, err := s.DB.GetCaptureByID(captureID)
+	if err == sql.ErrNoRows {
+		http.Error(w, "capture not found", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		http.Error(w, "failed to load capture", http.StatusInternalServerError)
+		return
+	}
+
+	if capture.Status != "published" {
+		http.Error(w, "capture not found", http.StatusNotFound)
+		return
+	}
+
+	alreadyUnlocked, err := s.DB.UnlockCaptureCoordinates(user.ID, captureID)
+	if err == sql.ErrNoRows {
+		http.Error(w, "capture not found", http.StatusNotFound)
+		return
+	}
+	if err == db.ErrInsufficientBalance {
+		http.Error(w, "insufficient balance", http.StatusPaymentRequired)
+		return
+	}
+	if err != nil {
+		http.Error(w, "failed to unlock coordinates", http.StatusInternalServerError)
+		return
+	}
+
+	response := map[string]interface{}{
+		"ok":               true,
+		"capture_id":       capture.ID,
+		"already_unlocked": alreadyUnlocked,
+	}
+	if capture.Latitude != nil && capture.Longitude != nil {
+		response["latitude"] = *capture.Latitude
+		response["longitude"] = *capture.Longitude
+	}
+	if capture.AccuracyMeters != nil {
+		response["accuracy_meters"] = *capture.AccuracyMeters
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(response)
 }
 
 func attachPublicURLs(captures []*models.Capture, storage *media.BunnyStorage) {
