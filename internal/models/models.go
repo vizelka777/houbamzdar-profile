@@ -44,6 +44,18 @@ type Capture struct {
 	PublishedAt       time.Time `json:"published_at,omitempty"`
 }
 
+type UnlockedCapture struct {
+	ViewerUserID int64     `json:"-"`
+	CaptureID    string    `json:"capture_id"`
+	AuthorUserID int64     `json:"author_user_id"`
+	AuthorName   string    `json:"author_name,omitempty"`
+	AuthorAvatar string    `json:"author_avatar,omitempty"`
+	UnlockedAt   time.Time `json:"unlocked_at"`
+	Cost         int64     `json:"cost"`
+	PostID       string    `json:"post_id,omitempty"`
+	Capture      *Capture  `json:"capture"`
+}
+
 type Post struct {
 	ID           string     `json:"id"`
 	UserID       int64      `json:"-"`

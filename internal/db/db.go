@@ -37,6 +37,7 @@ const migrationPhotoCapturesTableID = "20260308_create_photo_captures"
 const migrationPostsTableID = "20260312_create_posts_table"
 const migrationPostCommentsTableID = "20260314_create_post_comments_table"
 const migrationPostLikesTableID = "20260314_create_post_likes_table"
+const migrationCaptureCoordinateUnlocksTableID = "20260314_create_capture_coordinate_unlocks_table"
 
 func New(cfg *config.Config) (*DB, error) {
 	url := cfg.DBURL
@@ -243,6 +244,32 @@ func migrate(db *sql.DB) error {
 					);`,
 					`CREATE INDEX IF NOT EXISTS idx_post_likes_post_id ON post_likes(post_id);`,
 					`CREATE INDEX IF NOT EXISTS idx_post_likes_user_id ON post_likes(user_id);`,
+				}
+				for _, query := range queries {
+					if _, err := tx.Exec(query); err != nil {
+						return err
+					}
+				}
+				return nil
+			},
+		},
+		{
+			id: migrationCaptureCoordinateUnlocksTableID,
+			apply: func(tx *sql.Tx) error {
+				queries := []string{
+					`CREATE TABLE IF NOT EXISTS capture_coordinate_unlocks (
+						viewer_user_id INTEGER NOT NULL,
+						capture_id TEXT NOT NULL,
+						author_user_id INTEGER NOT NULL,
+						unlocked_at TEXT NOT NULL DEFAULT (datetime('now')),
+						cost INTEGER NOT NULL DEFAULT 0,
+						UNIQUE(viewer_user_id, capture_id),
+						FOREIGN KEY(viewer_user_id) REFERENCES users(id) ON DELETE CASCADE,
+						FOREIGN KEY(capture_id) REFERENCES photo_captures(id) ON DELETE CASCADE,
+						FOREIGN KEY(author_user_id) REFERENCES users(id) ON DELETE CASCADE
+					);`,
+					`CREATE INDEX IF NOT EXISTS idx_capture_coordinate_unlocks_viewer ON capture_coordinate_unlocks(viewer_user_id, unlocked_at DESC);`,
+					`CREATE INDEX IF NOT EXISTS idx_capture_coordinate_unlocks_capture ON capture_coordinate_unlocks(capture_id);`,
 				}
 				for _, query := range queries {
 					if _, err := tx.Exec(query); err != nil {
@@ -984,6 +1011,106 @@ func (db *DB) ListPublicCaptures(limit, offset int) ([]*models.Capture, error) {
 	}
 
 	return captures, nil
+}
+
+func (db *DB) ListUnlockedCapturesByViewer(viewerID int64, limit, offset int) ([]*models.UnlockedCapture, error) {
+	rows, err := db.Query(`
+		SELECT
+			cu.viewer_user_id,
+			cu.capture_id,
+			cu.author_user_id,
+			cu.unlocked_at,
+			cu.cost,
+			COALESCE(a.preferred_username, ''),
+			COALESCE(a.picture, ''),
+			c.id,
+			c.user_id,
+			COALESCE(c.client_local_id, ''),
+			c.original_file_name,
+			c.content_type,
+			c.size_bytes,
+			c.width,
+			c.height,
+			c.captured_at,
+			c.uploaded_at,
+			c.latitude,
+			c.longitude,
+			c.accuracy_meters,
+			c.status,
+			c.private_storage_key,
+			COALESCE(c.public_storage_key, ''),
+			COALESCE(c.published_at, ''),
+			COALESCE((
+				SELECT pc.post_id
+				FROM post_captures pc
+				JOIN posts p ON p.id = pc.post_id
+				WHERE pc.capture_id = cu.capture_id AND p.user_id = cu.author_user_id
+				ORDER BY p.created_at DESC
+				LIMIT 1
+			), '')
+		FROM capture_coordinate_unlocks cu
+		JOIN photo_captures c ON c.id = cu.capture_id
+		JOIN users a ON a.id = cu.author_user_id
+		WHERE cu.viewer_user_id = ?
+		ORDER BY cu.unlocked_at DESC
+		LIMIT ? OFFSET ?
+	`, viewerID, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var unlocked []*models.UnlockedCapture
+	for rows.Next() {
+		var item models.UnlockedCapture
+		var capture models.Capture
+		var unlockedAtRaw string
+		var capturedAtRaw string
+		var uploadedAtRaw string
+		var publishedAtRaw string
+		if err := rows.Scan(
+			&item.ViewerUserID,
+			&item.CaptureID,
+			&item.AuthorUserID,
+			&unlockedAtRaw,
+			&item.Cost,
+			&item.AuthorName,
+			&item.AuthorAvatar,
+			&capture.ID,
+			&capture.UserID,
+			&capture.ClientLocalID,
+			&capture.OriginalFileName,
+			&capture.ContentType,
+			&capture.SizeBytes,
+			&capture.Width,
+			&capture.Height,
+			&capturedAtRaw,
+			&uploadedAtRaw,
+			&capture.Latitude,
+			&capture.Longitude,
+			&capture.AccuracyMeters,
+			&capture.Status,
+			&capture.PrivateStorageKey,
+			&capture.PublicStorageKey,
+			&publishedAtRaw,
+			&item.PostID,
+		); err != nil {
+			return nil, err
+		}
+		item.UnlockedAt, _ = time.Parse(time.RFC3339, unlockedAtRaw)
+		capture.CapturedAt, _ = time.Parse(time.RFC3339, capturedAtRaw)
+		capture.UploadedAt, _ = time.Parse(time.RFC3339, uploadedAtRaw)
+		if publishedAtRaw != "" {
+			capture.PublishedAt, _ = time.Parse(time.RFC3339, publishedAtRaw)
+		}
+		item.Capture = &capture
+		unlocked = append(unlocked, &item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return unlocked, nil
 }
 
 func (db *DB) getCapturesForPost(postID string) ([]*models.Capture, error) {
