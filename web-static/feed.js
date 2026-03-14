@@ -186,6 +186,8 @@ async function loadFeed(append = false) {
 }
 
 function renderPosts(postsToRender, container) {
+    const isLoggedIn = Boolean(state.session && state.session.logged_in);
+
     postsToRender.forEach((post) => {
         const card = document.createElement("article");
         card.className = "card feed-card";
@@ -222,6 +224,8 @@ function renderPosts(postsToRender, container) {
             mapDivHtml = `<div id="${mapId}" class="feed-map-container"></div>`;
         }
 
+        const activeClass = post.is_liked_by_me ? "active" : "";
+
         card.innerHTML = `
             <div class="feed-header">
                 <img src="${escapeHtml(avatarUrl)}" alt="Avatar" class="feed-avatar">
@@ -236,7 +240,7 @@ function renderPosts(postsToRender, container) {
             ${capturesHtml}
             ${mapDivHtml}
             <div class="feed-actions" style="display: flex; justify-content: flex-start; align-items: center; gap: 1rem;">
-                <button class="like-btn" onclick="toggleLike(this, '${post.id}')">
+                <button class="like-btn ${activeClass}" data-id="${post.id}">
                     <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
                     </svg>
@@ -248,6 +252,53 @@ function renderPosts(postsToRender, container) {
         `;
 
         container.appendChild(card);
+
+        // Обработчик лайка
+        const likeBtn = card.querySelector(".like-btn");
+        if (likeBtn) {
+            let likeRequestInFlight = false;
+            likeBtn.addEventListener("click", async () => {
+                if (likeRequestInFlight) return;
+
+                if (!isLoggedIn) {
+                    window.location.href = `${API_URL}/auth/login?next=feed`;
+                    return;
+                }
+
+                // Optimistic UI
+                const wasActive = likeBtn.classList.contains("active");
+                const countNode = likeBtn.querySelector("span");
+                const currentCount = parseInt(countNode.textContent, 10) || 0;
+
+                likeRequestInFlight = true;
+                likeBtn.disabled = true;
+                likeBtn.classList.toggle("active");
+                countNode.textContent = wasActive ? Math.max(0, currentCount - 1) : currentCount + 1;
+
+                try {
+                    const res = await apiPost(`/api/posts/${encodeURIComponent(post.id)}/like`);
+                    if (res && res.ok) {
+                        countNode.textContent = res.likes_count;
+                        if (res.is_liked) likeBtn.classList.add("active");
+                        else likeBtn.classList.remove("active");
+                        
+                        // Update state
+                        post.likes_count = res.likes_count;
+                        post.is_liked_by_me = res.is_liked;
+                    } else {
+                        throw new Error();
+                    }
+                } catch (e) {
+                    // Rollback
+                    likeBtn.classList.toggle("active", wasActive);
+                    countNode.textContent = currentCount;
+                    console.error("Failed to toggle like", e);
+                } finally {
+                    likeRequestInFlight = false;
+                    likeBtn.disabled = false;
+                }
+            });
+        }
 
         if (hasCoords && typeof L !== "undefined") {
             const toggleBtn = card.querySelector(".map-toggle-btn");
@@ -298,23 +349,6 @@ function renderPosts(postsToRender, container) {
 
         attachCommentFormHandler(card, post);
     });
-}
-
-function toggleLike(btn, postId) {
-    const span = btn.querySelector("span");
-    const svg = btn.querySelector("svg");
-    let count = parseInt(span.textContent, 10);
-
-    if (svg.style.fill === "currentColor") {
-        svg.style.fill = "none";
-        svg.style.color = "var(--text-muted)";
-        count = Math.max(0, count - 1);
-    } else {
-        svg.style.fill = "currentColor";
-        svg.style.color = "var(--primary-color)";
-        count += 1;
-    }
-    span.textContent = count;
 }
 
 async function initFeedPage() {

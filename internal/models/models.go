@@ -52,6 +52,7 @@ type Post struct {
 	Content      string     `json:"content"`
 	Status       string     `json:"status"`
 	LikesCount   int        `json:"likes_count"`
+	IsLikedByMe  bool       `json:"is_liked_by_me"`
 	CreatedAt    time.Time  `json:"created_at"`
 	UpdatedAt    time.Time  `json:"updated_at"`
 	Captures     []*Capture `json:"captures,omitempty"`

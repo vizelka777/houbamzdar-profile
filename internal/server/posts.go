@@ -1,6 +1,7 @@
 package server
 
 import (
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -91,6 +92,8 @@ func (s *Server) handleGetPost(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "post not found", http.StatusNotFound)
 		return
 	}
+
+	attachPublicURLs(post.Captures, s.Media)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -286,7 +289,14 @@ func (s *Server) handleListPublicPosts(w http.ResponseWriter, r *http.Request) {
 		offset = o
 	}
 
-	posts, err := s.DB.ListPublicPosts(limit, offset)
+	var currentUserID int64
+	if cookie, err := r.Cookie(s.Config.SessionCookieName); err == nil {
+		if session, err := s.DB.GetSession(cookie.Value); err == nil {
+			currentUserID = session.UserID
+		}
+	}
+
+	posts, err := s.DB.ListPublicPosts(limit, offset, currentUserID)
 	if err != nil {
 		http.Error(w, "failed to list public posts", http.StatusInternalServerError)
 		return
@@ -304,5 +314,27 @@ func (s *Server) handleListPublicPosts(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"ok":    true,
 		"posts": posts,
+	})
+}
+
+func (s *Server) handleTogglePostLike(w http.ResponseWriter, r *http.Request) {
+	user := r.Context().Value("user").(*models.User)
+	postID := chi.URLParam(r, "postID")
+
+	newCount, isLiked, err := s.DB.TogglePostLike(postID, user.ID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			http.Error(w, "post not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "failed to toggle like", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"ok":          true,
+		"likes_count": newCount,
+		"is_liked":    isLiked,
 	})
 }

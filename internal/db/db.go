@@ -36,6 +36,7 @@ const migrationUsersTokenColumnsID = "20260308_add_user_token_columns"
 const migrationPhotoCapturesTableID = "20260308_create_photo_captures"
 const migrationPostsTableID = "20260312_create_posts_table"
 const migrationPostCommentsTableID = "20260314_create_post_comments_table"
+const migrationPostLikesTableID = "20260314_create_post_likes_table"
 
 func New(cfg *config.Config) (*DB, error) {
 	url := cfg.DBURL
@@ -219,6 +220,29 @@ func migrate(db *sql.DB) error {
 					);`,
 					`CREATE INDEX IF NOT EXISTS idx_post_comments_post_created ON post_comments(post_id, created_at ASC);`,
 					`CREATE INDEX IF NOT EXISTS idx_post_comments_user_created ON post_comments(user_id, created_at DESC);`,
+				}
+				for _, query := range queries {
+					if _, err := tx.Exec(query); err != nil {
+						return err
+					}
+				}
+				return nil
+			},
+		},
+		{
+			id: migrationPostLikesTableID,
+			apply: func(tx *sql.Tx) error {
+				queries := []string{
+					`CREATE TABLE IF NOT EXISTS post_likes (
+						post_id TEXT NOT NULL,
+						user_id INTEGER NOT NULL,
+						created_at TEXT NOT NULL DEFAULT (datetime('now')),
+						PRIMARY KEY(post_id, user_id),
+						FOREIGN KEY(post_id) REFERENCES posts(id) ON DELETE CASCADE,
+						FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+					);`,
+					`CREATE INDEX IF NOT EXISTS idx_post_likes_post_id ON post_likes(post_id);`,
+					`CREATE INDEX IF NOT EXISTS idx_post_likes_user_id ON post_likes(user_id);`,
 				}
 				for _, query := range queries {
 					if _, err := tx.Exec(query); err != nil {
@@ -710,10 +734,12 @@ func (db *DB) GetPost(postID string, userID int64) (*models.Post, error) {
 	var p models.Post
 	var createdAt, updatedAt string
 	err := db.QueryRow(`
-		SELECT id, user_id, content, status, created_at, updated_at
+		SELECT id, user_id, content, status, created_at, updated_at,
+               (SELECT COUNT(*) FROM post_likes WHERE post_id = posts.id) as likes_count,
+               (SELECT EXISTS(SELECT 1 FROM post_likes WHERE post_id = posts.id AND user_id = ?)) as is_liked_by_me
 		FROM posts
 		WHERE id = ? AND user_id = ?
-	`, postID, userID).Scan(&p.ID, &p.UserID, &p.Content, &p.Status, &createdAt, &updatedAt)
+	`, userID, postID, userID).Scan(&p.ID, &p.UserID, &p.Content, &p.Status, &createdAt, &updatedAt, &p.LikesCount, &p.IsLikedByMe)
 	if err != nil {
 		return nil, err
 	}
@@ -779,6 +805,9 @@ func (db *DB) DeletePost(postID string, userID int64) error {
 	if _, err := tx.Exec(`DELETE FROM post_comments WHERE post_id = ?`, postID); err != nil {
 		return err
 	}
+	if _, err := tx.Exec(`DELETE FROM post_likes WHERE post_id = ?`, postID); err != nil {
+		return err
+	}
 	if _, err := tx.Exec(`DELETE FROM post_captures WHERE post_id = ?`, postID); err != nil {
 		return err
 	}
@@ -823,12 +852,14 @@ func (db *DB) CreatePostComment(comment *models.Comment) error {
 
 func (db *DB) ListPosts(userID int64, limit, offset int) ([]*models.Post, error) {
 	rows, err := db.Query(`
-		SELECT id, user_id, content, status, created_at, updated_at
+		SELECT id, user_id, content, status, created_at, updated_at,
+               (SELECT COUNT(*) FROM post_likes WHERE post_id = posts.id) as likes_count,
+               (SELECT EXISTS(SELECT 1 FROM post_likes WHERE post_id = posts.id AND user_id = ?)) as is_liked_by_me
 		FROM posts
 		WHERE user_id = ?
 		ORDER BY created_at DESC
 		LIMIT ? OFFSET ?
-	`, userID, limit, offset)
+	`, userID, userID, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -838,12 +869,11 @@ func (db *DB) ListPosts(userID int64, limit, offset int) ([]*models.Post, error)
 	for rows.Next() {
 		var p models.Post
 		var createdAt, updatedAt string
-		if err := rows.Scan(&p.ID, &p.UserID, &p.Content, &p.Status, &createdAt, &updatedAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.UserID, &p.Content, &p.Status, &createdAt, &updatedAt, &p.LikesCount, &p.IsLikedByMe); err != nil {
 			return nil, err
 		}
 		p.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
 		p.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
-		p.LikesCount = 0 // Stub
 		posts = append(posts, &p)
 	}
 	if err := rows.Err(); err != nil {
@@ -867,15 +897,17 @@ func (db *DB) ListPosts(userID int64, limit, offset int) ([]*models.Post, error)
 	return posts, nil
 }
 
-func (db *DB) ListPublicPosts(limit, offset int) ([]*models.Post, error) {
+func (db *DB) ListPublicPosts(limit, offset int, currentUserID int64) ([]*models.Post, error) {
 	rows, err := db.Query(`
-		SELECT p.id, p.user_id, u.preferred_username, COALESCE(u.picture, ''), p.content, p.status, p.created_at, p.updated_at
+		SELECT p.id, p.user_id, u.preferred_username, COALESCE(u.picture, ''), p.content, p.status, p.created_at, p.updated_at,
+               (SELECT COUNT(*) FROM post_likes WHERE post_id = p.id) as likes_count,
+               (SELECT EXISTS(SELECT 1 FROM post_likes WHERE post_id = p.id AND user_id = ?)) as is_liked_by_me
 		FROM posts p
 		JOIN users u ON p.user_id = u.id
 		WHERE p.status = 'published'
 		ORDER BY p.created_at DESC
 		LIMIT ? OFFSET ?
-	`, limit, offset)
+	`, currentUserID, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -885,12 +917,11 @@ func (db *DB) ListPublicPosts(limit, offset int) ([]*models.Post, error) {
 	for rows.Next() {
 		var p models.Post
 		var createdAt, updatedAt string
-		if err := rows.Scan(&p.ID, &p.UserID, &p.AuthorName, &p.AuthorAvatar, &p.Content, &p.Status, &createdAt, &updatedAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.UserID, &p.AuthorName, &p.AuthorAvatar, &p.Content, &p.Status, &createdAt, &updatedAt, &p.LikesCount, &p.IsLikedByMe); err != nil {
 			return nil, err
 		}
 		p.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
 		p.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
-		p.LikesCount = 0 // Stub
 		posts = append(posts, &p)
 	}
 	if err := rows.Err(); err != nil {
@@ -1029,4 +1060,47 @@ func (db *DB) getCommentsForPost(postID string) ([]*models.Comment, error) {
 		return nil, err
 	}
 	return comments, nil
+}
+
+func (db *DB) TogglePostLike(postID string, userID int64) (newLikesCount int, isLiked bool, err error) {
+	tx, err := db.Begin()
+	if err != nil {
+		return 0, false, err
+	}
+	defer tx.Rollback()
+
+	var publishedPostID string
+	err = tx.QueryRow(`SELECT id FROM posts WHERE id = ? AND status = 'published' LIMIT 1`, postID).Scan(&publishedPostID)
+	if err != nil {
+		return 0, false, err
+	}
+
+	var exists int
+	err = tx.QueryRow(`SELECT 1 FROM post_likes WHERE post_id = ? AND user_id = ?`, postID, userID).Scan(&exists)
+	if err == sql.ErrNoRows {
+		// Like it
+		if _, err := tx.Exec(`INSERT INTO post_likes (post_id, user_id) VALUES (?, ?)`, postID, userID); err != nil {
+			return 0, false, err
+		}
+		isLiked = true
+	} else if err != nil {
+		return 0, false, err
+	} else {
+		// Unlike it
+		if _, err := tx.Exec(`DELETE FROM post_likes WHERE post_id = ? AND user_id = ?`, postID, userID); err != nil {
+			return 0, false, err
+		}
+		isLiked = false
+	}
+
+	err = tx.QueryRow(`SELECT COUNT(*) FROM post_likes WHERE post_id = ?`, postID).Scan(&newLikesCount)
+	if err != nil {
+		return 0, false, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, false, err
+	}
+
+	return newLikesCount, isLiked, nil
 }

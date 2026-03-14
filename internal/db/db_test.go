@@ -581,7 +581,7 @@ func TestPostsSupportComments(t *testing.T) {
 		t.Fatalf("create second comment: %v", err)
 	}
 
-	publicPosts, err := database.ListPublicPosts(10, 0)
+	publicPosts, err := database.ListPublicPosts(10, 0, 0)
 	if err != nil {
 		t.Fatalf("list public posts: %v", err)
 	}
@@ -627,5 +627,119 @@ func TestPostsSupportComments(t *testing.T) {
 	}
 	if remainingPosts != 0 {
 		t.Fatalf("expected post to be deleted, got %d rows", remainingPosts)
+	}
+}
+
+func TestPostLikesSupportFeedStateAndDeleteCleanup(t *testing.T) {
+	t.Parallel()
+
+	rawDB := openTestDB(t)
+	if err := migrate(rawDB); err != nil {
+		t.Fatalf("migrate schema: %v", err)
+	}
+
+	columns := tableColumnSet(t, rawDB, "post_likes")
+	for _, name := range []string{"post_id", "user_id", "created_at"} {
+		if _, ok := columns[name]; !ok {
+			t.Fatalf("expected post_likes.%s to exist after migration", name)
+		}
+	}
+
+	var applied int
+	if err := rawDB.QueryRow(
+		`SELECT COUNT(*) FROM schema_migrations WHERE id = ?`,
+		migrationPostLikesTableID,
+	).Scan(&applied); err != nil {
+		t.Fatalf("query likes migration row: %v", err)
+	}
+	if applied != 1 {
+		t.Fatalf("expected likes migration row to be recorded once, got %d", applied)
+	}
+
+	database := &DB{rawDB}
+
+	author, _, err := database.UpsertUser(&models.OIDCClaims{
+		Iss:               "https://ahoj420.eu",
+		Sub:               "likes-author",
+		PreferredUsername: "autor",
+		Email:             "likes-author@example.test",
+		EmailVerified:     true,
+	}, &oauth2.Token{
+		AccessToken:  "author-access",
+		RefreshToken: "author-refresh",
+		Expiry:       time.Now().Add(time.Hour).UTC(),
+	})
+	if err != nil {
+		t.Fatalf("create author: %v", err)
+	}
+
+	liker, _, err := database.UpsertUser(&models.OIDCClaims{
+		Iss:               "https://ahoj420.eu",
+		Sub:               "likes-liker",
+		PreferredUsername: "fanousek",
+		Email:             "likes-liker@example.test",
+		EmailVerified:     true,
+	}, &oauth2.Token{
+		AccessToken:  "liker-access",
+		RefreshToken: "liker-refresh",
+		Expiry:       time.Now().Add(time.Hour).UTC(),
+	})
+	if err != nil {
+		t.Fatalf("create liker: %v", err)
+	}
+
+	postCreatedAt := time.Date(2026, time.March, 14, 14, 0, 0, 0, time.UTC)
+	post := &models.Post{
+		ID:        "post-likes-001",
+		UserID:    author.ID,
+		Content:   "Prispevek s lajky",
+		Status:    "published",
+		CreatedAt: postCreatedAt,
+		UpdatedAt: postCreatedAt,
+	}
+	if err := database.CreatePost(post); err != nil {
+		t.Fatalf("create post: %v", err)
+	}
+
+	likesCount, isLiked, err := database.TogglePostLike(post.ID, liker.ID)
+	if err != nil {
+		t.Fatalf("toggle like: %v", err)
+	}
+	if likesCount != 1 || !isLiked {
+		t.Fatalf("unexpected toggle like result: count=%d isLiked=%v", likesCount, isLiked)
+	}
+
+	likedPosts, err := database.ListPublicPosts(10, 0, liker.ID)
+	if err != nil {
+		t.Fatalf("list public posts for liker: %v", err)
+	}
+	if len(likedPosts) != 1 {
+		t.Fatalf("expected 1 public post for liker, got %d", len(likedPosts))
+	}
+	if likedPosts[0].LikesCount != 1 || !likedPosts[0].IsLikedByMe {
+		t.Fatalf("unexpected liker feed state: likes=%d likedByMe=%v", likedPosts[0].LikesCount, likedPosts[0].IsLikedByMe)
+	}
+
+	guestPosts, err := database.ListPublicPosts(10, 0, 0)
+	if err != nil {
+		t.Fatalf("list public posts for guest: %v", err)
+	}
+	if len(guestPosts) != 1 {
+		t.Fatalf("expected 1 public post for guest, got %d", len(guestPosts))
+	}
+	if guestPosts[0].LikesCount != 1 || guestPosts[0].IsLikedByMe {
+		t.Fatalf("unexpected guest feed state: likes=%d likedByMe=%v", guestPosts[0].LikesCount, guestPosts[0].IsLikedByMe)
+	}
+
+	if err := database.DeletePost(post.ID, author.ID); err != nil {
+		t.Fatalf("delete post: %v", err)
+	}
+
+	var remainingLikes int
+	if err := rawDB.QueryRow(`SELECT COUNT(*) FROM post_likes WHERE post_id = ?`, post.ID).Scan(&remainingLikes); err != nil {
+		t.Fatalf("count remaining likes: %v", err)
+	}
+	if remainingLikes != 0 {
+		t.Fatalf("expected 0 remaining likes after delete, got %d", remainingLikes)
 	}
 }

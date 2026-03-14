@@ -74,6 +74,7 @@ func (s *Server) setupRoutes() {
 		r.Post("/api/posts", s.handleCreatePost)
 		r.Get("/api/posts/{postID}", s.handleGetPost)
 		r.Post("/api/posts/{postID}/comments", s.handleCreatePostComment)
+		r.Post("/api/posts/{postID}/like", s.handleTogglePostLike)
 		r.Put("/api/posts/{postID}", s.handleUpdatePost)
 		r.Delete("/api/posts/{postID}", s.handleDeletePost)
 	})

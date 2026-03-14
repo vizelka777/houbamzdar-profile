@@ -952,3 +952,51 @@ textarea {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 }
+
+/* Like Button Styles */
+.like-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--text-muted);
+    font-size: 1rem;
+    padding: 0.4rem 0.8rem;
+    border-radius: var(--radius-sm);
+    transition: all 0.2s ease;
+}
+
+.like-btn:hover {
+    background-color: var(--surface-hover);
+    color: var(--text-color);
+}
+
+.like-btn svg {
+    width: 24px;
+    height: 24px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.like-btn.active {
+    color: #e91e63;
+}
+
+.like-btn.active svg {
+    fill: #e91e63;
+    stroke: #e91e63;
+    transform: scale(1.1);
+}
+
+.like-btn:active svg {
+    transform: scale(0.8);
+}
+
+.like-btn:disabled {
+    opacity: 0.65;
+    cursor: wait;
+}
