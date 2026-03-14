@@ -200,6 +200,7 @@ function renderHeader(session, profile = null) {
         authButtons.appendChild(createLinkButton("Vyfotit nález", "/capture.html", "btn-secondary"));
         authButtons.appendChild(createLinkButton("Zeď úlovků", "/feed.html", "btn-secondary"));
         authButtons.appendChild(createLinkButton("Galerie", "/gallery.html", "btn-secondary"));
+        authButtons.appendChild(createLinkButton("Mapa", "/map.html", "btn-secondary"));
 
         authButtons.appendChild(createLinkButton("Můj profil", "/me.html", "btn-primary"));
         authButtons.appendChild(createActionButton("Odhlásit", "btn-secondary", logoutFlow));
@@ -208,6 +209,7 @@ function renderHeader(session, profile = null) {
 
     authButtons.appendChild(createLinkButton("Zeď úlovků", "/feed.html", "btn-secondary"));
     authButtons.appendChild(createLinkButton("Galerie", "/gallery.html", "btn-secondary"));
+    authButtons.appendChild(createLinkButton("Mapa", "/map.html", "btn-secondary"));
     authButtons.appendChild(
         createLinkButton("Přihlášení / registrace", `${API_URL}/auth/login`, "btn-primary")
     );
@@ -300,6 +302,51 @@ async function initMePage() {
         [],
         "Zatím bez návštěv veřejného profilu. Jakmile se objeví, uvidíte je tady."
     );
+
+    // Vykreslení soukromé mapy
+    const mapContainer = document.getElementById("private-map");
+    if (mapContainer && typeof L !== 'undefined') {
+        const capturesRes = await apiGet("/api/captures");
+        if (capturesRes && capturesRes.ok && capturesRes.captures) {
+            const captures = capturesRes.captures;
+            const map = L.map('private-map').setView([49.8, 15.5], 7);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; OpenStreetMap'
+            }).addTo(map);
+
+            const bounds = L.latLngBounds();
+            let hasValidPoints = false;
+
+            captures.forEach(capture => {
+                if (capture.latitude && capture.longitude) {
+                    hasValidPoints = true;
+                    const lat = parseFloat(capture.latitude);
+                    const lon = parseFloat(capture.longitude);
+                    if (!isNaN(lat) && !isNaN(lon)) {
+                        const marker = L.marker([lat, lon]).addTo(map);
+                        bounds.extend([lat, lon]);
+
+                        const imgUrl = capture.public_url ? escapeHtml(capture.public_url) : `${API_URL}/api/captures/${encodeURIComponent(capture.id)}/preview`;
+                        const date = escapeHtml(formatDateTime(capture.captured_at));
+                        const status = capture.status === "published" ? "Veřejné" : "Soukromé";
+                        
+                        marker.bindPopup(`
+                            <div style="text-align:center;">
+                                <a href="${imgUrl}" target="_blank"><img src="${imgUrl}" style="max-width:150px; max-height:150px; border-radius:4px; margin-bottom:5px;"></a>
+                                <p style="margin:0; font-size:12px;">${date}<br><b>${status}</b></p>
+                            </div>
+                        `);
+                    }
+                }
+            });
+
+            if (hasValidPoints) {
+                map.fitBounds(bounds, { padding: [20, 20] });
+            } else {
+                mapContainer.innerHTML = '<p class="muted-copy" style="text-align:center; padding: 2rem;">Zatím nemáte žádné fotky s polohou.</p>';
+            }
+        }
+    }
 }
 
 function setupAboutEditor(initialValue, onSaved) {
@@ -365,6 +412,51 @@ async function initPublicProfilePage() {
             value || "Zatím bez veřejného představení. Doplňte pár vět, ať profil působí živěji."
         );
     });
+
+    // Vykreslení veřejné mapy
+    const mapContainer = document.getElementById("public-map");
+    if (mapContainer && typeof L !== 'undefined') {
+        const capturesRes = await apiGet("/api/captures");
+        if (capturesRes && capturesRes.ok && capturesRes.captures) {
+            // Pouze veřejné fotky
+            const captures = capturesRes.captures.filter(c => c.status === "published");
+            const map = L.map('public-map').setView([49.8, 15.5], 7);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; OpenStreetMap'
+            }).addTo(map);
+
+            const bounds = L.latLngBounds();
+            let hasValidPoints = false;
+
+            captures.forEach(capture => {
+                if (capture.latitude && capture.longitude) {
+                    hasValidPoints = true;
+                    const lat = parseFloat(capture.latitude);
+                    const lon = parseFloat(capture.longitude);
+                    if (!isNaN(lat) && !isNaN(lon)) {
+                        const marker = L.marker([lat, lon]).addTo(map);
+                        bounds.extend([lat, lon]);
+
+                        const imgUrl = capture.public_url ? escapeHtml(capture.public_url) : `${API_URL}/api/captures/${encodeURIComponent(capture.id)}/preview`;
+                        const date = escapeHtml(formatDateTime(capture.captured_at));
+                        
+                        marker.bindPopup(`
+                            <div style="text-align:center;">
+                                <a href="${imgUrl}" target="_blank"><img src="${imgUrl}" style="max-width:150px; max-height:150px; border-radius:4px; margin-bottom:5px;"></a>
+                                <p style="margin:0; font-size:12px;">${date}</p>
+                            </div>
+                        `);
+                    }
+                }
+            });
+
+            if (hasValidPoints) {
+                map.fitBounds(bounds, { padding: [20, 20] });
+            } else {
+                mapContainer.innerHTML = '<p class="muted-copy" style="text-align:center; padding: 2rem;">Zatím nemáte žádné veřejné fotky s polohou.</p>';
+            }
+        }
+    }
 
     const postsContainer = document.getElementById("public-posts-container");
     if (postsContainer) {
@@ -437,6 +529,9 @@ async function initPublicProfilePage() {
                         photos.forEach(photo => {
                             photo.addEventListener('click', (e) => {
                                 window.lightboxImages = captureUrls;
+                                window.lightboxMapData = post.captures.map(c => 
+                                    (c.latitude && c.longitude) ? {lat: c.latitude, lon: c.longitude} : null
+                                );
                                 window.currentLightboxIndex = parseInt(e.target.dataset.idx);
                                 openLightbox();
                             });
@@ -455,31 +550,82 @@ async function initPublicProfilePage() {
 
 // Společná Lightbox logika
 window.lightboxImages = [];
+window.lightboxMapData = []; // [{lat: 12.3, lon: 45.6}, null, ...]
 window.currentLightboxIndex = 0;
+let lightboxMapInstance = null;
+
+function updateLightboxMap() {
+    const mapBtn = document.getElementById("lightbox-map-btn");
+    const mapDiv = document.getElementById("lightbox-map");
+    if (!mapBtn || !mapDiv) return;
+
+    const data = window.lightboxMapData[window.currentLightboxIndex];
+    if (data && data.lat && data.lon) {
+        mapBtn.style.display = "block";
+        mapBtn.textContent = "Zobrazit na mapě";
+        mapDiv.style.display = "none";
+        
+        mapBtn.onclick = (e) => {
+            e.stopPropagation();
+            if (mapDiv.style.display === "none") {
+                mapDiv.style.display = "block";
+                mapBtn.textContent = "Skrýt mapu";
+                if (!lightboxMapInstance && typeof L !== 'undefined') {
+                    lightboxMapInstance = L.map('lightbox-map').setView([data.lat, data.lon], 13);
+                    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                        attribution: '&copy; OpenStreetMap'
+                    }).addTo(lightboxMapInstance);
+                    L.marker([data.lat, data.lon]).addTo(lightboxMapInstance);
+                } else if (lightboxMapInstance) {
+                    lightboxMapInstance.setView([data.lat, data.lon], 13);
+                    // Odstranění starých markerů
+                    lightboxMapInstance.eachLayer((layer) => {
+                        if (layer instanceof L.Marker) {
+                            lightboxMapInstance.removeLayer(layer);
+                        }
+                    });
+                    L.marker([data.lat, data.lon]).addTo(lightboxMapInstance);
+                    lightboxMapInstance.invalidateSize();
+                }
+            } else {
+                mapDiv.style.display = "none";
+                mapBtn.textContent = "Zobrazit na mapě";
+            }
+        };
+    } else {
+        mapBtn.style.display = "none";
+        mapDiv.style.display = "none";
+    }
+}
 
 function openLightbox() {
     const lb = document.getElementById("lightbox");
     const img = document.getElementById("lightbox-img");
     if (!lb || !img || window.lightboxImages.length === 0) return;
     img.src = window.lightboxImages[window.currentLightboxIndex];
+    updateLightboxMap();
     lb.classList.add("active");
 }
 
 function closeLightbox() {
     const lb = document.getElementById("lightbox");
     if (lb) lb.classList.remove("active");
+    const mapDiv = document.getElementById("lightbox-map");
+    if (mapDiv) mapDiv.style.display = "none";
 }
 
 function lightboxNext() {
     if (window.lightboxImages.length === 0) return;
     window.currentLightboxIndex = (window.currentLightboxIndex + 1) % window.lightboxImages.length;
     document.getElementById("lightbox-img").src = window.lightboxImages[window.currentLightboxIndex];
+    updateLightboxMap();
 }
 
 function lightboxPrev() {
     if (window.lightboxImages.length === 0) return;
     window.currentLightboxIndex = (window.currentLightboxIndex - 1 + window.lightboxImages.length) % window.lightboxImages.length;
     document.getElementById("lightbox-img").src = window.lightboxImages[window.currentLightboxIndex];
+    updateLightboxMap();
 }
 
 document.addEventListener("DOMContentLoaded", () => {

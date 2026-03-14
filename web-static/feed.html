@@ -8,6 +8,7 @@
     <link rel="icon" href="/favicon.ico" sizes="any">
     <link rel="apple-touch-icon" href="/apple-touch-icon.png">
     <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
     <style>
         .feed-card { margin-bottom: 2rem; padding: 1.5rem; }
         .feed-header { display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem; }
@@ -25,54 +26,68 @@
         .like-btn svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; }
         
         /* Lightbox modal */
-        .lightbox { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.9); align-items: center; justify-content: center; }
+        .lightbox { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.9); align-items: center; justify-content: center; flex-direction: column; }
         .lightbox.active { display: flex; }
         .lightbox-close { position: absolute; top: 20px; right: 20px; color: white; font-size: 2rem; cursor: pointer; user-select: none; z-index: 1001; }
-        .lightbox-content { max-width: 90%; max-height: 90%; object-fit: contain; }
-        .lightbox-nav { position: absolute; top: 50%; transform: translateY(-50%); color: white; font-size: 3rem; cursor: pointer; user-select: none; padding: 1rem; }
+        .lightbox-content { max-width: 90%; max-height: 80%; object-fit: contain; }
+        .lightbox-nav { position: absolute; top: 50%; transform: translateY(-50%); color: white; font-size: 3rem; cursor: pointer; user-select: none; padding: 1rem; z-index: 1001;}
         .lightbox-prev { left: 10px; }
         .lightbox-next { right: 10px; }
+        .lightbox-map-container { width: 90%; height: 200px; max-width: 600px; margin-top: 10px; display: none; border-radius: 8px; z-index: 1001;}
+        .lightbox-map-btn { margin-top: 10px; z-index: 1001; }
+
+        .feed-map-container {
+            width: 100%;
+            height: 200px;
+            margin-top: 1rem;
+            border-radius: var(--radius-sm);
+            z-index: 1;
+            display: none;
+        }
     </style>
 </head>
-<body data-page="feed" class="page-shell">
-    <header class="site-header">
-        <a href="/" class="brand-link" aria-label="Houbam Zdar">
-            <img src="/logo.png" alt="Logo Houbam Zdar" class="brand-mark">
-            <div class="brand-copy">
-                <span class="brand-eyebrow">Komunita</span>
-                <strong>Houbam Zdar</strong>
+        <body data-page="feed" class="page-shell">
+        <header class="site-header">
+            <a href="/" class="brand-link" aria-label="Houbam Zdar">
+                <img src="/logo.png" alt="Logo Houbam Zdar" class="brand-mark">
+                <div class="brand-copy">
+                    <span class="brand-eyebrow">Komunita</span>
+                    <strong>Houbam Zdar</strong>
+                </div>
+            </a>
+            <div id="auth-buttons" class="header-actions"></div>
+        </header>
+
+        <main class="content-main content-main-narrow">
+            <section class="page-intro card" style="margin-bottom: 2rem;">
+                <p class="section-label">Veřejná zeď</p>
+                <h1>Co se našlo v lese</h1>
+                <p>
+                    Prohlížejte si nejnovější úlovky a příspěvky od ostatních houbařů.
+                </p>
+            </section>
+
+            <div id="feed-container" style="display: flex; flex-direction: column; gap: 1.5rem;">
+                <p class="muted-copy" style="text-align: center;">Načítám zeď...</p>
             </div>
-        </a>
-        <div id="auth-buttons" class="header-actions"></div>
-    </header>
 
-    <main class="content-main content-main-narrow">
-        <section class="page-intro card" style="margin-bottom: 2rem;">
-            <p class="section-label">Veřejná zeď</p>
-            <h1>Co se našlo v lese</h1>
-            <p>
-                Prohlížejte si nejnovější úlovky a příspěvky od ostatních houbařů.
-            </p>
-        </section>
+            <div style="text-align: center; margin-top: 2rem; margin-bottom: 2rem;">
+                <button id="load-more-feed-btn" class="btn btn-secondary" style="display: none;">Načíst další příspěvky</button>
+            </div>
+        </main>
 
-        <div id="feed-container">
-            <p class="muted-copy" style="text-align: center;">Načítám příspěvky...</p>
+        <!-- Lightbox pro galerii -->
+        <div id="lightbox" class="lightbox">
+            <span id="lightbox-close" class="lightbox-close">&times;</span>
+            <span id="lightbox-prev" class="lightbox-nav lightbox-prev">&#10094;</span>
+            <img id="lightbox-img" class="lightbox-content" src="">
+            <span id="lightbox-next" class="lightbox-nav lightbox-next">&#10095;</span>
+            <button id="lightbox-map-btn" class="btn btn-primary lightbox-map-btn" style="display: none;">Zobrazit na mapě</button>
+            <div id="lightbox-map" class="lightbox-map-container"></div>
         </div>
 
-        <div style="text-align: center; margin-top: 2rem; margin-bottom: 2rem;">
-            <button id="load-more-feed-btn" class="btn btn-secondary" style="display: none;">Načíst další příspěvky</button>
-        </div>
-    </main>
-
-    <!-- Lightbox pro galerii -->
-    <div id="lightbox" class="lightbox">
-        <span id="lightbox-close" class="lightbox-close">&times;</span>
-        <span id="lightbox-prev" class="lightbox-nav lightbox-prev">&#10094;</span>
-        <img id="lightbox-img" class="lightbox-content" src="">
-        <span id="lightbox-next" class="lightbox-nav lightbox-next">&#10095;</span>
-    </div>
-
-    <script src="app.js" defer></script>
-    <script src="feed.js" defer></script>
-</body>
-</html>
+        <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+        <script src="app.js" defer></script>
+        <script src="feed.js" defer></script>
+        </body>
+        </html>

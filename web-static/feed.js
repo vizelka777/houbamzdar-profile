@@ -62,6 +62,8 @@ function renderPosts(postsToRender, container) {
 
         let capturesHtml = "";
         let captureUrls = [];
+        let hasCoords = false;
+        let mapData = [];
         
         if (post.captures && post.captures.length > 0) {
             capturesHtml = '<div class="feed-gallery">';
@@ -69,8 +71,20 @@ function renderPosts(postsToRender, container) {
                 const url = c.public_url ? escapeHtml(c.public_url) : `${API_URL}/api/captures/${encodeURIComponent(c.id)}/preview`;
                 captureUrls.push(url);
                 capturesHtml += `<img src="${url}" class="feed-photo" loading="lazy" data-idx="${idx}">`;
+                if (c.latitude && c.longitude) {
+                    hasCoords = true;
+                    mapData.push({lat: c.latitude, lon: c.longitude});
+                }
             });
             capturesHtml += '</div>';
+        }
+
+        const mapId = `feed-map-${post.id}`;
+        let mapBtnHtml = '';
+        let mapDivHtml = '';
+        if (hasCoords) {
+            mapBtnHtml = `<button class="btn btn-secondary map-toggle-btn" data-target="${mapId}" style="margin-left:auto; font-size: 0.8rem; padding: 0.2rem 0.5rem;">Zobrazit na mapě</button>`;
+            mapDivHtml = `<div id="${mapId}" class="feed-map-container"></div>`;
         }
 
         card.innerHTML = `
@@ -85,23 +99,63 @@ function renderPosts(postsToRender, container) {
                 ${escapeHtml(post.content).replace(/\n/g, '<br>')}
             </div>
             ${capturesHtml}
-            <div class="feed-actions">
+            ${mapDivHtml}
+            <div class="feed-actions" style="display: flex; justify-content: flex-start; align-items: center; gap: 1rem;">
                 <button class="like-btn" onclick="toggleLike(this, '${post.id}')">
                     <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
                     </svg>
                     <span>${post.likes_count || 0}</span>
                 </button>
+                ${mapBtnHtml}
             </div>
         `;
 
         container.appendChild(card);
+
+        if (hasCoords && typeof L !== 'undefined') {
+            const toggleBtn = card.querySelector('.map-toggle-btn');
+            const mapDiv = document.getElementById(mapId);
+            let mapInitialized = false;
+
+            if (toggleBtn && mapDiv) {
+                toggleBtn.addEventListener('click', () => {
+                    if (mapDiv.style.display === 'block') {
+                        mapDiv.style.display = 'none';
+                        toggleBtn.textContent = 'Zobrazit na mapě';
+                    } else {
+                        mapDiv.style.display = 'block';
+                        toggleBtn.textContent = 'Skrýt mapu';
+                        if (!mapInitialized) {
+                            const postMap = L.map(mapId).setView([mapData[0].lat, mapData[0].lon], 13);
+                            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                                attribution: '&copy; OpenStreetMap'
+                            }).addTo(postMap);
+                            
+                            const bounds = L.latLngBounds();
+                            mapData.forEach(pt => {
+                                L.marker([pt.lat, pt.lon]).addTo(postMap);
+                                bounds.extend([pt.lat, pt.lon]);
+                            });
+                            
+                            if (mapData.length > 1) {
+                                postMap.fitBounds(bounds, { padding: [10, 10] });
+                            }
+                            mapInitialized = true;
+                        }
+                    }
+                });
+            }
+        }
 
         // Přidání posluchačů pro obrázky pro lightbox
         const photos = card.querySelectorAll('.feed-photo');
         photos.forEach(photo => {
             photo.addEventListener('click', (e) => {
                 window.lightboxImages = captureUrls;
+                window.lightboxMapData = post.captures.map(c => 
+                    (c.latitude && c.longitude) ? {lat: c.latitude, lon: c.longitude} : null
+                );
                 window.currentLightboxIndex = parseInt(e.target.dataset.idx);
                 if (typeof openLightbox === "function") openLightbox();
             });

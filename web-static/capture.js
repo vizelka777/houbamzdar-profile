@@ -372,7 +372,7 @@ function readCurrentPosition() {
 async function handleCaptureSelection(files) {
     if (!files.length) return;
 
-    setStatusMessage(document.getElementById("capture-status"), "Získávám polohu a ukládám snímky...");
+    setStatusMessage(document.getElementById("capture-status"), "Zpracovávám snímky a zjišťuji polohu...");
     const position = await readCurrentPosition();
     let storedCount = 0;
     let convertedCount = 0;
@@ -380,10 +380,30 @@ async function handleCaptureSelection(files) {
 
     for (const file of files) {
         try {
+            // Zkusit získat GPS z EXIF přes exifr předtím, než canvas EXIF zničí
+            let exifLat = null;
+            let exifLon = null;
+            if (typeof exifr !== 'undefined') {
+                try {
+                    const gpsData = await exifr.gps(file);
+                    if (gpsData && gpsData.latitude != null && gpsData.longitude != null) {
+                        exifLat = gpsData.latitude;
+                        exifLon = gpsData.longitude;
+                    }
+                } catch (exifErr) {
+                    console.warn("Nepodařilo se vyčíst EXIF GPS z", file.name, exifErr);
+                }
+            }
+
             const normalized = await normalizeSelectedFile(file);
             if (normalized.mimeType === "image/jpeg" && isHeicLikeFile(file)) {
                 convertedCount += 1;
             }
+
+            const finalLat = exifLat !== null ? exifLat : (position ? position.coords.latitude : null);
+            const finalLon = exifLon !== null ? exifLon : (position ? position.coords.longitude : null);
+            // Pokud jsme použili EXIF, neznáme přesnost, dáme null. Pokud lokaci z browseru, dáme accuracy.
+            const finalAcc = (exifLat !== null) ? null : (position ? position.coords.accuracy : null);
 
         const record = {
             id: typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
@@ -391,9 +411,9 @@ async function handleCaptureSelection(files) {
             mimeType: normalized.mimeType,
             size: normalized.blob.size || 0,
             capturedAt: new Date().toISOString(),
-            latitude: position ? position.coords.latitude : null,
-            longitude: position ? position.coords.longitude : null,
-            accuracy: position ? position.coords.accuracy : null,
+            latitude: finalLat,
+            longitude: finalLon,
+            accuracy: finalAcc,
             queued: false,
             serverCaptureId: "",
             uploadedAt: "",
