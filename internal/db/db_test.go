@@ -748,3 +748,159 @@ func TestPostLikesSupportFeedStateAndDeleteCleanup(t *testing.T) {
 		t.Fatalf("expected 0 remaining likes after delete, got %d", remainingLikes)
 	}
 }
+
+func TestPublicFeedsMaskCoordinatesWhenNotFree(t *testing.T) {
+	t.Parallel()
+
+	rawDB := openTestDB(t)
+	if err := migrate(rawDB); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	database := &DB{rawDB}
+	author, _, err := database.UpsertUser(&models.OIDCClaims{
+		Iss:               "https://ahoj420.eu",
+		Sub:               "masking-author",
+		PreferredUsername: "mask-author",
+		Email:             "masking-author@example.test",
+		EmailVerified:     true,
+	}, &oauth2.Token{
+		AccessToken:  "masking-author-access",
+		RefreshToken: "masking-author-refresh",
+		Expiry:       time.Now().Add(time.Hour).UTC(),
+	})
+	if err != nil {
+		t.Fatalf("create author: %v", err)
+	}
+
+	lat := 49.98765
+	lng := 15.12345
+	acc := 11.2
+	capturedAt := time.Date(2026, time.March, 14, 15, 30, 0, 0, time.UTC)
+	uploadedAt := capturedAt.Add(time.Minute)
+
+	maskedCapture := &models.Capture{
+		ID:                "capture-masked-001",
+		UserID:            author.ID,
+		ClientLocalID:     "masked-001",
+		OriginalFileName:  "masked.jpg",
+		ContentType:       "image/jpeg",
+		SizeBytes:         1024,
+		Width:             640,
+		Height:            480,
+		CapturedAt:        capturedAt,
+		UploadedAt:        uploadedAt,
+		Latitude:          &lat,
+		Longitude:         &lng,
+		AccuracyMeters:    &acc,
+		Status:            "private",
+		CoordinatesFree:   false,
+		PrivateStorageKey: "captures/private/masked.jpg",
+	}
+	if err := database.CreateCapture(maskedCapture); err != nil {
+		t.Fatalf("create masked capture: %v", err)
+	}
+	if err := database.PublishCapture(maskedCapture.ID, author.ID, "captures/public/masked.jpg"); err != nil {
+		t.Fatalf("publish masked capture: %v", err)
+	}
+
+	freeCapture := &models.Capture{
+		ID:                "capture-free-001",
+		UserID:            author.ID,
+		ClientLocalID:     "free-001",
+		OriginalFileName:  "free.jpg",
+		ContentType:       "image/jpeg",
+		SizeBytes:         2048,
+		Width:             1200,
+		Height:            900,
+		CapturedAt:        capturedAt.Add(2 * time.Minute),
+		UploadedAt:        uploadedAt.Add(2 * time.Minute),
+		Latitude:          &lat,
+		Longitude:         &lng,
+		AccuracyMeters:    &acc,
+		Status:            "private",
+		CoordinatesFree:   true,
+		PrivateStorageKey: "captures/private/free.jpg",
+	}
+	if err := database.CreateCapture(freeCapture); err != nil {
+		t.Fatalf("create free capture: %v", err)
+	}
+	if err := database.PublishCapture(freeCapture.ID, author.ID, "captures/public/free.jpg"); err != nil {
+		t.Fatalf("publish free capture: %v", err)
+	}
+
+	postCreatedAt := capturedAt.Add(4 * time.Minute)
+	post := &models.Post{
+		ID:        "post-mask-001",
+		UserID:    author.ID,
+		Content:   "Post with mixed coordinate visibility",
+		Status:    "published",
+		CreatedAt: postCreatedAt,
+		UpdatedAt: postCreatedAt,
+		Captures: []*models.Capture{
+			{ID: maskedCapture.ID},
+			{ID: freeCapture.ID},
+		},
+	}
+	if err := database.CreatePost(post); err != nil {
+		t.Fatalf("create post: %v", err)
+	}
+
+	publicCaptures, err := database.ListPublicCaptures(10, 0)
+	if err != nil {
+		t.Fatalf("list public captures: %v", err)
+	}
+	if len(publicCaptures) != 2 {
+		t.Fatalf("expected 2 public captures, got %d", len(publicCaptures))
+	}
+
+	captureByID := map[string]*models.Capture{}
+	for _, capture := range publicCaptures {
+		captureByID[capture.ID] = capture
+	}
+
+	if captureByID[maskedCapture.ID].CoordinatesFree {
+		t.Fatalf("expected masked capture to keep coordinates_free=false")
+	}
+	if captureByID[maskedCapture.ID].Latitude != nil || captureByID[maskedCapture.ID].Longitude != nil || captureByID[maskedCapture.ID].AccuracyMeters != nil {
+		t.Fatalf("expected masked capture coordinates to be hidden in public captures")
+	}
+	if captureByID[freeCapture.ID].Latitude == nil || captureByID[freeCapture.ID].Longitude == nil || captureByID[freeCapture.ID].AccuracyMeters == nil {
+		t.Fatalf("expected free capture coordinates to remain visible in public captures")
+	}
+
+	publicPosts, err := database.ListPublicPosts(10, 0, 0)
+	if err != nil {
+		t.Fatalf("list public posts: %v", err)
+	}
+	if len(publicPosts) != 1 {
+		t.Fatalf("expected 1 public post, got %d", len(publicPosts))
+	}
+	if len(publicPosts[0].Captures) != 2 {
+		t.Fatalf("expected 2 post captures, got %d", len(publicPosts[0].Captures))
+	}
+
+	postCaptureByID := map[string]*models.Capture{}
+	for _, capture := range publicPosts[0].Captures {
+		postCaptureByID[capture.ID] = capture
+	}
+
+	if postCaptureByID[maskedCapture.ID].Latitude != nil || postCaptureByID[maskedCapture.ID].Longitude != nil || postCaptureByID[maskedCapture.ID].AccuracyMeters != nil {
+		t.Fatalf("expected masked capture coordinates to be hidden in public posts")
+	}
+	if postCaptureByID[freeCapture.ID].Latitude == nil || postCaptureByID[freeCapture.ID].Longitude == nil || postCaptureByID[freeCapture.ID].AccuracyMeters == nil {
+		t.Fatalf("expected free capture coordinates to remain visible in public posts")
+	}
+
+	ownerPost, err := database.GetPost(post.ID, author.ID)
+	if err != nil {
+		t.Fatalf("get owner post: %v", err)
+	}
+	ownerCaptureByID := map[string]*models.Capture{}
+	for _, capture := range ownerPost.Captures {
+		ownerCaptureByID[capture.ID] = capture
+	}
+	if ownerCaptureByID[maskedCapture.ID].Latitude == nil || ownerCaptureByID[maskedCapture.ID].Longitude == nil {
+		t.Fatalf("expected owner to still see full coordinates")
+	}
+}
