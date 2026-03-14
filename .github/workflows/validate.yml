@@ -1,0 +1,31 @@
+name: Validate
+
+on:
+  push:
+    branches:
+      - master
+      - work
+  pull_request:
+
+jobs:
+  test-and-conflict-check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Ensure there are no unresolved merge conflicts
+        run: |
+          if rg -n "<<<<<<<|=======|>>>>>>>" .; then
+            echo "Found unresolved merge conflict markers"
+            exit 1
+          fi
+
+      - name: Run tests
+        run: go test ./...
