@@ -66,8 +66,21 @@ function buildCommentsListHtml(post) {
         const avatarUrl = comment.author_avatar || DEFAULT_AVATAR_URL;
         const authorName = comment.author_name || "Registrovaný houbař";
         const content = escapeHtml(comment.content || "").replace(/\n/g, "<br>");
+        const mine = commentIsMine(comment);
         const edited = comment.updated_at && comment.created_at && comment.updated_at !== comment.created_at
             ? '<span class="comment-edited">upraveno</span>'
+            : "";
+        const editFormHtml = mine
+            ? `
+                    <form class="comment-edit-form" data-comment-id="${escapeHtml(comment.id)}" hidden>
+                        <textarea class="comment-input comment-edit-input" maxlength="1000" required>${escapeHtml(comment.content || "")}</textarea>
+                        <div class="comment-form-row">
+                            <button type="button" class="btn btn-secondary comment-cancel-btn">Zrušit</button>
+                            <button type="submit" class="btn btn-primary comment-save-btn">Uložit</button>
+                        </div>
+                        <p class="status-message comment-status" aria-live="polite"></p>
+                    </form>
+                `
             : "";
 
         return `
@@ -82,14 +95,7 @@ function buildCommentsListHtml(post) {
                         ${buildCommentActionsHtml(comment)}
                     </div>
                     <div class="comment-text">${content}</div>
-                    <form class="comment-edit-form" data-comment-id="${escapeHtml(comment.id)}" hidden>
-                        <textarea class="comment-input comment-edit-input" maxlength="1000" required>${escapeHtml(comment.content || "")}</textarea>
-                        <div class="comment-form-row">
-                            <button type="button" class="btn btn-secondary comment-cancel-btn">Zrušit</button>
-                            <button type="submit" class="btn btn-primary comment-save-btn">Uložit</button>
-                        </div>
-                        <p class="status-message comment-status" aria-live="polite"></p>
-                    </form>
+                    ${editFormHtml}
                 </div>
             </article>
         `;
