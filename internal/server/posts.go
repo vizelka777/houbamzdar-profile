@@ -38,7 +38,7 @@ func (s *Server) handleCreatePost(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "capture not found or unauthorized", http.StatusBadRequest)
 				return
 			}
-			
+
 			if c.Status != "published" {
 				if s.Media != nil && s.Media.Enabled() {
 					publicKey, publicURL, err := s.Media.PublishCapture(r.Context(), c)
@@ -129,7 +129,7 @@ func (s *Server) handleUpdatePost(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "capture not found or unauthorized", http.StatusBadRequest)
 				return
 			}
-			
+
 			if c.Status != "published" {
 				if s.Media != nil && s.Media.Enabled() {
 					publicKey, publicURL, err := s.Media.PublishCapture(r.Context(), c)
@@ -201,6 +201,10 @@ func (s *Server) handleListPosts(w http.ResponseWriter, r *http.Request) {
 
 	if posts == nil {
 		posts = []*models.Post{}
+	} else {
+		for _, post := range posts {
+			attachPublicURLs(post.Captures, s.Media)
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -232,6 +236,10 @@ func (s *Server) handleListPublicPosts(w http.ResponseWriter, r *http.Request) {
 
 	if posts == nil {
 		posts = []*models.Post{}
+	} else {
+		for _, post := range posts {
+			attachPublicURLs(post.Captures, s.Media)
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
