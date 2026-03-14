@@ -253,6 +253,11 @@ func (s *Server) handleAdminManualGrant(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	if !s.isAdminRequest(r) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
 	var req struct {
 		UserID         int64             `json:"user_id"`
 		ReasonCode     string            `json:"reason_code"`

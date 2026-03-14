@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -12,6 +13,7 @@ import (
 	"github.com/houbamzdar/bff/internal/config"
 	"github.com/houbamzdar/bff/internal/db"
 	"github.com/houbamzdar/bff/internal/media"
+	"github.com/houbamzdar/bff/internal/models"
 )
 
 type Server struct {
@@ -112,6 +114,30 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 		ctx := context.WithValue(r.Context(), "user", user)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+func (s *Server) isAdminRequest(r *http.Request) bool {
+	if len(s.Config.AdminEmails) == 0 {
+		return false
+	}
+
+	user, ok := r.Context().Value("user").(*models.User)
+	if !ok || user == nil {
+		return false
+	}
+
+	email := strings.TrimSpace(strings.ToLower(user.Email))
+	if email == "" {
+		return false
+	}
+
+	for _, adminEmail := range s.Config.AdminEmails {
+		if email == strings.TrimSpace(strings.ToLower(adminEmail)) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (s *Server) Start() error {

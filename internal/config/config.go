@@ -2,8 +2,8 @@ package config
 
 import (
 	"os"
-	"strings"
 	"strconv"
+	"strings"
 
 	"github.com/joho/godotenv"
 )
@@ -13,6 +13,7 @@ type Config struct {
 	AppBaseURL          string
 	FrontBaseURL        string
 	FrontOrigin         string
+	AdminEmails         []string
 	SessionCookieName   string
 	SessionCookieSecure bool
 	SessionTTLHours     int
@@ -55,12 +56,14 @@ func Load() *Config {
 	if scopesStr != "" {
 		scopes = parseScopes(scopesStr)
 	}
+	adminEmails := parseCSVEnv(os.Getenv("ADMIN_EMAILS"))
 
 	return &Config{
 		Port:                port,
 		AppBaseURL:          os.Getenv("APP_BASE_URL"),
 		FrontBaseURL:        os.Getenv("FRONT_BASE_URL"),
 		FrontOrigin:         os.Getenv("FRONT_ORIGIN"),
+		AdminEmails:         adminEmails,
 		SessionCookieName:   sessionCookieName,
 		SessionCookieSecure: secure,
 		SessionTTLHours:     ttl,
@@ -91,6 +94,14 @@ func getEnv(key, fallback string) string {
 }
 
 func parseScopes(raw string) []string {
+	parsed := parseCSVEnv(raw)
+	if len(parsed) == 0 {
+		return []string{"openid", "profile", "email", "phone", "offline_access"}
+	}
+	return parsed
+}
+
+func parseCSVEnv(raw string) []string {
 	parts := strings.Split(raw, ",")
 	scopes := make([]string, 0, len(parts))
 	seen := make(map[string]struct{}, len(parts))
@@ -107,8 +118,5 @@ func parseScopes(raw string) []string {
 		scopes = append(scopes, scope)
 	}
 
-	if len(scopes) == 0 {
-		return []string{"openid", "profile", "email", "phone", "offline_access"}
-	}
 	return scopes
 }
