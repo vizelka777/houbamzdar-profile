@@ -6,6 +6,15 @@ from datetime import datetime, timezone
 
 from PIL import Image, ImageOps
 
+# Optional HEIC/HEIF support is enabled when pillow-heif is available in PYTHONPATH.
+try:
+    from pillow_heif import register_heif_opener
+except Exception:  # pragma: no cover - optional dependency
+    register_heif_opener = None
+
+if register_heif_opener is not None:
+    register_heif_opener()
+
 
 def gps_to_degrees(values):
     return float(values[0]) + float(values[1]) / 60.0 + float(values[2]) / 3600.0

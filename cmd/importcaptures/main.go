@@ -72,13 +72,22 @@ type extractedMetadata struct {
 	CapturedAt string  `json:"captured_at"`
 }
 
+type normalizedImageResult struct {
+	OK          bool   `json:"ok"`
+	Reason      string `json:"reason"`
+	ContentType string `json:"content_type"`
+	Width       int    `json:"width"`
+	Height      int    `json:"height"`
+}
+
 func main() {
 	dir := flag.String("dir", "", "source directory with photos")
 	username := flag.String("user", "Standa", "target preferred_username")
 	limit := flag.Int("limit", 0, "optional maximum number of image files to process")
 	dryRun := flag.Bool("dry-run", false, "scan and normalize metadata without uploading or writing DB rows")
 	verbose := flag.Bool("verbose", false, "print per-file details")
-	metadataScript := flag.String("metadata-script", "tools/extract_capture_exif.py", "path to the Python EXIF extractor used for GPS and capture timestamps")
+	metadataScript := flag.String("metadata-script", "tools/extract_capture_exif.py", "path to the Python EXIF extractor used for GPS and capture timestamps; HEIC/HEIF requires pillow-heif in PYTHONPATH")
+	normalizeScript := flag.String("normalize-script", "tools/normalize_capture_image.py", "path to the Python normalizer used for formats unsupported by the Go image stack; HEIC/HEIF requires pillow-heif in PYTHONPATH")
 	excludeExt := flag.String("exclude-ext", "", "comma-separated file extensions to skip, e.g. .heic,.heif")
 	flag.Parse()
 
@@ -128,7 +137,7 @@ func main() {
 	for index, photoPath := range paths {
 		stats.imageFiles++
 
-		summary, err := importOne(context.Background(), database, storage, user, photoPath, *metadataScript, *dryRun)
+		summary, err := importOne(context.Background(), database, storage, user, photoPath, *metadataScript, *normalizeScript, *dryRun)
 		if err != nil {
 			stats.failed++
 			log.Printf("[%d/%d] FAIL %s: %v", index+1, len(paths), photoPath, err)
@@ -222,7 +231,7 @@ func parseExcludedExtensions(raw string) map[string]struct{} {
 	return excluded
 }
 
-func importOne(ctx context.Context, database *db.DB, storage *media.BunnyStorage, user *models.User, photoPath, metadataScript string, dryRun bool) (*importSummary, error) {
+func importOne(ctx context.Context, database *db.DB, storage *media.BunnyStorage, user *models.User, photoPath, metadataScript, normalizeScript string, dryRun bool) (*importSummary, error) {
 	raw, err := os.ReadFile(photoPath)
 	if err != nil {
 		return nil, fmt.Errorf("read file: %w", err)
@@ -244,7 +253,7 @@ func importOne(ctx context.Context, database *db.DB, storage *media.BunnyStorage
 		}, nil
 	}
 
-	asset, err := normalizeLikeMobileUpload(raw)
+	asset, err := normalizeAsset(photoPath, raw, normalizeScript)
 	if err != nil {
 		return nil, fmt.Errorf("normalize image: %w", err)
 	}
@@ -346,6 +355,56 @@ func normalizeLikeMobileUpload(raw []byte) (*media.NormalizedAsset, error) {
 		Extension:   ".jpg",
 		Width:       width,
 		Height:      height,
+	}, nil
+}
+
+func normalizeAsset(photoPath string, raw []byte, normalizeScript string) (*media.NormalizedAsset, error) {
+	switch strings.ToLower(filepath.Ext(photoPath)) {
+	case ".heic", ".heif":
+		return normalizeWithPython(photoPath, normalizeScript)
+	default:
+		return normalizeLikeMobileUpload(raw)
+	}
+}
+
+func normalizeWithPython(photoPath, scriptPath string) (*media.NormalizedAsset, error) {
+	outputFile, err := os.CreateTemp("", "capture-normalized-*.jpg")
+	if err != nil {
+		return nil, fmt.Errorf("create temp output: %w", err)
+	}
+	outputPath := outputFile.Name()
+	if err := outputFile.Close(); err != nil {
+		return nil, fmt.Errorf("close temp output: %w", err)
+	}
+	defer os.Remove(outputPath)
+
+	output, err := exec.Command("python3", scriptPath, photoPath, outputPath, fmt.Sprintf("%d", maxImageDimension), fmt.Sprintf("%d", jpegQuality)).Output()
+	if err != nil {
+		return nil, fmt.Errorf("normalize via python: %w", err)
+	}
+
+	var result normalizedImageResult
+	if err := json.Unmarshal(output, &result); err != nil {
+		return nil, fmt.Errorf("decode normalization json: %w", err)
+	}
+	if !result.OK {
+		if result.Reason == "" {
+			result.Reason = "normalize_unavailable"
+		}
+		return nil, errors.New(result.Reason)
+	}
+
+	normalizedBytes, err := os.ReadFile(outputPath)
+	if err != nil {
+		return nil, fmt.Errorf("read normalized output: %w", err)
+	}
+
+	return &media.NormalizedAsset{
+		Bytes:       normalizedBytes,
+		ContentType: result.ContentType,
+		Extension:   ".jpg",
+		Width:       result.Width,
+		Height:      result.Height,
 	}, nil
 }
 
