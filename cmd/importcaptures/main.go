@@ -79,6 +79,7 @@ func main() {
 	dryRun := flag.Bool("dry-run", false, "scan and normalize metadata without uploading or writing DB rows")
 	verbose := flag.Bool("verbose", false, "print per-file details")
 	metadataScript := flag.String("metadata-script", "tools/extract_capture_exif.py", "path to the Python EXIF extractor used for GPS and capture timestamps")
+	excludeExt := flag.String("exclude-ext", "", "comma-separated file extensions to skip, e.g. .heic,.heif")
 	flag.Parse()
 
 	if strings.TrimSpace(*dir) == "" {
@@ -109,7 +110,7 @@ func main() {
 		log.Fatal("Bunny storage is not configured")
 	}
 
-	paths, err := collectImagePaths(*dir)
+	paths, err := collectImagePaths(*dir, parseExcludedExtensions(*excludeExt))
 	if err != nil {
 		log.Fatalf("collect image paths: %v", err)
 	}
@@ -167,7 +168,7 @@ func main() {
 	)
 }
 
-func collectImagePaths(root string) ([]string, error) {
+func collectImagePaths(root string, excludedExt map[string]struct{}) ([]string, error) {
 	var paths []string
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -176,7 +177,7 @@ func collectImagePaths(root string) ([]string, error) {
 		if d.IsDir() {
 			return nil
 		}
-		if !isSupportedImagePath(path) {
+		if !isSupportedImagePath(path, excludedExt) {
 			return nil
 		}
 		paths = append(paths, path)
@@ -189,13 +190,36 @@ func collectImagePaths(root string) ([]string, error) {
 	return paths, nil
 }
 
-func isSupportedImagePath(path string) bool {
-	switch strings.ToLower(filepath.Ext(path)) {
+func isSupportedImagePath(path string, excludedExt map[string]struct{}) bool {
+	ext := strings.ToLower(filepath.Ext(path))
+	if _, skip := excludedExt[ext]; skip {
+		return false
+	}
+	switch ext {
 	case ".jpg", ".jpeg", ".png", ".gif", ".webp", ".heic", ".heif":
 		return true
 	default:
 		return false
 	}
+}
+
+func parseExcludedExtensions(raw string) map[string]struct{} {
+	if strings.TrimSpace(raw) == "" {
+		return map[string]struct{}{}
+	}
+
+	excluded := make(map[string]struct{})
+	for _, part := range strings.Split(raw, ",") {
+		ext := strings.ToLower(strings.TrimSpace(part))
+		if ext == "" {
+			continue
+		}
+		if !strings.HasPrefix(ext, ".") {
+			ext = "." + ext
+		}
+		excluded[ext] = struct{}{}
+	}
+	return excluded
 }
 
 func importOne(ctx context.Context, database *db.DB, storage *media.BunnyStorage, user *models.User, photoPath, metadataScript string, dryRun bool) (*importSummary, error) {
