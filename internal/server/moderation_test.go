@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -177,6 +178,113 @@ func TestListModerationUserActionsIncludesUserAndContentActions(t *testing.T) {
 	}
 	if !foundHiddenPost {
 		t.Fatalf("expected post_visibility_updated action in payload")
+	}
+}
+
+func TestSetModerationUserRestrictionsPersistsModerationNote(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{
+		DBURL:             "file:" + filepath.Join(t.TempDir(), "test.db"),
+		FrontOrigin:       "https://houbamzdar.cz",
+		SessionCookieName: "hzd_session",
+	}
+
+	database, err := db.New(cfg)
+	if err != nil {
+		t.Fatalf("open test database: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = database.Close()
+	})
+
+	token := &oauth2.Token{
+		AccessToken:  "access-token",
+		RefreshToken: "refresh-token",
+		Expiry:       time.Now().Add(time.Hour).UTC(),
+	}
+
+	targetUser, _, err := database.UpsertUser(&models.OIDCClaims{
+		Iss:               "https://ahoj420.eu",
+		Sub:               "moderation-note-target-user",
+		PreferredUsername: "target-note-user",
+		Email:             "target-note-user@example.test",
+		EmailVerified:     true,
+	}, token)
+	if err != nil {
+		t.Fatalf("create target user: %v", err)
+	}
+
+	moderator, _, err := database.UpsertUser(&models.OIDCClaims{
+		Iss:               "https://ahoj420.eu",
+		Sub:               "moderation-note-moderator",
+		PreferredUsername: "houbamzdar",
+		Email:             "moderation-note-moderator@example.test",
+		EmailVerified:     true,
+	}, token)
+	if err != nil {
+		t.Fatalf("create moderator: %v", err)
+	}
+	if !moderator.IsModerator {
+		t.Fatalf("expected moderator account to be auto-flagged")
+	}
+
+	sessionID := "moderation-note-session"
+	if err := database.CreateSession(&models.Session{
+		SessionID: sessionID,
+		UserID:    moderator.ID,
+		CreatedAt: time.Now().UTC(),
+		ExpiresAt: time.Now().UTC().Add(24 * time.Hour),
+	}); err != nil {
+		t.Fatalf("create moderator session: %v", err)
+	}
+
+	srv := New(cfg, database, nil, nil)
+
+	requestBody := strings.NewReader(`{
+		"banned_until": "",
+		"comments_muted_until": "",
+		"publishing_suspended_until": "",
+		"reason_code": "manual_moderation",
+		"note": "Internal moderator note survives round-trip."
+	}`)
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/moderation/users/"+strconv.FormatInt(targetUser.ID, 10)+"/restrictions",
+		requestBody,
+	)
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(&http.Cookie{Name: cfg.SessionCookieName, Value: sessionID})
+	rec := httptest.NewRecorder()
+	srv.Router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var payload struct {
+		OK   bool `json:"ok"`
+		User struct {
+			ModerationNote string `json:"moderation_note"`
+		} `json:"user"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	if !payload.OK {
+		t.Fatalf("expected ok=true")
+	}
+	if payload.User.ModerationNote != "Internal moderator note survives round-trip." {
+		t.Fatalf("expected moderation note in response, got %q", payload.User.ModerationNote)
+	}
+
+	reloadedUser, err := database.GetUser(targetUser.ID)
+	if err != nil {
+		t.Fatalf("reload target user: %v", err)
+	}
+	if reloadedUser.ModerationNote != "Internal moderator note survives round-trip." {
+		t.Fatalf("expected moderation note in database, got %q", reloadedUser.ModerationNote)
 	}
 }
 

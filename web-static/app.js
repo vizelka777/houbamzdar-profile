@@ -1008,7 +1008,7 @@ function renderPublicModeratorPanel(visible) {
             </label>
 
             <div class="action-row">
-                <button id="moderation-save-restrictions-btn" type="button" class="btn btn-secondary">Uložit omezení</button>
+                <button id="moderation-save-restrictions-btn" type="button" class="btn btn-secondary">Uložit omezení a poznámku</button>
                 <span id="moderation-status" class="status-message" aria-live="polite"></span>
             </div>
 
@@ -1162,7 +1162,7 @@ function attachPublicModeratorPanelHandlers() {
         restrictionsBtn.addEventListener("click", async () => {
             try {
                 restrictionsBtn.disabled = true;
-                setStatusMessage(status, "Ukládám omezení...");
+                setStatusMessage(status, "Ukládám omezení a poznámku...");
 
                 const payload = await apiJsonRequest(
                     `/api/moderation/users/${encodeURIComponent(publicProfileState.requestedUserID)}/restrictions`,
@@ -1180,10 +1180,10 @@ function attachPublicModeratorPanelHandlers() {
                 publicProfileState.moderationUser = payload.user || null;
                 syncPublicModeratorPanel();
                 await loadPublicModerationActions(false);
-                setStatusMessage(status, "Omezení uložena.", "success");
+                setStatusMessage(status, "Omezení a poznámka uloženy.", "success");
             } catch (error) {
                 console.error("Failed to save user restrictions", error);
-                setStatusMessage(status, error.message || "Omezení se nepodařilo uložit.", "error");
+                setStatusMessage(status, error.message || "Omezení a poznámku se nepodařilo uložit.", "error");
             } finally {
                 restrictionsBtn.disabled = false;
             }
