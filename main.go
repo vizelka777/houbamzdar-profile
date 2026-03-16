@@ -43,6 +43,9 @@ func main() {
 	if enrichmentService.Enabled() {
 		go enrichmentService.Run(workerCtx)
 	}
+	if srv.Backup != nil && srv.Backup.SchedulerEnabled() {
+		go srv.Backup.RunScheduler(workerCtx)
+	}
 
 	go func() {
 		log.Printf("Starting server on port %s", cfg.Port)

@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Administrace | Houbam Zdar</title>
+    <meta name="description" content="Správa účtů, rolí a systémových přehledů pro administrátory.">
+    <link rel="icon" href="/favicon.ico" sizes="any">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body data-page="admin" class="page-shell">
+    <header class="site-header">
+        <a href="/" class="brand-link" aria-label="Houbam Zdar">
+            <img src="/logo.png" alt="Logo Houbam Zdar" class="brand-mark">
+            <div class="brand-copy">
+                <span class="brand-eyebrow">Administrace</span>
+                <strong>Houbam Zdar</strong>
+            </div>
+        </a>
+        <div id="auth-buttons" class="header-actions"></div>
+    </header>
+
+    <main class="content-main content-main-narrow">
+        <section class="page-intro card">
+            <p class="section-label">Admin panel</p>
+            <h1>Administrace účtů</h1>
+            <p id="admin-page-note" class="muted-copy">
+                Načítám administraci...
+            </p>
+        </section>
+
+        <div id="admin-page-error" class="card" hidden></div>
+
+        <div id="admin-dashboard" hidden>
+            <section class="admin-overview-grid">
+                <article class="card admin-overview-card">
+                    <p class="section-label">Účty</p>
+                    <h2 id="admin-stat-total-users">0</h2>
+                    <p class="muted-copy">Celkem registrovaných uživatelů</p>
+                </article>
+                <article class="card admin-overview-card">
+                    <p class="section-label">Oprávnění</p>
+                    <h2 id="admin-stat-staff-users">0</h2>
+                    <p class="muted-copy">Admini a moderátoři dohromady</p>
+                </article>
+                <article class="card admin-overview-card">
+                    <p class="section-label">Omezení</p>
+                    <h2 id="admin-stat-restricted-users">0</h2>
+                    <p class="muted-copy">Aktivně omezené účty</p>
+                </article>
+                <article class="card admin-overview-card">
+                    <p class="section-label">Bany</p>
+                    <h2 id="admin-stat-banned-users">0</h2>
+                    <p class="muted-copy">Dočasně zabanované účty</p>
+                </article>
+            </section>
+
+            <section class="card admin-users-section">
+                <div class="about-head">
+                    <div>
+                        <p class="section-label">Adresář</p>
+                        <h2>Přehled účtů</h2>
+                    </div>
+                    <p id="admin-users-summary" class="muted-copy">Načítám uživatele...</p>
+                </div>
+
+                <form id="admin-users-filters" class="admin-users-filters">
+                    <label>
+                        <span>Hledat</span>
+                        <input id="admin-filter-query" type="search" maxlength="120" placeholder="uživatelské jméno, e-mail nebo ID">
+                    </label>
+                    <label>
+                        <span>Role</span>
+                        <select id="admin-filter-role">
+                            <option value="">Všechny role</option>
+                            <option value="staff">Staff</option>
+                            <option value="admin">Pouze admin</option>
+                            <option value="moderator">Pouze moderátor</option>
+                            <option value="user">Běžní uživatelé</option>
+                        </select>
+                    </label>
+                    <label>
+                        <span>Stav</span>
+                        <select id="admin-filter-status">
+                            <option value="">Bez filtru</option>
+                            <option value="restricted">Jakékoli omezení</option>
+                            <option value="banned">Aktivní ban</option>
+                            <option value="comments_muted">Zákaz komentářů</option>
+                            <option value="publishing_suspended">Zákaz publikace</option>
+                        </select>
+                    </label>
+                    <div class="action-row">
+                        <button type="submit" class="btn btn-primary">Použít filtry</button>
+                        <button id="admin-filters-reset" type="button" class="btn btn-secondary">Reset</button>
+                    </div>
+                </form>
+
+                <div id="admin-users-list" class="admin-users-list">
+                    <p class="moderation-dashboard-empty">Načítám uživatele...</p>
+                </div>
+
+                <div class="admin-users-pagination">
+                    <button id="admin-users-prev" type="button" class="btn btn-secondary">Předchozí</button>
+                    <p id="admin-users-page-label" class="muted-copy">Strana 1</p>
+                    <button id="admin-users-next" type="button" class="btn btn-secondary">Další</button>
+                </div>
+            </section>
+
+            <section class="card admin-system-section">
+                <p class="section-label">Systém</p>
+                <div class="about-head">
+                    <div>
+                        <h2>Zálohy databáze</h2>
+                        <p class="muted-copy">Ruční spuštění je aktivní. Plánované zálohy se zapnou přes serverový env interval.</p>
+                    </div>
+                    <div class="action-row">
+                        <button id="admin-run-backup" type="button" class="btn btn-primary">Spustit zálohu teď</button>
+                    </div>
+                </div>
+                <p id="admin-backup-status" class="status-message" aria-live="polite"></p>
+                <p id="admin-backups-summary" class="muted-copy">Načítám historii záloh...</p>
+                <div id="admin-backups-list" class="admin-backups-list">
+                    <p class="moderation-dashboard-empty">Načítám historii záloh...</p>
+                </div>
+                <div class="action-row">
+                    <button id="admin-backups-load-more" type="button" class="btn btn-secondary" style="display: none;">Načíst starší zálohy</button>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <script src="app.js" defer></script>
+    <script src="admin.js" defer></script>
+</body>
+</html>

@@ -159,6 +159,19 @@ func (b *BunnyStorage) DeletePrivate(ctx context.Context, key string) error {
 	return b.deleteObject(ctx, b.privateZone, b.privateKey, key)
 }
 
+func (b *BunnyStorage) StorePrivateObject(ctx context.Context, key string, payload []byte, contentType string) error {
+	if !b.CanReadPrivate() {
+		return fmt.Errorf("private Bunny storage is not configured")
+	}
+	if strings.TrimSpace(key) == "" {
+		return fmt.Errorf("object key is required")
+	}
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	return b.putObject(ctx, b.privateZone, b.privateKey, key, payload, contentType)
+}
+
 func (b *BunnyStorage) DeletePublic(ctx context.Context, key string) error {
 	if key == "" {
 		return nil

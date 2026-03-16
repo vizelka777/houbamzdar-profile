@@ -680,6 +680,9 @@ function renderHeader(session, profile = null) {
         if (userCanModerateClient(identity)) {
             authButtons.appendChild(createLinkButton("Moderace", "/moderation.html", "btn-secondary"));
         }
+        if (userCanAdminClient(identity)) {
+            authButtons.appendChild(createLinkButton("Administrace", "/admin.html", "btn-secondary"));
+        }
 
         authButtons.appendChild(createLinkButton("Můj profil", "/me.html", "btn-primary"));
         authButtons.appendChild(createActionButton("Odhlásit", "btn-secondary", logoutFlow));

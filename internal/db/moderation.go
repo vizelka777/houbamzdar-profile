@@ -629,14 +629,12 @@ func (db *DB) SetUserRoles(
 		UPDATE users
 		SET is_moderator = ?,
 			is_admin = ?,
-			moderation_note = ?,
 			moderated_by_user_id = ?,
 			moderated_at = ?
 		WHERE id = ?
 	`,
 		isModerator,
 		isAdmin,
-		nullIfEmpty(strings.TrimSpace(note)),
 		nullIfZeroInt64(actorUserID),
 		now.Format(time.RFC3339),
 		targetUserID,

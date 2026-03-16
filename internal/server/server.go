@@ -8,6 +8,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 	"github.com/houbamzdar/bff/internal/auth"
+	"github.com/houbamzdar/bff/internal/backup"
 	"github.com/houbamzdar/bff/internal/config"
 	"github.com/houbamzdar/bff/internal/db"
 	"github.com/houbamzdar/bff/internal/media"
@@ -18,6 +19,7 @@ type Server struct {
 	DB     *db.DB
 	OIDC   *auth.OIDC
 	Media  *media.BunnyStorage
+	Backup *backup.Service
 	Router *chi.Mux
 }
 
@@ -38,6 +40,7 @@ func New(cfg *config.Config, database *db.DB, oidc *auth.OIDC, mediaStorage *med
 		DB:     database,
 		OIDC:   oidc,
 		Media:  mediaStorage,
+		Backup: backup.New(cfg, database, mediaStorage),
 		Router: r,
 	}
 
@@ -74,6 +77,10 @@ func (s *Server) setupRoutes() {
 		r.Get("/api/moderation/hidden-captures", s.handleListModerationHiddenCaptures)
 		r.Get("/api/moderation/hidden-posts", s.handleListModerationHiddenPosts)
 		r.Get("/api/moderation/hidden-comments", s.handleListModerationHiddenComments)
+		r.Get("/api/admin/overview", s.handleGetAdminOverview)
+		r.Get("/api/admin/users", s.handleListAdminUsers)
+		r.Get("/api/admin/backups", s.handleListAdminBackups)
+		r.Post("/api/admin/backups/run", s.handleRunAdminBackup)
 		r.Get("/api/moderation/captures/{captureID}/taxonomy", s.handleGetModerationCaptureTaxonomy)
 		r.Post("/api/moderation/captures/{captureID}/taxonomy", s.handleSetModerationCaptureTaxonomy)
 		r.Get("/api/moderation/captures/{captureID}/geo", s.handleGetModerationCaptureGeo)

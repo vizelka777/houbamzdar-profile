@@ -37,6 +37,8 @@ type Config struct {
 	CaptureAIValidatorToken string
 	NominatimBaseURL        string
 	NominatimUserAgent      string
+
+	AdminBackupIntervalHours int
 }
 
 func Load() *Config {
@@ -47,6 +49,7 @@ func Load() *Config {
 	if ttl == 0 {
 		ttl = 720
 	}
+	backupIntervalHours, _ := strconv.Atoi(os.Getenv("ADMIN_BACKUP_INTERVAL_HOURS"))
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
@@ -90,6 +93,8 @@ func Load() *Config {
 		CaptureAIValidatorToken: os.Getenv("CAPTURE_AI_VALIDATOR_TOKEN"),
 		NominatimBaseURL:        getEnv("NOMINATIM_BASE_URL", "https://nominatim.openstreetmap.org"),
 		NominatimUserAgent:      getEnv("NOMINATIM_USER_AGENT", "houbamzdar-mvp/1.0"),
+
+		AdminBackupIntervalHours: backupIntervalHours,
 	}
 }
 

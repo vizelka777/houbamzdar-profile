@@ -254,3 +254,53 @@ type ModerationAction struct {
 	MetaJSON        string    `json:"meta_json,omitempty"`
 	CreatedAt       time.Time `json:"created_at"`
 }
+
+type AdminOverview struct {
+	TotalUsers               int `json:"total_users"`
+	AdminUsers               int `json:"admin_users"`
+	ModeratorUsers           int `json:"moderator_users"`
+	StaffUsers               int `json:"staff_users"`
+	BannedUsers              int `json:"banned_users"`
+	CommentsMutedUsers       int `json:"comments_muted_users"`
+	PublishingSuspendedUsers int `json:"publishing_suspended_users"`
+	RestrictedUsers          int `json:"restricted_users"`
+}
+
+type AdminUserSummary struct {
+	ID                       int64     `json:"id"`
+	PreferredUsername        string    `json:"preferred_username"`
+	Email                    string    `json:"email"`
+	Picture                  string    `json:"picture"`
+	IsModerator              bool      `json:"is_moderator"`
+	IsAdmin                  bool      `json:"is_admin"`
+	BannedUntil              time.Time `json:"banned_until,omitempty"`
+	CommentsMutedUntil       time.Time `json:"comments_muted_until,omitempty"`
+	PublishingSuspendedUntil time.Time `json:"publishing_suspended_until,omitempty"`
+	ModerationNote           string    `json:"moderation_note,omitempty"`
+	ModeratedByUserID        int64     `json:"moderated_by_user_id,omitempty"`
+	ModeratedAt              time.Time `json:"moderated_at,omitempty"`
+	PublicPostsCount         int       `json:"public_posts_count"`
+	PublicCapturesCount      int       `json:"public_captures_count"`
+}
+
+type AdminUserListFilters struct {
+	Query  string `json:"query,omitempty"`
+	Role   string `json:"role,omitempty"`
+	Status string `json:"status,omitempty"`
+	Limit  int    `json:"limit,omitempty"`
+	Offset int    `json:"offset,omitempty"`
+}
+
+type AdminBackup struct {
+	ID                string    `json:"id"`
+	Status            string    `json:"status"`
+	TriggerKind       string    `json:"trigger_kind"`
+	StorageKey        string    `json:"storage_key,omitempty"`
+	ChecksumSHA256    string    `json:"checksum_sha256,omitempty"`
+	SizeBytes         int64     `json:"size_bytes,omitempty"`
+	StartedAt         time.Time `json:"started_at,omitempty"`
+	FinishedAt        time.Time `json:"finished_at,omitempty"`
+	InitiatedByUserID int64     `json:"initiated_by_user_id,omitempty"`
+	InitiatedByName   string    `json:"initiated_by_name,omitempty"`
+	ErrorMessage      string    `json:"error_message,omitempty"`
+}
