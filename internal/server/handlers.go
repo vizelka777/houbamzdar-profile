@@ -224,6 +224,51 @@ func (s *Server) handleGetMe(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(user)
 }
 
+func (s *Server) handleDeleteMe(w http.ResponseWriter, r *http.Request) {
+	user := r.Context().Value("user").(*models.User)
+	if user == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if userCanAdmin(user) || user.ID == 20 {
+		http.Error(w, "admin account cannot be deleted from self-service", http.StatusForbidden)
+		return
+	}
+
+	deletedUser, deletedCaptureCount, err := s.deleteUserAccountData(r.Context(), user.ID)
+	if err != nil {
+		if err == http.ErrNotSupported {
+			http.Error(w, "capture storage is not configured", http.StatusServiceUnavailable)
+			return
+		}
+		if isMissingStorageObjectError(err) {
+			http.Error(w, "failed to delete capture files", http.StatusBadGateway)
+			return
+		}
+		http.Error(w, "failed to delete account", http.StatusInternalServerError)
+		return
+	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     s.Config.SessionCookieName,
+		Value:    "",
+		Path:     "/",
+		Expires:  time.Unix(0, 0),
+		HttpOnly: true,
+		Secure:   s.Config.SessionCookieSecure,
+		SameSite: http.SameSiteLaxMode,
+	})
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"ok":                    true,
+		"deleted_user_id":       user.ID,
+		"deleted_username":      deletedUser.PreferredUsername,
+		"deleted_capture_count": deletedCaptureCount,
+		"redirect_url":          s.Config.FrontBaseURL + "/",
+	})
+}
+
 func (s *Server) handlePostMeAbout(w http.ResponseWriter, r *http.Request) {
 	user := r.Context().Value("user").(*models.User)
 

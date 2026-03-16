@@ -70,6 +70,7 @@ func (s *Server) setupRoutes() {
 	s.Router.Group(func(r chi.Router) {
 		r.Use(s.authMiddleware)
 		r.Get("/api/me", s.handleGetMe)
+		r.Delete("/api/me", s.handleDeleteMe)
 		r.Get("/api/me/viewed-captures", s.handleListViewedCaptures)
 		r.Post("/api/me/about", s.handlePostMeAbout)
 		r.Get("/api/moderation/ai-models", s.handleListModeratorAIModels)

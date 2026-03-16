@@ -837,8 +837,57 @@ async function initMePage() {
         publicLink.href = buildPublicProfileURL(me.id);
     }
 
+    const selfDeleteButton = document.getElementById("self-delete-btn");
+    const selfDeleteStatus = document.getElementById("self-delete-status");
+    if (selfDeleteButton) {
+        if (userCanAdminClient(me) || Number(me.id) === 20) {
+            selfDeleteButton.disabled = true;
+            setStatusMessage(selfDeleteStatus, "Admin účet nelze mazat přes self-service.", "error");
+        } else {
+            selfDeleteButton.addEventListener("click", () => handleSelfDeleteAccount(me));
+        }
+    }
+
     if (typeof window.initProfileActivityMap === "function") {
         await window.initProfileActivityMap();
+    }
+}
+
+async function handleSelfDeleteAccount(me) {
+    const button = document.getElementById("self-delete-btn");
+    const statusNode = document.getElementById("self-delete-status");
+    if (!me || !button) {
+        return;
+    }
+
+    const username = String(me.preferred_username || "").trim();
+    const promptLabel = username || `ID ${me.id}`;
+    const typedConfirmation = window.prompt(`Smazání je trvalé. Pro potvrzení napište přesně: ${promptLabel}`);
+    if (typedConfirmation === null) {
+        return;
+    }
+    if (typedConfirmation.trim() !== promptLabel) {
+        setStatusMessage(statusNode, "Potvrzení nesouhlasí. Účet zůstal beze změny.", "error");
+        return;
+    }
+    if (!window.confirm("Opravdu chcete nevratně smazat svůj účet na Houbam Zdar?")) {
+        return;
+    }
+
+    button.disabled = true;
+    setStatusMessage(statusNode, "Mažu váš účet a související data...");
+
+    try {
+        const payload = await apiJsonRequest("/api/me", { method: "DELETE" });
+        setAppIdentity({ logged_in: false, user: null }, null);
+        setStatusMessage(statusNode, "Účet byl smazán. Přesměrovávám...", "success");
+        window.setTimeout(() => {
+            window.location.href = payload?.redirect_url || "/";
+        }, 800);
+    } catch (error) {
+        console.error("Failed to delete own account", error);
+        setStatusMessage(statusNode, error.message || "Účet se nepodařilo smazat.", "error");
+        button.disabled = false;
     }
 }
 

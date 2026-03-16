@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/url"
@@ -247,6 +248,43 @@ func isMissingStorageObjectError(err error) bool {
 	return strings.Contains(strings.ToLower(err.Error()), "status 404")
 }
 
+func (s *Server) deleteUserAccountData(ctx context.Context, userID int64) (*models.User, int, error) {
+	if s.Media == nil || !s.Media.Enabled() {
+		return nil, 0, http.ErrNotSupported
+	}
+
+	targetUser, err := s.DB.GetUser(userID)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	captureRefs, err := s.DB.ListUserCaptureStorageRefs(userID)
+	if err != nil {
+		return nil, 0, err
+	}
+	for _, captureRef := range captureRefs {
+		if captureRef == nil {
+			continue
+		}
+		if captureRef.PublicStorageKey != "" {
+			if err := s.Media.DeletePublic(ctx, captureRef.PublicStorageKey); err != nil && !isMissingStorageObjectError(err) {
+				return nil, 0, err
+			}
+		}
+		if captureRef.PrivateStorageKey != "" {
+			if err := s.Media.DeletePrivate(ctx, captureRef.PrivateStorageKey); err != nil && !isMissingStorageObjectError(err) {
+				return nil, 0, err
+			}
+		}
+	}
+
+	if err := s.DB.DeleteUserByAdmin(userID); err != nil {
+		return nil, 0, err
+	}
+
+	return targetUser, len(captureRefs), nil
+}
+
 func (s *Server) handleDeleteAdminUser(w http.ResponseWriter, r *http.Request) {
 	actor := r.Context().Value("user").(*models.User)
 	if !userCanAdmin(actor) {
@@ -282,30 +320,16 @@ func (s *Server) handleDeleteAdminUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	captureRefs, err := s.DB.ListUserCaptureStorageRefs(userID)
+	deletedUser, deletedCaptureCount, err := s.deleteUserAccountData(r.Context(), userID)
 	if err != nil {
-		http.Error(w, "failed to list user captures", http.StatusInternalServerError)
-		return
-	}
-	for _, captureRef := range captureRefs {
-		if captureRef == nil {
-			continue
+		if err == http.ErrNotSupported {
+			http.Error(w, "capture storage is not configured", http.StatusServiceUnavailable)
+			return
 		}
-		if captureRef.PublicStorageKey != "" {
-			if err := s.Media.DeletePublic(r.Context(), captureRef.PublicStorageKey); err != nil && !isMissingStorageObjectError(err) {
-				http.Error(w, "failed to delete public capture files", http.StatusBadGateway)
-				return
-			}
+		if isMissingStorageObjectError(err) {
+			http.Error(w, "failed to delete capture files", http.StatusBadGateway)
+			return
 		}
-		if captureRef.PrivateStorageKey != "" {
-			if err := s.Media.DeletePrivate(r.Context(), captureRef.PrivateStorageKey); err != nil && !isMissingStorageObjectError(err) {
-				http.Error(w, "failed to delete private capture files", http.StatusBadGateway)
-				return
-			}
-		}
-	}
-
-	if err := s.DB.DeleteUserByAdmin(userID); err != nil {
 		http.Error(w, "failed to delete user", http.StatusInternalServerError)
 		return
 	}
@@ -314,8 +338,8 @@ func (s *Server) handleDeleteAdminUser(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"ok":                    true,
 		"deleted_user_id":       userID,
-		"deleted_username":      targetUser.PreferredUsername,
-		"deleted_capture_count": len(captureRefs),
+		"deleted_username":      deletedUser.PreferredUsername,
+		"deleted_capture_count": deletedCaptureCount,
 	})
 }
 
