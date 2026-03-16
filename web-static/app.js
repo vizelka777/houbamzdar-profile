@@ -964,7 +964,7 @@ function formatModerationActionDetails(action) {
     return bits.join(" · ");
 }
 
-function renderPublicModeratorPanel(visible, allowRoleEditing) {
+function renderPublicModeratorPanel(visible) {
     const slot = document.getElementById("public-moderator-panel-slot");
     if (!slot) {
         return;
@@ -980,7 +980,7 @@ function renderPublicModeratorPanel(visible, allowRoleEditing) {
             <div class="about-head">
                 <div>
                     <p class="section-label">Moderace uživatele</p>
-                    <h2>Omezení a role</h2>
+                    <h2>Omezení účtu</h2>
                 </div>
                 <p class="muted-copy">
                     Moderace neodemyká skryté souřadnice. Tyto údaje zůstávají dostupné jen přes běžný houbičkový flow.
@@ -1012,22 +1012,6 @@ function renderPublicModeratorPanel(visible, allowRoleEditing) {
                 <span id="moderation-status" class="status-message" aria-live="polite"></span>
             </div>
 
-            <div id="moderation-roles-panel" class="moderation-roles-panel" ${allowRoleEditing ? "" : "hidden"}>
-                <div class="field-row">
-                    <label class="moderation-checkbox">
-                        <input id="moderation-role-is-moderator" type="checkbox">
-                        <span>Moderator</span>
-                    </label>
-                    <label class="moderation-checkbox">
-                        <input id="moderation-role-is-admin" type="checkbox">
-                        <span>Admin</span>
-                    </label>
-                </div>
-                <div class="action-row">
-                    <button id="moderation-save-roles-btn" type="button" class="btn btn-secondary">Uložit role</button>
-                </div>
-            </div>
-
             <div class="moderation-history-panel">
                 <div class="about-head">
                     <div>
@@ -1057,8 +1041,6 @@ function syncPublicModeratorPanel() {
     const bannedInput = document.getElementById("moderation-banned-until");
     const commentsMutedInput = document.getElementById("moderation-comments-muted-until");
     const publishingSuspendedInput = document.getElementById("moderation-publishing-suspended-until");
-    const moderatorCheckbox = document.getElementById("moderation-role-is-moderator");
-    const adminCheckbox = document.getElementById("moderation-role-is-admin");
 
     if (noteInput) {
         noteInput.value = user.moderation_note || "";
@@ -1071,12 +1053,6 @@ function syncPublicModeratorPanel() {
     }
     if (publishingSuspendedInput) {
         publishingSuspendedInput.value = toDatetimeLocalValue(user.publishing_suspended_until);
-    }
-    if (moderatorCheckbox) {
-        moderatorCheckbox.checked = Boolean(user.is_moderator);
-    }
-    if (adminCheckbox) {
-        adminCheckbox.checked = Boolean(user.is_admin);
     }
 }
 
@@ -1154,11 +1130,11 @@ async function loadPublicModerationUser() {
     if (!userCanModerateClient(window.appMe) || publicProfileState.isOwner || !publicProfileState.requestedUserID) {
         publicProfileState.moderationUser = null;
         publicProfileState.moderationActions = [];
-        renderPublicModeratorPanel(false, false);
+        renderPublicModeratorPanel(false);
         return;
     }
 
-    renderPublicModeratorPanel(true, userCanAdminClient(window.appMe));
+    renderPublicModeratorPanel(true);
 
     try {
         const result = await apiJsonRequest(`/api/moderation/users/${encodeURIComponent(publicProfileState.requestedUserID)}`);
@@ -1178,7 +1154,6 @@ async function loadPublicModerationUser() {
 
 function attachPublicModeratorPanelHandlers() {
     const restrictionsBtn = document.getElementById("moderation-save-restrictions-btn");
-    const rolesBtn = document.getElementById("moderation-save-roles-btn");
     const actionsLoadMoreBtn = document.getElementById("moderation-actions-load-more-btn");
     const status = document.getElementById("moderation-status");
 
@@ -1211,37 +1186,6 @@ function attachPublicModeratorPanelHandlers() {
                 setStatusMessage(status, error.message || "Omezení se nepodařilo uložit.", "error");
             } finally {
                 restrictionsBtn.disabled = false;
-            }
-        });
-    }
-
-    if (rolesBtn && !rolesBtn.dataset.bound) {
-        rolesBtn.dataset.bound = "1";
-        rolesBtn.addEventListener("click", async () => {
-            try {
-                rolesBtn.disabled = true;
-                setStatusMessage(status, "Ukládám role...");
-                const payload = await apiJsonRequest(
-                    `/api/moderation/users/${encodeURIComponent(publicProfileState.requestedUserID)}/roles`,
-                    {
-                        method: "POST",
-                        body: {
-                            is_moderator: Boolean(document.getElementById("moderation-role-is-moderator")?.checked),
-                            is_admin: Boolean(document.getElementById("moderation-role-is-admin")?.checked),
-                            note: document.getElementById("moderation-note-input")?.value || "",
-                            reason_code: "manual_role_update"
-                        }
-                    }
-                );
-                publicProfileState.moderationUser = payload.user || null;
-                syncPublicModeratorPanel();
-                await loadPublicModerationActions(false);
-                setStatusMessage(status, "Role uloženy.", "success");
-            } catch (error) {
-                console.error("Failed to save user roles", error);
-                setStatusMessage(status, error.message || "Role se nepodařilo uložit.", "error");
-            } finally {
-                rolesBtn.disabled = false;
             }
         });
     }
@@ -1514,7 +1458,7 @@ async function initPublicProfilePage() {
     publicProfileState.moderationActionsOffset = 0;
     publicProfileState.moderationActionsTotal = 0;
     publicProfileState.moderationActionsHasMore = false;
-    renderPublicModeratorPanel(false, false);
+    renderPublicModeratorPanel(false);
     renderPublicOwnerPanel(false);
 
     const params = new URLSearchParams(window.location.search);

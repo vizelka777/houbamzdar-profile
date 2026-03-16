@@ -49,6 +49,7 @@ const migrationCaptureGeoIndexTableID = "20260316_create_capture_geo_index_table
 const migrationUsersModeratorColumnID = "20260316_add_users_is_moderator"
 const migrationCaptureMushroomAnalysisReviewColumnsID = "20260316_add_capture_mushroom_analysis_review_columns"
 const migrationUsersModerationColumnsID = "20260316_add_users_moderation_columns"
+const migrationDisableAutoAdminBootstrapID = "20260316_disable_auto_admin_bootstrap"
 const migrationContentModerationColumnsID = "20260316_add_content_moderation_columns"
 const migrationModerationActionsTableID = "20260316_create_moderation_actions_table"
 
@@ -60,7 +61,7 @@ func isModeratorUsername(username string) bool {
 }
 
 func isAdminUsername(username string) bool {
-	return strings.EqualFold(strings.TrimSpace(username), "houbamzdar")
+	return false
 }
 
 func moderationNowRFC3339() string {
@@ -218,10 +219,20 @@ func migrate(db *sql.DB) error {
 				}
 				_, err := tx.Exec(`
 					UPDATE users
-					SET is_admin = CASE
-						WHEN lower(COALESCE(preferred_username, '')) = 'houbamzdar' THEN 1
-						ELSE COALESCE(is_admin, 0)
-					END
+					SET is_admin = COALESCE(is_admin, 0)
+				`)
+				return err
+			},
+		},
+		{
+			id: migrationDisableAutoAdminBootstrapID,
+			apply: func(tx *sql.Tx) error {
+				// Role management is intentionally disabled until a dedicated admin flow exists.
+				// Remove the temporary bootstrap admin flag from the hardcoded houbamzdar account.
+				_, err := tx.Exec(`
+					UPDATE users
+					SET is_admin = 0
+					WHERE lower(COALESCE(preferred_username, '')) = 'houbamzdar'
 				`)
 				return err
 			},
@@ -683,9 +694,6 @@ func (db *DB) UpsertUser(claims *models.OIDCClaims, token *oauth2.Token) (*model
 		isModerator = 1
 	}
 	isAdmin := 0
-	if isAdminUsername(claims.PreferredUsername) {
-		isAdmin = 1
-	}
 
 	err := db.QueryRow("SELECT id, COALESCE(about_me, '') FROM users WHERE idp_issuer = ? AND idp_sub = ?", claims.Iss, claims.Sub).Scan(&user.ID, &user.AboutMe)
 	if err == sql.ErrNoRows {
@@ -742,11 +750,11 @@ func (db *DB) UpsertUser(claims *models.OIDCClaims, token *oauth2.Token) (*model
 					ELSE 0
 				END,
 				is_admin = CASE
-					WHEN is_admin = 1 OR ? = 1 THEN 1
+					WHEN is_admin = 1 THEN 1
 					ELSE 0
 				END
 			WHERE id = ?
-		`, claims.PreferredUsername, claims.Email, ev, claims.PhoneNumber, pv, claims.Picture, token.AccessToken, token.RefreshToken, expiry, isModerator, isAdmin, user.ID)
+		`, claims.PreferredUsername, claims.Email, ev, claims.PhoneNumber, pv, claims.Picture, token.AccessToken, token.RefreshToken, expiry, isModerator, user.ID)
 		if err != nil {
 			return nil, false, err
 		}

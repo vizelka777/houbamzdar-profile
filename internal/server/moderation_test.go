@@ -418,3 +418,80 @@ func TestListModerationHiddenContentEndpoints(t *testing.T) {
 		}
 	})
 }
+
+func TestModerationUserRolesRouteDisabled(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{
+		DBURL:             "file:" + filepath.Join(t.TempDir(), "test.db"),
+		FrontOrigin:       "https://houbamzdar.cz",
+		SessionCookieName: "hzd_session",
+	}
+
+	database, err := db.New(cfg)
+	if err != nil {
+		t.Fatalf("open test database: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = database.Close()
+	})
+
+	token := &oauth2.Token{
+		AccessToken:  "access-token",
+		RefreshToken: "refresh-token",
+		Expiry:       time.Now().Add(time.Hour).UTC(),
+	}
+
+	targetUser, _, err := database.UpsertUser(&models.OIDCClaims{
+		Iss:               "https://ahoj420.eu",
+		Sub:               "roles-disabled-target",
+		PreferredUsername: "target-role-disabled",
+		Email:             "target-role-disabled@example.test",
+		EmailVerified:     true,
+	}, token)
+	if err != nil {
+		t.Fatalf("create target user: %v", err)
+	}
+
+	moderator, _, err := database.UpsertUser(&models.OIDCClaims{
+		Iss:               "https://ahoj420.eu",
+		Sub:               "roles-disabled-moderator",
+		PreferredUsername: "houbamzdar",
+		Email:             "roles-disabled-moderator@example.test",
+		EmailVerified:     true,
+	}, token)
+	if err != nil {
+		t.Fatalf("create moderator: %v", err)
+	}
+	if !moderator.IsModerator {
+		t.Fatalf("expected moderator account to be auto-flagged")
+	}
+	if moderator.IsAdmin {
+		t.Fatalf("expected moderator bootstrap account to stay non-admin")
+	}
+
+	sessionID := "roles-disabled-session"
+	if err := database.CreateSession(&models.Session{
+		SessionID: sessionID,
+		UserID:    moderator.ID,
+		CreatedAt: time.Now().UTC(),
+		ExpiresAt: time.Now().UTC().Add(24 * time.Hour),
+	}); err != nil {
+		t.Fatalf("create moderator session: %v", err)
+	}
+
+	srv := New(cfg, database, nil, nil)
+
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/moderation/users/"+strconv.FormatInt(targetUser.ID, 10)+"/roles",
+		nil,
+	)
+	req.AddCookie(&http.Cookie{Name: cfg.SessionCookieName, Value: sessionID})
+	rec := httptest.NewRecorder()
+	srv.Router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected status 404 for disabled role-management route, got %d: %s", rec.Code, rec.Body.String())
+	}
+}

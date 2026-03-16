@@ -79,7 +79,6 @@ func (s *Server) setupRoutes() {
 		r.Get("/api/moderation/captures/{captureID}/geo", s.handleGetModerationCaptureGeo)
 		r.Post("/api/moderation/captures/{captureID}/geo", s.handleSetModerationCaptureGeo)
 		r.Post("/api/moderation/users/{userID}/restrictions", s.handleSetModerationUserRestrictions)
-		r.Post("/api/moderation/users/{userID}/roles", s.handleSetModerationUserRoles)
 		r.Post("/api/moderation/captures/{captureID}/visibility", s.handleSetModerationCaptureVisibility)
 		r.Post("/api/moderation/posts/{postID}/visibility", s.handleSetModerationPostVisibility)
 		r.Post("/api/moderation/comments/{commentID}/visibility", s.handleSetModerationCommentVisibility)
