@@ -1481,6 +1481,7 @@ img {
 }
 
 .gallery-moderator-action,
+.gallery-moderator-geo-action,
 .gallery-moderator-hide-action {
     width: 100%;
     justify-content: center;
@@ -1489,6 +1490,8 @@ img {
 }
 
 .gallery-moderator-edit-action,
+.gallery-moderator-save-geo-action,
+.gallery-moderator-cancel-geo-action,
 .gallery-moderator-save-taxonomy-action,
 .gallery-moderator-cancel-taxonomy-action {
     width: 100%;

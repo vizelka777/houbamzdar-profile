@@ -24,7 +24,16 @@ const state = {
         editorLoading: false,
         editorLoadError: "",
         editorText: "",
-        editorNote: ""
+        editorNote: "",
+        geoEditorCaptureId: "",
+        geoEditorLoading: false,
+        geoEditorLoadError: "",
+        geoEditorCountryCode: "",
+        geoEditorKrajName: "",
+        geoEditorOkresName: "",
+        geoEditorObecName: "",
+        geoEditorCanViewDetailed: false,
+        geoEditorNote: ""
     }
 };
 
@@ -191,6 +200,18 @@ function closeModeratorTaxonomyEditor() {
     state.moderation.editorNote = "";
 }
 
+function closeModeratorGeoEditor() {
+    state.moderation.geoEditorCaptureId = "";
+    state.moderation.geoEditorLoading = false;
+    state.moderation.geoEditorLoadError = "";
+    state.moderation.geoEditorCountryCode = "";
+    state.moderation.geoEditorKrajName = "";
+    state.moderation.geoEditorOkresName = "";
+    state.moderation.geoEditorObecName = "";
+    state.moderation.geoEditorCanViewDetailed = false;
+    state.moderation.geoEditorNote = "";
+}
+
 function syncModeratorModelPanel() {
     const panel = document.getElementById("gallery-moderator-panel");
     const select = document.getElementById("gallery-moderator-model");
@@ -320,6 +341,7 @@ async function runModeratorRecheck(captureID, button) {
             : "aktualizovaný taxon";
         window.alert(`Moderatorská kontrola je hotová. Hlavní taxon: ${firstSpecies}.`);
         closeModeratorTaxonomyEditor();
+        closeModeratorGeoEditor();
         await loadGallery({ reset: true });
     } catch (error) {
         console.error("Moderator recheck failed", error);
@@ -341,6 +363,7 @@ async function openModeratorTaxonomyEditor(captureID) {
         return;
     }
 
+    closeModeratorGeoEditor();
     state.moderation.editorCaptureId = captureID;
     state.moderation.editorLoading = true;
     state.moderation.editorLoadError = "";
@@ -359,6 +382,49 @@ async function openModeratorTaxonomyEditor(captureID) {
         state.moderation.editorLoadError = error.message || "Nepodařilo se načíst současné taxony.";
     } finally {
         state.moderation.editorLoading = false;
+        renderGallery(document.getElementById("gallery-container"));
+    }
+}
+
+async function openModeratorGeoEditor(captureID) {
+    if (!captureID || !canModeratorRecheck()) {
+        return;
+    }
+    if (state.moderation.geoEditorCaptureId === captureID) {
+        closeModeratorGeoEditor();
+        renderGallery(document.getElementById("gallery-container"));
+        return;
+    }
+
+    closeModeratorTaxonomyEditor();
+    state.moderation.geoEditorCaptureId = captureID;
+    state.moderation.geoEditorLoading = true;
+    state.moderation.geoEditorLoadError = "";
+    state.moderation.geoEditorCountryCode = "";
+    state.moderation.geoEditorKrajName = "";
+    state.moderation.geoEditorOkresName = "";
+    state.moderation.geoEditorObecName = "";
+    state.moderation.geoEditorCanViewDetailed = false;
+    state.moderation.geoEditorNote = "";
+    renderGallery(document.getElementById("gallery-container"));
+
+    try {
+        const response = await apiJsonRequest(`/api/moderation/captures/${encodeURIComponent(captureID)}/geo`);
+        if (!response || !response.ok) {
+            throw new Error("Nepodařilo se načíst uloženou lokalitu.");
+        }
+        const capture = response.capture || {};
+        const geo = response.geo || {};
+        state.moderation.geoEditorCountryCode = String(geo.country_code || "").trim();
+        state.moderation.geoEditorKrajName = String(geo.kraj_name || "").trim();
+        state.moderation.geoEditorOkresName = String(geo.okres_name || "").trim();
+        state.moderation.geoEditorObecName = String(geo.obec_name || "").trim();
+        state.moderation.geoEditorCanViewDetailed = Boolean(capture.can_view_detailed_location);
+    } catch (error) {
+        console.error("Failed to load capture geo", error);
+        state.moderation.geoEditorLoadError = error.message || "Nepodařilo se načíst uloženou lokalitu.";
+    } finally {
+        state.moderation.geoEditorLoading = false;
         renderGallery(document.getElementById("gallery-container"));
     }
 }
@@ -406,6 +472,52 @@ async function saveModeratorTaxonomy(captureID, button) {
     }
 }
 
+async function saveModeratorGeo(captureID, button) {
+    if (!captureID || !canModeratorRecheck()) {
+        return;
+    }
+
+    const countryInput = document.getElementById(`gallery-geo-country-${captureID}`);
+    const krajInput = document.getElementById(`gallery-geo-kraj-${captureID}`);
+    const okresInput = document.getElementById(`gallery-geo-okres-${captureID}`);
+    const obecInput = document.getElementById(`gallery-geo-obec-${captureID}`);
+    const noteInput = document.getElementById(`gallery-geo-note-${captureID}`);
+
+    const body = {
+        country_code: countryInput?.value || "",
+        kraj_name: krajInput?.value || "",
+        note: noteInput?.value || ""
+    };
+    if (state.moderation.geoEditorCanViewDetailed) {
+        body.okres_name = okresInput?.value || "";
+        body.obec_name = obecInput?.value || "";
+    }
+
+    if (button) {
+        button.disabled = true;
+    }
+
+    try {
+        const response = await apiJsonRequest(`/api/moderation/captures/${encodeURIComponent(captureID)}/geo`, {
+            method: "POST",
+            body
+        });
+        if (!response || !response.ok) {
+            throw new Error("Lokalitu se nepodařilo uložit.");
+        }
+        window.alert("Ruční úprava lokality byla uložena.");
+        closeModeratorGeoEditor();
+        await loadGallery({ reset: true });
+    } catch (error) {
+        console.error("Failed to save capture geo", error);
+        window.alert(error.message || "Lokalitu se nepodařilo uložit.");
+    } finally {
+        if (button) {
+            button.disabled = false;
+        }
+    }
+}
+
 function renderModeratorTaxonomyEditor(capture) {
     if (!canModeratorRecheck() || state.moderation.editorCaptureId !== capture.id) {
         return "";
@@ -443,6 +555,57 @@ function renderModeratorTaxonomyEditor(capture) {
     `;
 }
 
+function renderModeratorGeoEditor(capture) {
+    if (!canModeratorRecheck() || state.moderation.geoEditorCaptureId !== capture.id) {
+        return "";
+    }
+
+    if (state.moderation.geoEditorLoading) {
+        return `
+            <div class="gallery-moderator-editor" data-capture-id="${escapeHtml(capture.id)}">
+                <p class="muted-copy">Načítám uloženou lokalitu...</p>
+            </div>
+        `;
+    }
+
+    const canViewDetailed = state.moderation.geoEditorCanViewDetailed;
+    return `
+        <div class="gallery-moderator-editor" data-capture-id="${escapeHtml(capture.id)}">
+            <label class="field-block">
+                <span>Země</span>
+                <input id="gallery-geo-country-${escapeHtml(capture.id)}" type="text" maxlength="8" value="${escapeHtml(state.moderation.geoEditorCountryCode)}" placeholder="CZ">
+            </label>
+            <label class="field-block">
+                <span>Kraj</span>
+                <input id="gallery-geo-kraj-${escapeHtml(capture.id)}" type="text" maxlength="160" value="${escapeHtml(state.moderation.geoEditorKrajName)}" placeholder="Jihomoravský kraj">
+            </label>
+            ${canViewDetailed ? `
+                <label class="field-block">
+                    <span>Okres</span>
+                    <input id="gallery-geo-okres-${escapeHtml(capture.id)}" type="text" maxlength="160" value="${escapeHtml(state.moderation.geoEditorOkresName)}" placeholder="Brno-venkov">
+                </label>
+                <label class="field-block">
+                    <span>Obec</span>
+                    <input id="gallery-geo-obec-${escapeHtml(capture.id)}" type="text" maxlength="160" value="${escapeHtml(state.moderation.geoEditorObecName)}" placeholder="Lomnice">
+                </label>
+            ` : `<p class="muted-copy">Nižší lokalitu lze upravit až poté, co ji tento účet získá běžným odemčením souřadnic.</p>`}
+            ${state.moderation.geoEditorLoadError ? `<p class="status-message is-error">${escapeHtml(state.moderation.geoEditorLoadError)}</p>` : ""}
+            <label class="field-block">
+                <span>Poznámka moderátora</span>
+                <input id="gallery-geo-note-${escapeHtml(capture.id)}" type="text" maxlength="500" value="${escapeHtml(state.moderation.geoEditorNote)}" placeholder="Proč byla lokalita upravena">
+            </label>
+            <div class="gallery-item-actions">
+                <button type="button" class="btn btn-secondary gallery-moderator-save-geo-action" data-capture-id="${escapeHtml(capture.id)}">
+                    Uložit lokalitu
+                </button>
+                <button type="button" class="btn btn-secondary gallery-moderator-cancel-geo-action" data-capture-id="${escapeHtml(capture.id)}">
+                    Zavřít editor
+                </button>
+            </div>
+        </div>
+    `;
+}
+
 async function hideGalleryCapture(captureID, button) {
     if (!captureID || !canModeratorRecheck()) {
         return;
@@ -472,6 +635,7 @@ async function hideGalleryCapture(captureID, button) {
             throw new Error("Fotografii se nepodařilo skrýt.");
         }
         closeModeratorTaxonomyEditor();
+        closeModeratorGeoEditor();
         await loadGallery({ reset: true });
     } catch (error) {
         console.error("Failed to hide capture", error);
@@ -512,6 +676,9 @@ function renderGallery(container) {
                     <button type="button" class="btn btn-secondary gallery-moderator-edit-action" data-capture-id="${escapeHtml(capture.id)}">
                         Upravit taxony
                     </button>
+                    <button type="button" class="btn btn-secondary gallery-moderator-geo-action" data-capture-id="${escapeHtml(capture.id)}">
+                        Upravit lokaci
+                    </button>
                     <button type="button" class="btn btn-secondary gallery-moderator-hide-action" data-capture-id="${escapeHtml(capture.id)}">
                         Skrýt foto
                     </button>
@@ -536,6 +703,7 @@ function renderGallery(container) {
                     ${region ? `<p>Kraj: ${escapeHtml(region)}</p>` : ""}
                     ${moderatorAction}
                     ${renderModeratorTaxonomyEditor(capture)}
+                    ${renderModeratorGeoEditor(capture)}
                 </div>
             </div>
         `;
@@ -570,6 +738,14 @@ function renderGallery(container) {
         });
     });
 
+    container.querySelectorAll(".gallery-moderator-geo-action").forEach((button) => {
+        button.addEventListener("click", async (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            await openModeratorGeoEditor(button.dataset.captureId);
+        });
+    });
+
     container.querySelectorAll(".gallery-moderator-hide-action").forEach((button) => {
         button.addEventListener("click", async (event) => {
             event.preventDefault();
@@ -591,6 +767,23 @@ function renderGallery(container) {
             event.preventDefault();
             event.stopPropagation();
             closeModeratorTaxonomyEditor();
+            renderGallery(container);
+        });
+    });
+
+    container.querySelectorAll(".gallery-moderator-save-geo-action").forEach((button) => {
+        button.addEventListener("click", async (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            await saveModeratorGeo(button.dataset.captureId, button);
+        });
+    });
+
+    container.querySelectorAll(".gallery-moderator-cancel-geo-action").forEach((button) => {
+        button.addEventListener("click", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            closeModeratorGeoEditor();
             renderGallery(container);
         });
     });

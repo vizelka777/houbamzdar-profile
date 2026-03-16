@@ -485,6 +485,146 @@ func (db *DB) GetCaptureMushroomReview(captureID string) (*models.CaptureMushroo
 	return &analysis, species, nil
 }
 
+func (db *DB) GetCaptureGeoIndex(captureID string) (*models.CaptureGeoIndex, error) {
+	var (
+		geo         models.CaptureGeoIndex
+		countryCode sql.NullString
+		krajName    sql.NullString
+		okresName   sql.NullString
+		obecName    sql.NullString
+		rawJSON     sql.NullString
+		resolvedAt  string
+	)
+
+	if err := db.QueryRow(`
+		SELECT
+			capture_id,
+			country_code,
+			kraj_name,
+			okres_name,
+			obec_name,
+			raw_json,
+			resolved_at
+		FROM capture_geo_index
+		WHERE capture_id = ?
+	`, captureID).Scan(
+		&geo.CaptureID,
+		&countryCode,
+		&krajName,
+		&okresName,
+		&obecName,
+		&rawJSON,
+		&resolvedAt,
+	); err != nil {
+		return nil, err
+	}
+
+	geo.CountryCode = strings.ToUpper(strings.TrimSpace(countryCode.String))
+	geo.KrajName = krajName.String
+	geo.OkresName = okresName.String
+	geo.ObecName = obecName.String
+	geo.RawJSON = rawJSON.String
+	if resolvedAt != "" {
+		geo.ResolvedAt, _ = time.Parse(time.RFC3339, resolvedAt)
+	}
+	return &geo, nil
+}
+
+func (db *DB) ApplyCaptureManualModeratorGeo(
+	captureID string,
+	moderatorUserID int64,
+	geo *models.CaptureGeoIndex,
+	note string,
+) (*models.CaptureGeoIndex, error) {
+	if geo == nil {
+		return nil, fmt.Errorf("geo index is required")
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	targetUserID, err := loadTargetUserIDForContentTx(tx, "photo_captures", "id", captureID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, sql.ErrNoRows
+		}
+		return nil, err
+	}
+
+	now := time.Now().UTC()
+	normalized := &models.CaptureGeoIndex{
+		CaptureID:   captureID,
+		CountryCode: strings.ToUpper(strings.TrimSpace(geo.CountryCode)),
+		KrajName:    strings.TrimSpace(geo.KrajName),
+		OkresName:   strings.TrimSpace(geo.OkresName),
+		ObecName:    strings.TrimSpace(geo.ObecName),
+		ResolvedAt:  now,
+	}
+	normalized.RawJSON = moderationMetaJSON(map[string]interface{}{
+		"source":       "moderator_manual_override",
+		"country_code": normalized.CountryCode,
+		"kraj_name":    normalized.KrajName,
+		"okres_name":   normalized.OkresName,
+		"obec_name":    normalized.ObecName,
+	})
+
+	if _, err := tx.Exec(`
+		INSERT INTO capture_geo_index (
+			capture_id, country_code, kraj_name, kraj_name_norm, okres_name, okres_name_norm,
+			obec_name, obec_name_norm, raw_json, resolved_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(capture_id) DO UPDATE SET
+			country_code = excluded.country_code,
+			kraj_name = excluded.kraj_name,
+			kraj_name_norm = excluded.kraj_name_norm,
+			okres_name = excluded.okres_name,
+			okres_name_norm = excluded.okres_name_norm,
+			obec_name = excluded.obec_name,
+			obec_name_norm = excluded.obec_name_norm,
+			raw_json = excluded.raw_json,
+			resolved_at = excluded.resolved_at
+	`,
+		normalized.CaptureID,
+		nullIfEmpty(normalized.CountryCode),
+		nullIfEmpty(normalized.KrajName),
+		nullIfEmpty(normalizeSearchText(normalized.KrajName)),
+		nullIfEmpty(normalized.OkresName),
+		nullIfEmpty(normalizeSearchText(normalized.OkresName)),
+		nullIfEmpty(normalized.ObecName),
+		nullIfEmpty(normalizeSearchText(normalized.ObecName)),
+		nullIfEmpty(normalized.RawJSON),
+		normalized.ResolvedAt.UTC().Format(time.RFC3339),
+	); err != nil {
+		return nil, err
+	}
+
+	if err := recordModerationActionTx(tx, &models.ModerationAction{
+		ActorUserID:     moderatorUserID,
+		TargetUserID:    targetUserID,
+		TargetCaptureID: captureID,
+		ActionKind:      "capture_geo_updated",
+		ReasonCode:      "manual_geo_override",
+		Note:            strings.TrimSpace(note),
+		MetaJSON: moderationMetaJSON(map[string]interface{}{
+			"country_code": normalized.CountryCode,
+			"kraj_name":    normalized.KrajName,
+			"okres_name":   normalized.OkresName,
+			"obec_name":    normalized.ObecName,
+		}),
+		CreatedAt: now,
+	}); err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return normalized, nil
+}
+
 func (db *DB) ListPublicCapturesWithFilters(filters PublicCaptureFilters, viewerUserID int64) ([]*models.Capture, error) {
 	return db.listPublicCapturesWithFilters(filters, viewerUserID, false)
 }

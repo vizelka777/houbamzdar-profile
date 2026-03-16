@@ -55,6 +55,53 @@ func normalizeModeratorSpeciesInput(species []*models.CaptureMushroomSpecies) ([
 	return normalized, nil
 }
 
+func (s *Server) viewerCanAccessDetailedLocation(userID int64, capture *models.Capture) (bool, error) {
+	if capture == nil {
+		return false, nil
+	}
+	if userID != 0 && capture.UserID == userID {
+		return true, nil
+	}
+	if capture.CoordinatesFree {
+		return true, nil
+	}
+	return s.DB.HasCaptureUnlock(userID, capture.ID)
+}
+
+func buildModerationCaptureMetaPayload(capture *models.Capture, canViewDetailedLocation bool) map[string]interface{} {
+	if capture == nil {
+		return map[string]interface{}{}
+	}
+	return map[string]interface{}{
+		"id":                         capture.ID,
+		"status":                     capture.Status,
+		"coordinates_free":           capture.CoordinatesFree,
+		"can_view_detailed_location": canViewDetailedLocation,
+	}
+}
+
+func buildModerationGeoPayload(geo *models.CaptureGeoIndex, canViewDetailedLocation bool) map[string]interface{} {
+	if geo == nil {
+		return map[string]interface{}{
+			"country_code": "",
+			"kraj_name":    "",
+			"okres_name":   "",
+			"obec_name":    "",
+		}
+	}
+	payload := map[string]interface{}{
+		"country_code": geo.CountryCode,
+		"kraj_name":    geo.KrajName,
+		"okres_name":   "",
+		"obec_name":    "",
+	}
+	if canViewDetailedLocation {
+		payload["okres_name"] = geo.OkresName
+		payload["obec_name"] = geo.ObecName
+	}
+	return payload
+}
+
 func (s *Server) handleListCaptures(w http.ResponseWriter, r *http.Request) {
 	user := r.Context().Value("user").(*models.User)
 
@@ -402,11 +449,16 @@ func (s *Server) handleGetModerationCaptureTaxonomy(w http.ResponseWriter, r *ht
 		http.Error(w, "failed to load capture taxonomy", http.StatusInternalServerError)
 		return
 	}
+	canViewDetailedLocation, err := s.viewerCanAccessDetailedLocation(user.ID, capture)
+	if err != nil {
+		http.Error(w, "failed to resolve location visibility", http.StatusInternalServerError)
+		return
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"ok":       true,
-		"capture":  capture,
+		"capture":  buildModerationCaptureMetaPayload(capture, canViewDetailedLocation),
 		"analysis": analysis,
 		"species":  species,
 	})
@@ -458,13 +510,160 @@ func (s *Server) handleSetModerationCaptureTaxonomy(w http.ResponseWriter, r *ht
 		http.Error(w, "failed to save capture taxonomy", http.StatusInternalServerError)
 		return
 	}
+	canViewDetailedLocation, err := s.viewerCanAccessDetailedLocation(user.ID, capture)
+	if err != nil {
+		http.Error(w, "failed to resolve location visibility", http.StatusInternalServerError)
+		return
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"ok":       true,
-		"capture":  capture,
+		"capture":  buildModerationCaptureMetaPayload(capture, canViewDetailedLocation),
 		"analysis": analysis,
 		"species":  species,
+	})
+}
+
+func (s *Server) handleGetModerationCaptureGeo(w http.ResponseWriter, r *http.Request) {
+	user := r.Context().Value("user").(*models.User)
+	if !userCanModerate(user) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	captureID := chi.URLParam(r, "captureID")
+	capture, err := s.DB.GetCaptureByID(captureID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.Error(w, "capture not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "failed to load capture", http.StatusInternalServerError)
+		return
+	}
+
+	geo, err := s.DB.GetCaptureGeoIndex(captureID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		http.Error(w, "failed to load capture geo", http.StatusInternalServerError)
+		return
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		geo = nil
+	}
+
+	canViewDetailedLocation, err := s.viewerCanAccessDetailedLocation(user.ID, capture)
+	if err != nil {
+		http.Error(w, "failed to resolve location visibility", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"ok":      true,
+		"capture": buildModerationCaptureMetaPayload(capture, canViewDetailedLocation),
+		"geo":     buildModerationGeoPayload(geo, canViewDetailedLocation),
+	})
+}
+
+func (s *Server) handleSetModerationCaptureGeo(w http.ResponseWriter, r *http.Request) {
+	user := r.Context().Value("user").(*models.User)
+	if !userCanModerate(user) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	captureID := chi.URLParam(r, "captureID")
+	capture, err := s.DB.GetCaptureByID(captureID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.Error(w, "capture not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "failed to load capture", http.StatusInternalServerError)
+		return
+	}
+	if capture.Status != "published" || strings.TrimSpace(capture.PublicStorageKey) == "" {
+		http.Error(w, "capture is not publicly shared", http.StatusUnprocessableEntity)
+		return
+	}
+
+	canViewDetailedLocation, err := s.viewerCanAccessDetailedLocation(user.ID, capture)
+	if err != nil {
+		http.Error(w, "failed to resolve location visibility", http.StatusInternalServerError)
+		return
+	}
+
+	currentGeo, err := s.DB.GetCaptureGeoIndex(captureID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		http.Error(w, "failed to load capture geo", http.StatusInternalServerError)
+		return
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		currentGeo = &models.CaptureGeoIndex{CaptureID: captureID}
+	}
+
+	var req struct {
+		CountryCode string `json:"country_code"`
+		KrajName    string `json:"kraj_name"`
+		OkresName   string `json:"okres_name"`
+		ObecName    string `json:"obec_name"`
+		Note        string `json:"note"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	countryCode := strings.ToUpper(strings.TrimSpace(req.CountryCode))
+	if countryCode == "" {
+		countryCode = strings.ToUpper(strings.TrimSpace(currentGeo.CountryCode))
+	}
+	if countryCode == "" {
+		countryCode = "CZ"
+	}
+
+	krajName := strings.TrimSpace(req.KrajName)
+	if krajName == "" {
+		krajName = strings.TrimSpace(currentGeo.KrajName)
+	}
+	if krajName == "" {
+		http.Error(w, "kraj_name is required", http.StatusUnprocessableEntity)
+		return
+	}
+
+	okresName := strings.TrimSpace(req.OkresName)
+	obecName := strings.TrimSpace(req.ObecName)
+	if !canViewDetailedLocation {
+		if okresName != "" || obecName != "" {
+			http.Error(w, "detailed location can be edited only after the regular unlock flow", http.StatusForbidden)
+			return
+		}
+		okresName = strings.TrimSpace(currentGeo.OkresName)
+		obecName = strings.TrimSpace(currentGeo.ObecName)
+	}
+
+	updatedGeo, err := s.DB.ApplyCaptureManualModeratorGeo(captureID, user.ID, &models.CaptureGeoIndex{
+		CaptureID:   captureID,
+		CountryCode: countryCode,
+		KrajName:    krajName,
+		OkresName:   okresName,
+		ObecName:    obecName,
+	}, req.Note)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.Error(w, "capture not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "failed to save capture geo", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"ok":      true,
+		"capture": buildModerationCaptureMetaPayload(capture, canViewDetailedLocation),
+		"geo":     buildModerationGeoPayload(updatedGeo, canViewDetailedLocation),
 	})
 }
 

@@ -917,3 +917,230 @@ func TestModeratorCanOverrideCaptureTaxonomy(t *testing.T) {
 		t.Fatalf("expected target_user_id %d, got %d", owner.ID, actionTargetUser)
 	}
 }
+
+func TestModeratorGeoEditingRespectsUnlockPrivacy(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{
+		DBURL:             "file:" + filepath.Join(t.TempDir(), "test.db"),
+		FrontOrigin:       "https://houbamzdar.cz",
+		SessionCookieName: "hzd_session",
+	}
+
+	database, err := db.New(cfg)
+	if err != nil {
+		t.Fatalf("open test database: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = database.Close()
+	})
+
+	owner, _, err := database.UpsertUser(&models.OIDCClaims{
+		Iss:               "https://ahoj420.eu",
+		Sub:               "moderator-geo-owner",
+		PreferredUsername: "geo-owner",
+		Email:             "geo-owner@example.test",
+	}, &oauth2.Token{
+		AccessToken:  "owner-access",
+		RefreshToken: "owner-refresh",
+		Expiry:       time.Now().Add(time.Hour).UTC(),
+	})
+	if err != nil {
+		t.Fatalf("create owner: %v", err)
+	}
+
+	moderator, _, err := database.UpsertUser(&models.OIDCClaims{
+		Iss:               "https://ahoj420.eu",
+		Sub:               "moderator-geo-moderator",
+		PreferredUsername: "houbamzdar",
+		Email:             "geo-moderator@example.test",
+	}, &oauth2.Token{
+		AccessToken:  "moderator-access",
+		RefreshToken: "moderator-refresh",
+		Expiry:       time.Now().Add(time.Hour).UTC(),
+	})
+	if err != nil {
+		t.Fatalf("create moderator: %v", err)
+	}
+
+	sessionID := "moderator-geo-session"
+	if err := database.CreateSession(&models.Session{
+		SessionID: sessionID,
+		UserID:    moderator.ID,
+		ExpiresAt: time.Now().Add(time.Hour).UTC(),
+	}); err != nil {
+		t.Fatalf("create moderator session: %v", err)
+	}
+
+	lat := 49.3123
+	lon := 16.4021
+	capture := &models.Capture{
+		ID:                "moderator-geo-capture",
+		UserID:            owner.ID,
+		OriginalFileName:  "geo.jpg",
+		ContentType:       "image/jpeg",
+		SizeBytes:         4096,
+		Width:             1200,
+		Height:            800,
+		CapturedAt:        time.Date(2026, time.March, 16, 13, 0, 0, 0, time.UTC),
+		UploadedAt:        time.Date(2026, time.March, 16, 13, 0, 0, 0, time.UTC),
+		Latitude:          &lat,
+		Longitude:         &lon,
+		CoordinatesFree:   false,
+		Status:            "published",
+		PrivateStorageKey: "captures/private/moderator-geo-capture.jpg",
+		PublicStorageKey:  "captures/published/owner/moderator-geo-capture.jpg",
+		PublishedAt:       time.Date(2026, time.March, 16, 13, 5, 0, 0, time.UTC),
+	}
+	if err := database.CreateCapture(capture); err != nil {
+		t.Fatalf("create capture: %v", err)
+	}
+	if _, err := database.Exec(`
+		INSERT INTO capture_geo_index (
+			capture_id, country_code, kraj_name, kraj_name_norm, okres_name, okres_name_norm, obec_name, obec_name_norm, raw_json, resolved_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`,
+		capture.ID,
+		"CZ",
+		"Jihomoravský kraj",
+		"jihomoravsky kraj",
+		"Brno-venkov",
+		"brno-venkov",
+		"Lomnice",
+		"lomnice",
+		"{}",
+		time.Now().UTC().Format(time.RFC3339),
+	); err != nil {
+		t.Fatalf("insert geo index: %v", err)
+	}
+
+	srv := New(cfg, database, nil, &media.BunnyStorage{})
+
+	getReq := httptest.NewRequest(http.MethodGet, "/api/moderation/captures/"+capture.ID+"/geo", nil)
+	getReq.AddCookie(&http.Cookie{Name: cfg.SessionCookieName, Value: sessionID})
+	getRec := httptest.NewRecorder()
+	srv.Router.ServeHTTP(getRec, getReq)
+
+	if getRec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", getRec.Code, getRec.Body.String())
+	}
+
+	var getPayload struct {
+		OK      bool `json:"ok"`
+		Capture struct {
+			ID                      string `json:"id"`
+			CoordinatesFree         bool   `json:"coordinates_free"`
+			CanViewDetailedLocation bool   `json:"can_view_detailed_location"`
+		} `json:"capture"`
+		Geo struct {
+			CountryCode string `json:"country_code"`
+			KrajName    string `json:"kraj_name"`
+			OkresName   string `json:"okres_name"`
+			ObecName    string `json:"obec_name"`
+		} `json:"geo"`
+	}
+	if err := json.NewDecoder(getRec.Body).Decode(&getPayload); err != nil {
+		t.Fatalf("decode geo payload: %v", err)
+	}
+	if !getPayload.OK || getPayload.Capture.CanViewDetailedLocation {
+		t.Fatalf("expected geo payload without detailed access, got %+v", getPayload)
+	}
+	if getPayload.Geo.CountryCode != "CZ" || getPayload.Geo.KrajName != "Jihomoravský kraj" {
+		t.Fatalf("expected visible top-level geo values, got %+v", getPayload.Geo)
+	}
+	if getPayload.Geo.OkresName != "" || getPayload.Geo.ObecName != "" {
+		t.Fatalf("expected hidden detailed geo values before unlock, got %+v", getPayload.Geo)
+	}
+
+	forbiddenReq := httptest.NewRequest(
+		http.MethodPost,
+		"/api/moderation/captures/"+capture.ID+"/geo",
+		strings.NewReader(`{"country_code":"CZ","kraj_name":"Kraj Vysočina","okres_name":"Žďár nad Sázavou","note":"should fail"}`),
+	)
+	forbiddenReq.Header.Set("Content-Type", "application/json")
+	forbiddenReq.AddCookie(&http.Cookie{Name: cfg.SessionCookieName, Value: sessionID})
+	forbiddenRec := httptest.NewRecorder()
+	srv.Router.ServeHTTP(forbiddenRec, forbiddenReq)
+	if forbiddenRec.Code != http.StatusForbidden {
+		t.Fatalf("expected status 403 when editing hidden detailed location, got %d: %s", forbiddenRec.Code, forbiddenRec.Body.String())
+	}
+
+	saveReq := httptest.NewRequest(
+		http.MethodPost,
+		"/api/moderation/captures/"+capture.ID+"/geo",
+		strings.NewReader(`{"country_code":"CZ","kraj_name":"Kraj Vysočina","note":"manual geo fix"}`),
+	)
+	saveReq.Header.Set("Content-Type", "application/json")
+	saveReq.AddCookie(&http.Cookie{Name: cfg.SessionCookieName, Value: sessionID})
+	saveRec := httptest.NewRecorder()
+	srv.Router.ServeHTTP(saveRec, saveReq)
+	if saveRec.Code != http.StatusOK {
+		t.Fatalf("expected status 200 when saving top-level geo, got %d: %s", saveRec.Code, saveRec.Body.String())
+	}
+
+	storedGeo, err := database.GetCaptureGeoIndex(capture.ID)
+	if err != nil {
+		t.Fatalf("load stored geo index: %v", err)
+	}
+	if storedGeo.KrajName != "Kraj Vysočina" {
+		t.Fatalf("expected updated kraj_name, got %q", storedGeo.KrajName)
+	}
+	if storedGeo.OkresName != "Brno-venkov" || storedGeo.ObecName != "Lomnice" {
+		t.Fatalf("expected hidden detailed geo values to be preserved, got %+v", storedGeo)
+	}
+
+	if err := database.GrantAuthBonuses(moderator.ID, true, false, false); err != nil {
+		t.Fatalf("grant moderator bonus: %v", err)
+	}
+	if _, _, err := database.UnlockCaptureCoordinates(moderator.ID, capture.ID); err != nil {
+		t.Fatalf("unlock capture coordinates for moderator: %v", err)
+	}
+
+	getUnlockedReq := httptest.NewRequest(http.MethodGet, "/api/moderation/captures/"+capture.ID+"/geo", nil)
+	getUnlockedReq.AddCookie(&http.Cookie{Name: cfg.SessionCookieName, Value: sessionID})
+	getUnlockedRec := httptest.NewRecorder()
+	srv.Router.ServeHTTP(getUnlockedRec, getUnlockedReq)
+	if getUnlockedRec.Code != http.StatusOK {
+		t.Fatalf("expected status 200 after unlock, got %d: %s", getUnlockedRec.Code, getUnlockedRec.Body.String())
+	}
+
+	var unlockedPayload struct {
+		OK      bool `json:"ok"`
+		Capture struct {
+			CanViewDetailedLocation bool `json:"can_view_detailed_location"`
+		} `json:"capture"`
+		Geo struct {
+			OkresName string `json:"okres_name"`
+			ObecName  string `json:"obec_name"`
+		} `json:"geo"`
+	}
+	if err := json.NewDecoder(getUnlockedRec.Body).Decode(&unlockedPayload); err != nil {
+		t.Fatalf("decode unlocked geo payload: %v", err)
+	}
+	if !unlockedPayload.OK || !unlockedPayload.Capture.CanViewDetailedLocation {
+		t.Fatalf("expected detailed geo access after unlock, got %+v", unlockedPayload)
+	}
+	if unlockedPayload.Geo.OkresName != "Brno-venkov" || unlockedPayload.Geo.ObecName != "Lomnice" {
+		t.Fatalf("expected detailed geo values after unlock, got %+v", unlockedPayload.Geo)
+	}
+
+	var (
+		actionKind       string
+		actionTargetUser int64
+	)
+	if err := database.QueryRow(`
+		SELECT action_kind, COALESCE(target_user_id, 0)
+		FROM moderation_actions
+		WHERE target_capture_id = ?
+		ORDER BY created_at DESC
+		LIMIT 1
+	`, capture.ID).Scan(&actionKind, &actionTargetUser); err != nil {
+		t.Fatalf("load moderation geo action: %v", err)
+	}
+	if actionKind != "capture_geo_updated" {
+		t.Fatalf("expected capture_geo_updated action, got %q", actionKind)
+	}
+	if actionTargetUser != owner.ID {
+		t.Fatalf("expected target_user_id %d, got %d", owner.ID, actionTargetUser)
+	}
+}
