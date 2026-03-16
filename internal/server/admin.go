@@ -3,7 +3,9 @@ package server
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"strings"
+	"time"
 
 	"github.com/houbamzdar/bff/internal/models"
 )
@@ -13,14 +15,22 @@ func buildAdminOverviewPayload(overview *models.AdminOverview) map[string]interf
 		return map[string]interface{}{}
 	}
 	return map[string]interface{}{
-		"total_users":                overview.TotalUsers,
-		"admin_users":                overview.AdminUsers,
-		"moderator_users":            overview.ModeratorUsers,
-		"staff_users":                overview.StaffUsers,
-		"banned_users":               overview.BannedUsers,
-		"comments_muted_users":       overview.CommentsMutedUsers,
-		"publishing_suspended_users": overview.PublishingSuspendedUsers,
-		"restricted_users":           overview.RestrictedUsers,
+		"total_users":                 overview.TotalUsers,
+		"admin_users":                 overview.AdminUsers,
+		"moderator_users":             overview.ModeratorUsers,
+		"staff_users":                 overview.StaffUsers,
+		"banned_users":                overview.BannedUsers,
+		"comments_muted_users":        overview.CommentsMutedUsers,
+		"publishing_suspended_users":  overview.PublishingSuspendedUsers,
+		"restricted_users":            overview.RestrictedUsers,
+		"public_posts":                overview.PublicPosts,
+		"public_captures":             overview.PublicCaptures,
+		"hidden_posts":                overview.HiddenPosts,
+		"hidden_comments":             overview.HiddenComments,
+		"hidden_captures":             overview.HiddenCaptures,
+		"pending_publication_review":  overview.PendingPublicationReview,
+		"failed_publication_review":   overview.FailedPublicationReview,
+		"rejected_publication_review": overview.RejectedPublicationReview,
 	}
 }
 
@@ -68,6 +78,92 @@ func buildAdminBackupPayload(backup *models.AdminBackup) map[string]interface{} 
 	}
 }
 
+func buildAdminSystemPayload(status *models.AdminSystemStatus) map[string]interface{} {
+	if status == nil {
+		return map[string]interface{}{}
+	}
+	payload := map[string]interface{}{
+		"backup_enabled":             status.BackupEnabled,
+		"backup_scheduler_enabled":   status.BackupSchedulerEnabled,
+		"backup_interval_hours":      status.BackupIntervalHours,
+		"backup_retention_days":      status.BackupRetentionDays,
+		"backup_max_completed":       status.BackupMaxCompleted,
+		"backup_storage_backend":     status.BackupStorageBackend,
+		"publish_default_model":      status.PublishDefaultModel,
+		"moderator_default_model":    status.ModeratorDefaultModel,
+		"validator_config_reachable": status.ValidatorConfigReachable,
+		"validator_config_error":     status.ValidatorConfigError,
+	}
+	if status.LatestCompletedBackup != nil {
+		payload["latest_completed_backup"] = buildAdminBackupPayload(status.LatestCompletedBackup)
+	} else {
+		payload["latest_completed_backup"] = nil
+	}
+	return payload
+}
+
+func (s *Server) loadAdminSystemStatus(r *http.Request) *models.AdminSystemStatus {
+	status := &models.AdminSystemStatus{}
+	if s.Backup != nil {
+		status.BackupEnabled = s.Backup.Enabled()
+		status.BackupSchedulerEnabled = s.Backup.SchedulerEnabled()
+		status.BackupIntervalHours = s.Backup.IntervalHours()
+		status.BackupRetentionDays = s.Backup.RetentionDays()
+		status.BackupMaxCompleted = s.Backup.MaxCompletedBackups()
+		status.BackupStorageBackend = s.Backup.StorageBackendName()
+		latestBackup, err := s.DB.GetLatestCompletedAdminBackup()
+		if err == nil {
+			status.LatestCompletedBackup = latestBackup
+		}
+	}
+
+	publishModel, moderatorModel, reachable, errMessage := s.fetchAdminValidatorConfig(r)
+	status.PublishDefaultModel = publishModel
+	status.ModeratorDefaultModel = moderatorModel
+	status.ValidatorConfigReachable = reachable
+	status.ValidatorConfigError = errMessage
+	return status
+}
+
+func (s *Server) fetchAdminValidatorConfig(r *http.Request) (string, string, bool, string) {
+	rawURL := strings.TrimSpace(s.Config.CaptureAIValidatorURL)
+	if rawURL == "" {
+		return "", "", false, "validator není nakonfigurovaný"
+	}
+
+	parsedURL, err := url.Parse(rawURL)
+	if err != nil {
+		return "", "", false, "neplatná validator URL"
+	}
+	parsedURL.Path = "/config"
+	parsedURL.RawQuery = ""
+
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, parsedURL.String(), nil)
+	if err != nil {
+		return "", "", false, "nepodařilo se připravit dotaz na validator"
+	}
+
+	client := &http.Client{Timeout: 4 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", "", false, "validator config není dostupný"
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", "", false, "validator config vrátil chybu"
+	}
+
+	var payload struct {
+		PublishDefaultModel   string `json:"publish_default_model"`
+		ModeratorDefaultModel string `json:"moderator_default_model"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return "", "", false, "validator config má neplatný formát"
+	}
+	return payload.PublishDefaultModel, payload.ModeratorDefaultModel, true, ""
+}
+
 func (s *Server) handleGetAdminOverview(w http.ResponseWriter, r *http.Request) {
 	actor := r.Context().Value("user").(*models.User)
 	if !userCanAdmin(actor) {
@@ -85,6 +181,7 @@ func (s *Server) handleGetAdminOverview(w http.ResponseWriter, r *http.Request) 
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"ok":       true,
 		"overview": buildAdminOverviewPayload(overview),
+		"system":   buildAdminSystemPayload(s.loadAdminSystemStatus(r)),
 	})
 }
 
@@ -204,5 +301,29 @@ func (s *Server) handleRunAdminBackup(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"ok":     true,
 		"backup": buildAdminBackupPayload(backupRecord),
+	})
+}
+
+func (s *Server) handlePruneAdminBackups(w http.ResponseWriter, r *http.Request) {
+	actor := r.Context().Value("user").(*models.User)
+	if !userCanAdmin(actor) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	if s.Backup == nil || !s.Backup.Enabled() {
+		http.Error(w, "backup service is not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	deletedCount, err := s.Backup.PruneExpiredBackups(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"ok":            true,
+		"deleted_count": deletedCount,
 	})
 }

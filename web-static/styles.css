@@ -1826,7 +1826,29 @@ img {
 }
 
 .admin-system-section {
+    display: grid;
+    gap: 1rem;
     margin-top: 1.25rem;
+}
+
+.admin-system-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 0.9rem;
+}
+
+.admin-system-card {
+    display: grid;
+    gap: 0.35rem;
+    padding: 1rem;
+    border-radius: 1.05rem;
+    border: 1px solid rgba(19, 38, 29, 0.08);
+    background: rgba(255, 255, 255, 0.72);
+}
+
+.admin-system-card h3 {
+    margin: 0;
+    font-size: 1.1rem;
 }
 
 .admin-backups-list {

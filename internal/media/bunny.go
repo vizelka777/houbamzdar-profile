@@ -159,6 +159,10 @@ func (b *BunnyStorage) DeletePrivate(ctx context.Context, key string) error {
 	return b.deleteObject(ctx, b.privateZone, b.privateKey, key)
 }
 
+func (b *BunnyStorage) DeletePrivateObject(ctx context.Context, key string) error {
+	return b.DeletePrivate(ctx, key)
+}
+
 func (b *BunnyStorage) StorePrivateObject(ctx context.Context, key string, payload []byte, contentType string) error {
 	if !b.CanReadPrivate() {
 		return fmt.Errorf("private Bunny storage is not configured")

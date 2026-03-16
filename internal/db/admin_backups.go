@@ -1,6 +1,7 @@
 package db
 
 import (
+	"database/sql"
 	"time"
 
 	"github.com/google/uuid"
@@ -160,4 +161,77 @@ func (db *DB) CountAdminBackups() (int, error) {
 		return 0, err
 	}
 	return total, nil
+}
+
+func (db *DB) GetLatestCompletedAdminBackup() (*models.AdminBackup, error) {
+	row := db.QueryRow(`
+		SELECT
+			b.id,
+			b.status,
+			b.trigger_kind,
+			COALESCE(b.storage_key, ''),
+			COALESCE(b.checksum_sha256, ''),
+			COALESCE(b.size_bytes, 0),
+			b.started_at,
+			COALESCE(b.finished_at, ''),
+			COALESCE(b.initiated_by_user_id, 0),
+			COALESCE(u.preferred_username, ''),
+			COALESCE(b.error_message, '')
+		FROM admin_backups b
+		LEFT JOIN users u ON u.id = b.initiated_by_user_id
+		WHERE b.status = 'completed'
+		ORDER BY COALESCE(b.finished_at, b.started_at) DESC, b.started_at DESC
+		LIMIT 1
+	`)
+	backup, err := scanAdminBackup(row)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return backup, nil
+}
+
+func (db *DB) ListCompletedAdminBackupsForRetention() ([]*models.AdminBackup, error) {
+	rows, err := db.Query(`
+		SELECT
+			b.id,
+			b.status,
+			b.trigger_kind,
+			COALESCE(b.storage_key, ''),
+			COALESCE(b.checksum_sha256, ''),
+			COALESCE(b.size_bytes, 0),
+			b.started_at,
+			COALESCE(b.finished_at, ''),
+			COALESCE(b.initiated_by_user_id, 0),
+			COALESCE(u.preferred_username, ''),
+			COALESCE(b.error_message, '')
+		FROM admin_backups b
+		LEFT JOIN users u ON u.id = b.initiated_by_user_id
+		WHERE b.status = 'completed'
+		ORDER BY COALESCE(b.finished_at, b.started_at) DESC, b.started_at DESC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	backups := make([]*models.AdminBackup, 0, 32)
+	for rows.Next() {
+		backup, err := scanAdminBackup(rows)
+		if err != nil {
+			return nil, err
+		}
+		backups = append(backups, backup)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return backups, nil
+}
+
+func (db *DB) DeleteAdminBackup(backupID string) error {
+	_, err := db.Exec(`DELETE FROM admin_backups WHERE id = ?`, backupID)
+	return err
 }

@@ -28,7 +28,51 @@ func (db *DB) GetAdminOverview() (*models.AdminOverview, error) {
 					OR (COALESCE(publishing_suspended_until, '') != '' AND publishing_suspended_until > ?)
 				THEN 1
 				ELSE 0
-			END), 0)
+			END), 0),
+			COALESCE((
+				SELECT COUNT(*)
+				FROM posts
+				WHERE status = 'published'
+					AND COALESCE(moderator_hidden, 0) = 0
+			), 0),
+			COALESCE((
+				SELECT COUNT(*)
+				FROM photo_captures
+				WHERE status = 'published'
+					AND COALESCE(moderator_hidden, 0) = 0
+					AND public_storage_key IS NOT NULL
+					AND public_storage_key != ''
+			), 0),
+			COALESCE((
+				SELECT COUNT(*)
+				FROM posts
+				WHERE COALESCE(moderator_hidden, 0) = 1
+			), 0),
+			COALESCE((
+				SELECT COUNT(*)
+				FROM post_comments
+				WHERE COALESCE(moderator_hidden, 0) = 1
+			), 0),
+			COALESCE((
+				SELECT COUNT(*)
+				FROM photo_captures
+				WHERE COALESCE(moderator_hidden, 0) = 1
+			), 0),
+			COALESCE((
+				SELECT COUNT(*)
+				FROM photo_captures
+				WHERE COALESCE(publication_review_status, 'none') = 'pending_validation'
+			), 0),
+			COALESCE((
+				SELECT COUNT(*)
+				FROM photo_captures
+				WHERE COALESCE(publication_review_status, 'none') = 'error'
+			), 0),
+			COALESCE((
+				SELECT COUNT(*)
+				FROM photo_captures
+				WHERE COALESCE(publication_review_status, 'none') = 'rejected'
+			), 0)
 		FROM users
 	`, now, now, now, now, now, now).Scan(
 		&overview.TotalUsers,
@@ -39,6 +83,14 @@ func (db *DB) GetAdminOverview() (*models.AdminOverview, error) {
 		&overview.CommentsMutedUsers,
 		&overview.PublishingSuspendedUsers,
 		&overview.RestrictedUsers,
+		&overview.PublicPosts,
+		&overview.PublicCaptures,
+		&overview.HiddenPosts,
+		&overview.HiddenComments,
+		&overview.HiddenCaptures,
+		&overview.PendingPublicationReview,
+		&overview.FailedPublicationReview,
+		&overview.RejectedPublicationReview,
 	)
 	if err != nil {
 		return nil, err

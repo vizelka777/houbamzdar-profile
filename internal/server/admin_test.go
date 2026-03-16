@@ -20,6 +20,7 @@ import (
 type fakeBackupStorage struct {
 	lastKey     string
 	lastPayload []byte
+	deletedKeys []string
 }
 
 func (f *fakeBackupStorage) CanReadPrivate() bool { return true }
@@ -27,6 +28,11 @@ func (f *fakeBackupStorage) CanReadPrivate() bool { return true }
 func (f *fakeBackupStorage) StorePrivateObject(_ context.Context, key string, payload []byte, _ string) error {
 	f.lastKey = key
 	f.lastPayload = append([]byte(nil), payload...)
+	return nil
+}
+
+func (f *fakeBackupStorage) DeletePrivateObject(_ context.Context, key string) error {
+	f.deletedKeys = append(f.deletedKeys, key)
 	return nil
 }
 
@@ -134,13 +140,28 @@ func TestAdminOverviewAndUserDirectoryEndpoints(t *testing.T) {
 		var payload struct {
 			OK       bool `json:"ok"`
 			Overview struct {
-				TotalUsers      int `json:"total_users"`
-				AdminUsers      int `json:"admin_users"`
-				ModeratorUsers  int `json:"moderator_users"`
-				StaffUsers      int `json:"staff_users"`
-				RestrictedUsers int `json:"restricted_users"`
-				BannedUsers     int `json:"banned_users"`
+				TotalUsers               int `json:"total_users"`
+				AdminUsers               int `json:"admin_users"`
+				ModeratorUsers           int `json:"moderator_users"`
+				StaffUsers               int `json:"staff_users"`
+				RestrictedUsers          int `json:"restricted_users"`
+				BannedUsers              int `json:"banned_users"`
+				PublicPosts              int `json:"public_posts"`
+				PublicCaptures           int `json:"public_captures"`
+				HiddenPosts              int `json:"hidden_posts"`
+				HiddenComments           int `json:"hidden_comments"`
+				HiddenCaptures           int `json:"hidden_captures"`
+				PendingPublicationReview int `json:"pending_publication_review"`
 			} `json:"overview"`
+			System struct {
+				BackupEnabled            bool   `json:"backup_enabled"`
+				BackupSchedulerEnabled   bool   `json:"backup_scheduler_enabled"`
+				BackupIntervalHours      int    `json:"backup_interval_hours"`
+				BackupRetentionDays      int    `json:"backup_retention_days"`
+				BackupMaxCompleted       int    `json:"backup_max_completed"`
+				ValidatorConfigReachable bool   `json:"validator_config_reachable"`
+				ValidatorConfigError     string `json:"validator_config_error"`
+			} `json:"system"`
 		}
 		if err := json.NewDecoder(rec.Body).Decode(&payload); err != nil {
 			t.Fatalf("decode overview payload: %v", err)
@@ -163,6 +184,12 @@ func TestAdminOverviewAndUserDirectoryEndpoints(t *testing.T) {
 		}
 		if payload.Overview.RestrictedUsers != 1 || payload.Overview.BannedUsers != 1 {
 			t.Fatalf("unexpected restriction counters: %+v", payload.Overview)
+		}
+		if payload.System.BackupEnabled {
+			t.Fatalf("expected backup service to be disabled without storage")
+		}
+		if payload.System.ValidatorConfigReachable {
+			t.Fatalf("expected validator config to be unreachable without config")
 		}
 	})
 
@@ -450,5 +477,94 @@ func TestAdminBackupEndpoints(t *testing.T) {
 	}
 	if payload.Backups[0].StorageKey == "" {
 		t.Fatalf("expected storage key in backup history")
+	}
+}
+
+func TestAdminPruneBackupsEndpoint(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{
+		DBURL:                    "file:" + filepath.Join(t.TempDir(), "test-prune.db"),
+		FrontOrigin:              "https://houbamzdar.cz",
+		AppBaseURL:               "https://api.houbamzdar.cz",
+		SessionCookieName:        "hzd_session",
+		AdminBackupRetentionDays: 7,
+		AdminBackupMaxCompleted:  2,
+	}
+
+	database, err := db.New(cfg)
+	if err != nil {
+		t.Fatalf("open test database: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = database.Close()
+	})
+
+	token := &oauth2.Token{
+		AccessToken:  "access-token",
+		RefreshToken: "refresh-token",
+		Expiry:       time.Now().Add(time.Hour).UTC(),
+	}
+
+	adminUser, _, err := database.UpsertUser(&models.OIDCClaims{
+		Iss:               "https://ahoj420.eu",
+		Sub:               "backup-prune-admin",
+		PreferredUsername: "site-admin",
+		Email:             "backup-prune-admin@example.test",
+		EmailVerified:     true,
+	}, token)
+	if err != nil {
+		t.Fatalf("create admin user: %v", err)
+	}
+	adminUser, err = database.BootstrapAdminByUserID(adminUser.ID, false)
+	if err != nil {
+		t.Fatalf("bootstrap admin: %v", err)
+	}
+
+	oldStartedAt := time.Now().UTC().Add(-10 * 24 * time.Hour)
+	oldFinishedAt := oldStartedAt.Add(time.Hour)
+	if _, err := database.Exec(`
+		INSERT INTO admin_backups (
+			id, status, trigger_kind, storage_key, checksum_sha256, size_bytes, started_at, finished_at
+		) VALUES (?, 'completed', 'scheduled', ?, 'checksum', 1234, ?, ?)
+	`, "backup-prune-old", "backups/database/2026/03/old.json.gz", oldStartedAt.Format(time.RFC3339), oldFinishedAt.Format(time.RFC3339)); err != nil {
+		t.Fatalf("seed old backup: %v", err)
+	}
+
+	storage := &fakeBackupStorage{}
+	sessionID := "admin-backup-prune-session"
+	if err := database.CreateSession(&models.Session{
+		SessionID: sessionID,
+		UserID:    adminUser.ID,
+		CreatedAt: time.Now().UTC(),
+		ExpiresAt: time.Now().UTC().Add(24 * time.Hour),
+	}); err != nil {
+		t.Fatalf("create admin session: %v", err)
+	}
+
+	srv := New(cfg, database, nil, nil)
+	srv.Backup = backup.NewWithStorage(cfg, database, storage)
+
+	pruneReq := httptest.NewRequest(http.MethodPost, "/api/admin/backups/prune", nil)
+	pruneReq.AddCookie(&http.Cookie{Name: cfg.SessionCookieName, Value: sessionID})
+	pruneRec := httptest.NewRecorder()
+	srv.Router.ServeHTTP(pruneRec, pruneReq)
+
+	if pruneRec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", pruneRec.Code, pruneRec.Body.String())
+	}
+
+	var payload struct {
+		OK           bool `json:"ok"`
+		DeletedCount int  `json:"deleted_count"`
+	}
+	if err := json.NewDecoder(pruneRec.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode prune payload: %v", err)
+	}
+	if !payload.OK || payload.DeletedCount != 1 {
+		t.Fatalf("unexpected prune payload: %+v", payload)
+	}
+	if len(storage.deletedKeys) != 1 || storage.deletedKeys[0] != "backups/database/2026/03/old.json.gz" {
+		t.Fatalf("unexpected deleted storage keys: %+v", storage.deletedKeys)
 	}
 }

@@ -256,14 +256,22 @@ type ModerationAction struct {
 }
 
 type AdminOverview struct {
-	TotalUsers               int `json:"total_users"`
-	AdminUsers               int `json:"admin_users"`
-	ModeratorUsers           int `json:"moderator_users"`
-	StaffUsers               int `json:"staff_users"`
-	BannedUsers              int `json:"banned_users"`
-	CommentsMutedUsers       int `json:"comments_muted_users"`
-	PublishingSuspendedUsers int `json:"publishing_suspended_users"`
-	RestrictedUsers          int `json:"restricted_users"`
+	TotalUsers                int `json:"total_users"`
+	AdminUsers                int `json:"admin_users"`
+	ModeratorUsers            int `json:"moderator_users"`
+	StaffUsers                int `json:"staff_users"`
+	BannedUsers               int `json:"banned_users"`
+	CommentsMutedUsers        int `json:"comments_muted_users"`
+	PublishingSuspendedUsers  int `json:"publishing_suspended_users"`
+	RestrictedUsers           int `json:"restricted_users"`
+	PublicPosts               int `json:"public_posts"`
+	PublicCaptures            int `json:"public_captures"`
+	HiddenPosts               int `json:"hidden_posts"`
+	HiddenComments            int `json:"hidden_comments"`
+	HiddenCaptures            int `json:"hidden_captures"`
+	PendingPublicationReview  int `json:"pending_publication_review"`
+	FailedPublicationReview   int `json:"failed_publication_review"`
+	RejectedPublicationReview int `json:"rejected_publication_review"`
 }
 
 type AdminUserSummary struct {
@@ -303,4 +311,18 @@ type AdminBackup struct {
 	InitiatedByUserID int64     `json:"initiated_by_user_id,omitempty"`
 	InitiatedByName   string    `json:"initiated_by_name,omitempty"`
 	ErrorMessage      string    `json:"error_message,omitempty"`
+}
+
+type AdminSystemStatus struct {
+	BackupEnabled            bool         `json:"backup_enabled"`
+	BackupSchedulerEnabled   bool         `json:"backup_scheduler_enabled"`
+	BackupIntervalHours      int          `json:"backup_interval_hours"`
+	BackupRetentionDays      int          `json:"backup_retention_days"`
+	BackupMaxCompleted       int          `json:"backup_max_completed"`
+	BackupStorageBackend     string       `json:"backup_storage_backend,omitempty"`
+	LatestCompletedBackup    *AdminBackup `json:"latest_completed_backup,omitempty"`
+	PublishDefaultModel      string       `json:"publish_default_model,omitempty"`
+	ModeratorDefaultModel    string       `json:"moderator_default_model,omitempty"`
+	ValidatorConfigReachable bool         `json:"validator_config_reachable"`
+	ValidatorConfigError     string       `json:"validator_config_error,omitempty"`
 }

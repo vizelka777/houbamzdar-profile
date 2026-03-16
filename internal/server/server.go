@@ -81,6 +81,7 @@ func (s *Server) setupRoutes() {
 		r.Get("/api/admin/users", s.handleListAdminUsers)
 		r.Get("/api/admin/backups", s.handleListAdminBackups)
 		r.Post("/api/admin/backups/run", s.handleRunAdminBackup)
+		r.Post("/api/admin/backups/prune", s.handlePruneAdminBackups)
 		r.Get("/api/moderation/captures/{captureID}/taxonomy", s.handleGetModerationCaptureTaxonomy)
 		r.Post("/api/moderation/captures/{captureID}/taxonomy", s.handleSetModerationCaptureTaxonomy)
 		r.Get("/api/moderation/captures/{captureID}/geo", s.handleGetModerationCaptureGeo)

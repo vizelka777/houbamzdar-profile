@@ -111,12 +111,39 @@
                 <p class="section-label">Systém</p>
                 <div class="about-head">
                     <div>
-                        <h2>Zálohy databáze</h2>
-                        <p class="muted-copy">Ruční spuštění je aktivní. Plánované zálohy se zapnou přes serverový env interval.</p>
+                        <h2>Systemové operace a zálohy</h2>
+                        <p class="muted-copy">Tato část je admin-only. Slouží pro provozní přehled, plán záloh a údržbu archivů.</p>
                     </div>
                     <div class="action-row">
                         <button id="admin-run-backup" type="button" class="btn btn-primary">Spustit zálohu teď</button>
+                        <button id="admin-prune-backups" type="button" class="btn btn-secondary">Promazat staré zálohy</button>
                     </div>
+                </div>
+                <div class="admin-system-grid">
+                    <article class="admin-system-card">
+                        <p class="section-label">Backup plán</p>
+                        <h3 id="admin-system-backup-mode">Načítám...</h3>
+                        <p id="admin-system-backup-detail" class="muted-copy">Načítám konfiguraci záloh...</p>
+                    </article>
+                    <article class="admin-system-card">
+                        <p class="section-label">Retention</p>
+                        <h3 id="admin-system-retention">Načítám...</h3>
+                        <p id="admin-system-retention-detail" class="muted-copy">Načítám retention pravidla...</p>
+                    </article>
+                    <article class="admin-system-card">
+                        <p class="section-label">AI validator</p>
+                        <h3 id="admin-system-validator">Načítám...</h3>
+                        <p id="admin-system-validator-detail" class="muted-copy">Načítám aktivní modely...</p>
+                    </article>
+                    <article class="admin-system-card">
+                        <p class="section-label">Fronty a skryté věci</p>
+                        <h3 id="admin-system-queues">Načítám...</h3>
+                        <p id="admin-system-queues-detail" class="muted-copy">Načítám provozní počty...</p>
+                    </article>
+                </div>
+                <div id="admin-latest-backup-box" class="moderation-context-box" hidden>
+                    <p class="muted-copy">Poslední dokončená záloha</p>
+                    <p id="admin-latest-backup-text">Zatím žádná.</p>
                 </div>
                 <p id="admin-backup-status" class="status-message" aria-live="polite"></p>
                 <p id="admin-backups-summary" class="muted-copy">Načítám historii záloh...</p>

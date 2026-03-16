@@ -22,6 +22,7 @@ import (
 type Storage interface {
 	CanReadPrivate() bool
 	StorePrivateObject(ctx context.Context, key string, payload []byte, contentType string) error
+	DeletePrivateObject(ctx context.Context, key string) error
 }
 
 type Service struct {
@@ -73,10 +74,41 @@ func (s *Service) SchedulerEnabled() bool {
 	return s.Enabled() && s.cfg != nil && s.cfg.AdminBackupIntervalHours > 0
 }
 
+func (s *Service) IntervalHours() int {
+	if s == nil || s.cfg == nil || s.cfg.AdminBackupIntervalHours < 0 {
+		return 0
+	}
+	return s.cfg.AdminBackupIntervalHours
+}
+
+func (s *Service) RetentionDays() int {
+	if s == nil || s.cfg == nil || s.cfg.AdminBackupRetentionDays < 0 {
+		return 0
+	}
+	return s.cfg.AdminBackupRetentionDays
+}
+
+func (s *Service) MaxCompletedBackups() int {
+	if s == nil || s.cfg == nil || s.cfg.AdminBackupMaxCompleted < 0 {
+		return 0
+	}
+	return s.cfg.AdminBackupMaxCompleted
+}
+
+func (s *Service) StorageBackendName() string {
+	if !s.Enabled() {
+		return ""
+	}
+	return "bunny_private_storage"
+}
+
 func (s *Service) RunScheduler(ctx context.Context) {
 	if !s.SchedulerEnabled() {
 		return
 	}
+
+	_, _ = s.PruneExpiredBackups(ctx)
+	_, _ = s.runScheduledBackupIfDue(ctx)
 
 	interval := time.Duration(s.cfg.AdminBackupIntervalHours) * time.Hour
 	ticker := time.NewTicker(interval)
@@ -87,9 +119,34 @@ func (s *Service) RunScheduler(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			_, _ = s.CreateBackup(ctx, 0, "scheduled")
+			_, _ = s.runScheduledBackupIfDue(ctx)
 		}
 	}
+}
+
+func (s *Service) runScheduledBackupIfDue(ctx context.Context) (*models.AdminBackup, error) {
+	if !s.SchedulerEnabled() {
+		return nil, nil
+	}
+
+	latestCompleted, err := s.db.GetLatestCompletedAdminBackup()
+	if err != nil {
+		return nil, err
+	}
+	if latestCompleted != nil {
+		lastFinishedAt := latestCompleted.FinishedAt
+		if lastFinishedAt.IsZero() {
+			lastFinishedAt = latestCompleted.StartedAt
+		}
+		if !lastFinishedAt.IsZero() {
+			minNextRun := lastFinishedAt.Add(time.Duration(s.IntervalHours()) * time.Hour)
+			if time.Now().UTC().Before(minNextRun) {
+				return latestCompleted, nil
+			}
+		}
+	}
+
+	return s.CreateBackup(ctx, 0, "scheduled")
 }
 
 func (s *Service) CreateBackup(ctx context.Context, initiatedByUserID int64, triggerKind string) (*models.AdminBackup, error) {
@@ -136,7 +193,61 @@ func (s *Service) CreateBackup(ctx context.Context, initiatedByUserID int64, tri
 		return nil, err
 	}
 
+	_, _ = s.PruneExpiredBackups(ctx)
+
 	return s.db.GetAdminBackup(record.ID)
+}
+
+func (s *Service) PruneExpiredBackups(ctx context.Context) (int, error) {
+	if !s.Enabled() {
+		return 0, fmt.Errorf("backup service is not configured")
+	}
+	retentionDays := s.RetentionDays()
+	maxCompleted := s.MaxCompletedBackups()
+	if retentionDays <= 0 && maxCompleted <= 0 {
+		return 0, nil
+	}
+
+	backups, err := s.db.ListCompletedAdminBackupsForRetention()
+	if err != nil {
+		return 0, err
+	}
+	if len(backups) == 0 {
+		return 0, nil
+	}
+
+	var cutoff time.Time
+	if retentionDays > 0 {
+		cutoff = time.Now().UTC().AddDate(0, 0, -retentionDays)
+	}
+
+	deleted := 0
+	for index, backupRecord := range backups {
+		if backupRecord == nil {
+			continue
+		}
+		removeByCount := maxCompleted > 0 && index >= maxCompleted
+		finishedAt := backupRecord.FinishedAt
+		if finishedAt.IsZero() {
+			finishedAt = backupRecord.StartedAt
+		}
+		removeByAge := retentionDays > 0 && !finishedAt.IsZero() && finishedAt.Before(cutoff)
+		if !removeByCount && !removeByAge {
+			continue
+		}
+
+		if strings.TrimSpace(backupRecord.StorageKey) != "" {
+			if err := s.storage.DeletePrivateObject(ctx, backupRecord.StorageKey); err != nil {
+				return deleted, err
+			}
+		}
+		if err := s.db.DeleteAdminBackup(backupRecord.ID); err != nil {
+			return deleted, err
+		}
+		deleted++
+	}
+
+	return deleted, nil
 }
 
 func backupStorageKey(backupID string, startedAt time.Time) string {

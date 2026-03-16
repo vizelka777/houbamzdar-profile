@@ -2,6 +2,7 @@ const adminPageState = {
     session: null,
     me: null,
     overview: null,
+    system: null,
     users: [],
     total: 0,
     page: 1,
@@ -64,6 +65,100 @@ function renderAdminOverview() {
     setText("admin-stat-staff-users", String(overview.staff_users || 0));
     setText("admin-stat-restricted-users", String(overview.restricted_users || 0));
     setText("admin-stat-banned-users", String(overview.banned_users || 0));
+}
+
+function renderAdminSystemStatus() {
+    const overview = adminPageState.overview || {};
+    const system = adminPageState.system || {};
+    const backupMode = document.getElementById("admin-system-backup-mode");
+    const backupDetail = document.getElementById("admin-system-backup-detail");
+    const retentionTitle = document.getElementById("admin-system-retention");
+    const retentionDetail = document.getElementById("admin-system-retention-detail");
+    const validatorTitle = document.getElementById("admin-system-validator");
+    const validatorDetail = document.getElementById("admin-system-validator-detail");
+    const queuesTitle = document.getElementById("admin-system-queues");
+    const queuesDetail = document.getElementById("admin-system-queues-detail");
+    const latestBackupBox = document.getElementById("admin-latest-backup-box");
+    const latestBackupText = document.getElementById("admin-latest-backup-text");
+
+    if (backupMode) {
+        backupMode.textContent = system.backup_scheduler_enabled
+            ? `Každých ${Number(system.backup_interval_hours || 0)} h`
+            : "Pouze ručně";
+    }
+    if (backupDetail) {
+        const backendLabel = system.backup_storage_backend ? `Úložiště: ${system.backup_storage_backend}.` : "Úložiště zatím není k dispozici.";
+        backupDetail.textContent = system.backup_enabled
+            ? `${backendLabel} Admin může zálohu spustit kdykoli ručně.`
+            : "Backup služba není nakonfigurovaná.";
+    }
+
+    if (retentionTitle) {
+        const days = Number(system.backup_retention_days || 0);
+        const maxCompleted = Number(system.backup_max_completed || 0);
+        if (days <= 0 && maxCompleted <= 0) {
+            retentionTitle.textContent = "Bez automatického úklidu";
+        } else {
+            const labels = [];
+            if (days > 0) {
+                labels.push(`${days} dnů`);
+            }
+            if (maxCompleted > 0) {
+                labels.push(`max ${maxCompleted}`);
+            }
+            retentionTitle.textContent = labels.join(" · ");
+        }
+    }
+    if (retentionDetail) {
+        const detailLabels = [];
+        if (Number(system.backup_retention_days || 0) > 0) {
+            detailLabels.push(`archivy starší než ${system.backup_retention_days} dnů se smažou`);
+        }
+        if (Number(system.backup_max_completed || 0) > 0) {
+            detailLabels.push(`ponechá se nejvýš ${system.backup_max_completed} dokončených záloh`);
+        }
+        retentionDetail.textContent = detailLabels.length
+            ? `${detailLabels.join(" · ")}`
+            : "Retention pravidla zatím nejsou aktivní.";
+    }
+
+    if (validatorTitle) {
+        validatorTitle.textContent = system.validator_config_reachable ? "Validator dostupný" : "Validator bez potvrzení";
+    }
+    if (validatorDetail) {
+        if (system.validator_config_reachable) {
+            const publishModel = system.publish_default_model || "neznámý publish model";
+            const moderatorModel = system.moderator_default_model || "neznámý moderator model";
+            validatorDetail.textContent = `Publish: ${publishModel} · Moderator default: ${moderatorModel}`;
+        } else {
+            validatorDetail.textContent = system.validator_config_error || "Nepodařilo se načíst validator config.";
+        }
+    }
+
+    if (queuesTitle) {
+        queuesTitle.textContent = `${Number(overview.pending_publication_review || 0)} čeká · ${Number(overview.failed_publication_review || 0)} error`;
+    }
+    if (queuesDetail) {
+        queuesDetail.textContent = `${Number(overview.hidden_captures || 0)} skrytých fotek · ${Number(overview.hidden_posts || 0)} skrytých příspěvků · ${Number(overview.hidden_comments || 0)} skrytých komentářů`;
+    }
+
+    const latestBackup = system.latest_completed_backup || null;
+    if (!latestBackupBox || !latestBackupText) {
+        return;
+    }
+    if (!latestBackup) {
+        latestBackupBox.hidden = false;
+        latestBackupText.textContent = "Zatím nebyla dokončena žádná záloha.";
+        return;
+    }
+
+    latestBackupBox.hidden = false;
+    const meta = [
+        latestBackup.finished_at ? `Dokončeno ${formatDateTime(latestBackup.finished_at)}` : "",
+        latestBackup.size_bytes ? `Velikost ${formatBackupSize(latestBackup.size_bytes)}` : "",
+        latestBackup.storage_key ? latestBackup.storage_key : ""
+    ].filter(Boolean);
+    latestBackupText.textContent = meta.join(" · ");
 }
 
 function renderAdminUsersSummary() {
@@ -247,7 +342,9 @@ function renderAdminBackups() {
 async function loadAdminOverview() {
     const payload = await apiJsonRequest("/api/admin/overview");
     adminPageState.overview = payload?.overview || null;
+    adminPageState.system = payload?.system || null;
     renderAdminOverview();
+    renderAdminSystemStatus();
 }
 
 function buildAdminUsersPath() {
@@ -346,6 +443,42 @@ async function runAdminBackup() {
     }
 }
 
+async function pruneAdminBackups() {
+    const statusNode = document.getElementById("admin-backup-status");
+    const button = document.getElementById("admin-prune-backups");
+    if (adminPageState.backups.running) {
+        return;
+    }
+
+    adminPageState.backups.running = true;
+    if (button) {
+        button.disabled = true;
+    }
+    setStatusMessage(statusNode, "Čistím staré zálohy podle retention pravidel...");
+
+    try {
+        const payload = await apiJsonRequest("/api/admin/backups/prune", { method: "POST" });
+        const deletedCount = Number(payload?.deleted_count || 0);
+        setStatusMessage(
+            statusNode,
+            deletedCount > 0
+                ? `Promazáno ${deletedCount} starších záloh.`
+                : "Retention cleanup nic nemaže, vše je v aktuálních limitech.",
+            "success"
+        );
+        await loadAdminBackups({ append: false });
+        await loadAdminOverview();
+    } catch (error) {
+        console.error("Failed to prune admin backups", error);
+        setStatusMessage(statusNode, error.message || "Nepodařilo se promazat staré zálohy.", "error");
+    } finally {
+        adminPageState.backups.running = false;
+        if (button) {
+            button.disabled = false;
+        }
+    }
+}
+
 function showAdminPageError(message) {
     const errorNode = document.getElementById("admin-page-error");
     const dashboard = document.getElementById("admin-dashboard");
@@ -364,6 +497,7 @@ function attachAdminPageEvents() {
     const prevButton = document.getElementById("admin-users-prev");
     const nextButton = document.getElementById("admin-users-next");
     const runBackupButton = document.getElementById("admin-run-backup");
+    const pruneBackupsButton = document.getElementById("admin-prune-backups");
     const loadMoreBackupsButton = document.getElementById("admin-backups-load-more");
 
     if (filtersForm) {
@@ -416,6 +550,10 @@ function attachAdminPageEvents() {
         runBackupButton.addEventListener("click", runAdminBackup);
     }
 
+    if (pruneBackupsButton) {
+        pruneBackupsButton.addEventListener("click", pruneAdminBackups);
+    }
+
     if (loadMoreBackupsButton) {
         loadMoreBackupsButton.addEventListener("click", () => loadAdminBackups({ append: true }));
     }
@@ -445,7 +583,7 @@ async function initAdminPage() {
         return;
     }
 
-    setText("admin-page-note", "Admin účet je pevně vyhrazený pro Houbamzdar. Tady je přehled účtů a omezení; zálohy databáze připojíme v dalším kroku.");
+    setText("admin-page-note", "Admin účet je vyhrazený pro Houbamzdar. Tato stránka je pro systémový dohled: účty, aktivní omezení, backup plán, retention a stav validatoru.");
     const dashboard = document.getElementById("admin-dashboard");
     if (dashboard) {
         dashboard.hidden = false;

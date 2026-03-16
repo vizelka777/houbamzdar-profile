@@ -39,17 +39,21 @@ type Config struct {
 	NominatimUserAgent      string
 
 	AdminBackupIntervalHours int
+	AdminBackupRetentionDays int
+	AdminBackupMaxCompleted  int
 }
 
 func Load() *Config {
 	_ = godotenv.Load()
 
 	secure, _ := strconv.ParseBool(os.Getenv("SESSION_COOKIE_SECURE"))
-	ttl, _ := strconv.Atoi(os.Getenv("SESSION_TTL_HOURS"))
+	ttl := getEnvInt("SESSION_TTL_HOURS", 720)
 	if ttl == 0 {
 		ttl = 720
 	}
-	backupIntervalHours, _ := strconv.Atoi(os.Getenv("ADMIN_BACKUP_INTERVAL_HOURS"))
+	backupIntervalHours := getEnvInt("ADMIN_BACKUP_INTERVAL_HOURS", 0)
+	backupRetentionDays := getEnvInt("ADMIN_BACKUP_RETENTION_DAYS", 0)
+	backupMaxCompleted := getEnvInt("ADMIN_BACKUP_MAX_COMPLETED", 0)
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
@@ -95,6 +99,8 @@ func Load() *Config {
 		NominatimUserAgent:      getEnv("NOMINATIM_USER_AGENT", "houbamzdar-mvp/1.0"),
 
 		AdminBackupIntervalHours: backupIntervalHours,
+		AdminBackupRetentionDays: backupRetentionDays,
+		AdminBackupMaxCompleted:  backupMaxCompleted,
 	}
 }
 
@@ -103,6 +109,18 @@ func getEnv(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func getEnvInt(key string, fallback int) int {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return fallback
+	}
+	return parsed
 }
 
 func parseScopes(raw string) []string {
