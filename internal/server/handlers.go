@@ -210,6 +210,7 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 		"logged_in": true,
 		"user": map[string]interface{}{
 			"preferred_username": user.PreferredUsername,
+			"is_moderator":       user.IsModerator,
 			"picture":            user.Picture,
 		},
 	})

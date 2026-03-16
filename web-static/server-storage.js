@@ -1,4 +1,5 @@
 const SERVER_STORAGE_PAGE_SIZE = 12;
+const SERVER_STORAGE_REFRESH_MS = 8000;
 
 const storageState = {
     status: "private",
@@ -10,6 +11,8 @@ const storageState = {
     captures: [],
     selectedIds: new Set()
 };
+
+let storageRefreshTimer = null;
 
 function formatStorageCoords(lat, lng) {
     if (typeof lat !== "number" || typeof lng !== "number") {
@@ -31,6 +34,31 @@ function buildStorageQuery() {
         params.set("captured_on", storageState.capturedOn);
     }
     return params.toString();
+}
+
+function clearStorageRefreshTimer() {
+    if (storageRefreshTimer) {
+        window.clearTimeout(storageRefreshTimer);
+        storageRefreshTimer = null;
+    }
+}
+
+function scheduleStorageRefresh() {
+    clearStorageRefreshTimer();
+    if (storageState.status !== "private") {
+        return;
+    }
+    if (!storageState.captures.some((capture) => capture.publication_review_status === "pending_validation")) {
+        return;
+    }
+
+    storageRefreshTimer = window.setTimeout(async () => {
+        try {
+            await loadAndRenderServerStorage();
+        } catch (error) {
+            console.error("Failed to auto-refresh storage validation state", error);
+        }
+    }, SERVER_STORAGE_REFRESH_MS);
 }
 
 async function fetchServerStoragePage() {
@@ -69,8 +97,19 @@ function updateSelectAllState() {
     selectAll.indeterminate = selectedCount > 0 && selectedCount < pageCount;
 }
 
+function getStorageApplicableCaptures(action, captures) {
+    if (action === "publish") {
+        return captures.filter((capture) => capture.status === "private" && capture.publication_review_status !== "pending_validation");
+    }
+    if (action === "unpublish") {
+        return captures.filter((capture) => capture.status === "published");
+    }
+    return captures;
+}
+
 function updateStorageActionState() {
-    const selectedCount = storageState.selectedIds.size;
+    const selected = selectedStorageCaptures();
+    const selectedCount = selected.length;
     const publishButton = document.getElementById("storage-publish-btn");
     const unpublishButton = document.getElementById("storage-unpublish-btn");
     const deleteButton = document.getElementById("storage-delete-btn");
@@ -81,10 +120,10 @@ function updateStorageActionState() {
     }
 
     if (publishButton) {
-        publishButton.disabled = selectedCount === 0 || storageState.status !== "private";
+        publishButton.disabled = getStorageApplicableCaptures("publish", selected).length === 0;
     }
     if (unpublishButton) {
-        unpublishButton.disabled = selectedCount === 0 || storageState.status !== "published";
+        unpublishButton.disabled = getStorageApplicableCaptures("unpublish", selected).length === 0;
     }
     if (deleteButton) {
         deleteButton.disabled = selectedCount === 0;
@@ -107,6 +146,84 @@ function renderStorageSummary() {
     }
 }
 
+function buildStorageStatusBadge(capture) {
+    if (capture.status === "published") {
+        return '<span class="status-badge verified">Veřejné</span>';
+    }
+
+    switch (capture.publication_review_status) {
+    case "pending_validation":
+        return '<span class="status-badge review-pending">Čeká na kontrolu</span>';
+    case "rejected":
+        return '<span class="status-badge review-error">Zamítnuto</span>';
+    case "error":
+        return '<span class="status-badge review-error">Chyba kontroly</span>';
+    case "approved":
+        return '<span class="status-badge verified">Schváleno</span>';
+    default:
+        return '<span class="status-badge unverified">Soukromé</span>';
+    }
+}
+
+function buildStorageReviewPanel(capture) {
+    if (!capture || capture.status === "published") {
+        return "";
+    }
+
+    let title = "";
+    let copy = "";
+    let copyClass = "";
+
+    switch (capture.publication_review_status) {
+    case "pending_validation":
+        title = "Kontrola před zveřejněním";
+        copy = capture.publication_review_last_error
+            ? "Předchozí pokus selhal. Backend zkouší ověření znovu automaticky."
+            : "Fotografie čeká na AI kontrolu hub a potvrzení, že souřadnice leží v Česku.";
+        copyClass = "is-pending";
+        break;
+    case "rejected":
+        title = "Publikace zamítnuta";
+        if (capture.publication_review_reason_code === "missing_coordinates") {
+            copy = "Fotografie nemá GPS souřadnice, takže ji nejde veřejně publikovat.";
+        } else if (capture.publication_review_reason_code === "outside_czechia") {
+            copy = "Souřadnice leží mimo Českou republiku, proto publikace neprošla.";
+        } else if (capture.publication_review_reason_code === "no_mushrooms_detected") {
+            copy = "AI na snímku nenašla ani jednu houbu, proto publikace neprošla.";
+        } else {
+            copy = "Fotografie neprošla pravidly pro veřejné zveřejnění.";
+        }
+        copyClass = "is-error";
+        break;
+    case "error":
+        title = "Kontrolu se nepodařilo dokončit";
+        copy = capture.publication_review_last_error
+            ? `Poslední chyba: ${capture.publication_review_last_error}`
+            : "Ověření publikace zatím skončilo chybou. Zkuste akci spustit znovu.";
+        copyClass = "is-error";
+        break;
+    case "approved":
+        title = "Kontrola je hotová";
+        copy = "Fotografie už prošla validací a čeká na finální zveřejnění.";
+        break;
+    default:
+        if (!captureHasCoordinates(capture)) {
+            title = "Před zveřejněním chybí GPS";
+            copy = "Bez souřadnic nepůjde ověřit, jestli je nález z Česka.";
+        } else {
+            title = "Připraveno ke kontrole";
+            copy = "Po kliknutí na zveřejnění backend nejdřív ověří Česko a přítomnost houby.";
+        }
+    }
+
+    return `
+        <div class="capture-review-panel">
+            <strong class="capture-review-title">${escapeHtml(title)}</strong>
+            <p class="capture-review-copy ${copyClass}">${escapeHtml(copy)}</p>
+        </div>
+    `;
+}
+
 function renderServerStorageGrid() {
     const grid = document.getElementById("storage-grid");
     if (!grid) return;
@@ -120,6 +237,7 @@ function renderServerStorageGrid() {
         grid.appendChild(emptyState);
         updateStorageActionState();
         renderStorageSummary();
+        scheduleStorageRefresh();
         return;
     }
 
@@ -145,8 +263,8 @@ function renderServerStorageGrid() {
                     </label>
                     <p class="capture-free-help">
                         ${capture.coordinates_free
-                            ? "Ostatní uvidí souřadnice bez houbičky."
-                            : "Ostatní zaplatí 1 houbičku za odemčení."}
+                            ? "Veřejné hledání může jít až po okres nebo obec."
+                            : "Veřejné hledání zůstane jen na úrovni kraje, přesná poloha je za houbičku."}
                     </p>
                 </div>
             `
@@ -158,9 +276,7 @@ function renderServerStorageGrid() {
                     <input class="storage-capture-checkbox" type="checkbox" value="${escapeHtml(capture.id)}">
                     <span>Vybrat</span>
                 </label>
-                <span class="status-badge ${capture.status === "published" ? "verified" : "unverified"}">
-                    ${escapeHtml(capture.status === "published" ? "Veřejné" : "Soukromé")}
-                </span>
+                ${buildStorageStatusBadge(capture)}
             </div>
             <img src="${escapeHtml(previewUrl)}" alt="Soukromý náhled nálezu" class="capture-thumb" loading="lazy">
             <div class="capture-meta">
@@ -170,6 +286,7 @@ function renderServerStorageGrid() {
                 <p>${escapeHtml(`${Math.round((capture.size_bytes || 0) / 1024)} KB`)}</p>
                 ${publicLink}
                 ${coordinatesAccessHtml}
+                ${buildStorageReviewPanel(capture)}
             </div>
         `;
 
@@ -178,6 +295,7 @@ function renderServerStorageGrid() {
 
     updateStorageActionState();
     renderStorageSummary();
+    scheduleStorageRefresh();
 }
 
 async function loadAndRenderServerStorage() {
@@ -186,18 +304,38 @@ async function loadAndRenderServerStorage() {
     renderServerStorageGrid();
 }
 
+async function parseStorageAPIResponse(response, fallbackMessage) {
+    const text = await response.text();
+    let payload = null;
+
+    if (text) {
+        try {
+            payload = JSON.parse(text);
+        } catch (error) {
+            payload = text;
+        }
+    }
+
+    if (!response.ok) {
+        if (payload && typeof payload === "object" && payload.error) {
+            throw new Error(payload.error);
+        }
+        if (typeof payload === "string" && payload.trim()) {
+            throw new Error(payload.trim());
+        }
+        throw new Error(fallbackMessage);
+    }
+
+    return payload;
+}
+
 async function apiPostStorageAction(captureID, action) {
     const response = await fetch(`${API_URL}/api/captures/${encodeURIComponent(captureID)}/${action}`, {
         method: "POST",
         credentials: "include"
     });
 
-    if (!response.ok) {
-        const text = await response.text();
-        throw new Error(text || `Action ${action} failed`);
-    }
-
-    return response.json();
+    return parseStorageAPIResponse(response, `Action ${action} failed`);
 }
 
 async function apiDeleteStorageCapture(captureID) {
@@ -206,12 +344,7 @@ async function apiDeleteStorageCapture(captureID) {
         credentials: "include"
     });
 
-    if (!response.ok) {
-        const text = await response.text();
-        throw new Error(text || "Delete failed");
-    }
-
-    return response.json();
+    return parseStorageAPIResponse(response, "Delete failed");
 }
 
 async function apiSetCaptureCoordinatesFree(captureID, coordinatesFree) {
@@ -226,12 +359,7 @@ async function apiSetCaptureCoordinatesFree(captureID, coordinatesFree) {
         })
     });
 
-    if (!response.ok) {
-        const text = await response.text();
-        throw new Error(text || "Update of capture coordinate visibility failed");
-    }
-
-    return response.json();
+    return parseStorageAPIResponse(response, "Update of capture coordinate visibility failed");
 }
 
 async function performStorageBulkAction(action) {
@@ -240,30 +368,90 @@ async function performStorageBulkAction(action) {
         throw new Error("Nejdřív vyberte alespoň jednu fotografii.");
     }
 
-    let applicable = selected;
-    if (action === "publish") {
-        applicable = selected.filter((capture) => capture.status === "private");
-    } else if (action === "unpublish") {
-        applicable = selected.filter((capture) => capture.status === "published");
-    }
-
+    const applicable = getStorageApplicableCaptures(action, selected);
     if (!applicable.length) {
         throw new Error(
             action === "publish"
-                ? "Vybrané fotky už nejsou soukromé."
+                ? "Vybrané fotky už čekají na kontrolu nebo nejsou soukromé."
                 : action === "unpublish"
                     ? "Vybrané fotky už nejsou veřejné."
                     : "Vybrané fotky nejde zpracovat."
         );
     }
 
+    const summary = {
+        processed: 0,
+        queued: 0,
+        published: 0,
+        unpublished: 0,
+        deleted: 0,
+        errors: []
+    };
+
     for (const capture of applicable) {
-        if (action === "delete") {
-            await apiDeleteStorageCapture(capture.id);
-            continue;
+        try {
+            if (action === "delete") {
+                await apiDeleteStorageCapture(capture.id);
+                summary.deleted += 1;
+            } else {
+                const response = await apiPostStorageAction(capture.id, action);
+                const updatedCapture = response && typeof response === "object" ? response.capture : null;
+
+                if (action === "publish") {
+                    if (updatedCapture && updatedCapture.status === "published") {
+                        summary.published += 1;
+                    } else {
+                        summary.queued += 1;
+                    }
+                }
+
+                if (action === "unpublish") {
+                    summary.unpublished += 1;
+                }
+            }
+
+            summary.processed += 1;
+        } catch (error) {
+            console.error(`Failed to ${action} capture ${capture.id}`, error);
+            summary.errors.push(`${capture.original_file_name || capture.id}: ${error.message || "chyba"}`);
         }
-        await apiPostStorageAction(capture.id, action);
     }
+
+    if (summary.processed === 0 && summary.errors.length) {
+        throw new Error(summary.errors.join(" | "));
+    }
+
+    return summary;
+}
+
+function buildStorageActionMessage(action, summary) {
+    if (action === "publish") {
+        const parts = [];
+        if (summary.queued) {
+            parts.push(`Ke kontrole odesláno: ${summary.queued}.`);
+        }
+        if (summary.published) {
+            parts.push(`Okamžitě zveřejněno: ${summary.published}.`);
+        }
+        if (summary.errors.length) {
+            parts.push(`Chyby: ${summary.errors.join(" | ")}`);
+        }
+        return parts.join(" ");
+    }
+
+    if (action === "unpublish") {
+        const parts = [`Staženo z webu: ${summary.unpublished}.`];
+        if (summary.errors.length) {
+            parts.push(`Chyby: ${summary.errors.join(" | ")}`);
+        }
+        return parts.join(" ");
+    }
+
+    const parts = [`Smazáno: ${summary.deleted}.`];
+    if (summary.errors.length) {
+        parts.push(`Chyby: ${summary.errors.join(" | ")}`);
+    }
+    return parts.join(" ");
 }
 
 async function handleStorageGridChange(event) {
@@ -297,8 +485,8 @@ async function handleStorageGridChange(event) {
             setStatusMessage(
                 statusNode,
                 nextValue
-                    ? "Souřadnice jsou teď zdarma pro všechny."
-                    : "Souřadnice jsou znovu chráněné houbičkou.",
+                    ? "Souřadnice jsou teď zdarma pro všechny a funguje i hledání po okresu nebo obci."
+                    : "Souřadnice jsou znovu chráněné houbičkou a veřejně se hledá jen podle kraje.",
                 "success"
             );
         } catch (error) {
@@ -336,14 +524,18 @@ function handleStorageSelectAll(event) {
     updateStorageActionState();
 }
 
-async function runStorageAction(action, busyMessage, doneMessage) {
+async function runStorageAction(action, busyMessage) {
     const statusNode = document.getElementById("storage-status");
 
     try {
         setStatusMessage(statusNode, busyMessage);
-        await performStorageBulkAction(action);
+        const summary = await performStorageBulkAction(action);
         await loadAndRenderServerStorage();
-        setStatusMessage(statusNode, doneMessage, "success");
+        setStatusMessage(
+            statusNode,
+            buildStorageActionMessage(action, summary),
+            summary.errors.length ? "error" : "success"
+        );
     } catch (error) {
         console.error(`Failed to ${action} storage captures`, error);
         setStatusMessage(statusNode, error.message || "Serverový krok se nepovedl.", "error");
@@ -452,16 +644,18 @@ async function initServerStoragePage() {
     });
 
     publishButton.addEventListener("click", async () => {
-        await runStorageAction("publish", "Zveřejňuji vybrané fotografie...", "Vybrané fotografie jsou zveřejněné.");
+        await runStorageAction("publish", "Předávám vybrané fotografie ke kontrole před zveřejněním...");
     });
 
     unpublishButton.addEventListener("click", async () => {
-        await runStorageAction("unpublish", "Stahuji vybrané fotografie z webu...", "Vybrané fotografie jsou zase soukromé.");
+        await runStorageAction("unpublish", "Stahuji vybrané fotografie z webu...");
     });
 
     deleteButton.addEventListener("click", async () => {
-        await runStorageAction("delete", "Mažu vybrané fotografie ze serveru...", "Vybrané fotografie byly ze serveru smazané.");
+        await runStorageAction("delete", "Mažu vybrané fotografie ze serveru...");
     });
+
+    window.addEventListener("beforeunload", clearStorageRefreshTimer);
 
     try {
         setStatusMessage(statusNode, "Načítám archiv...");

@@ -71,6 +71,7 @@ func (s *Server) setupRoutes() {
 		r.Get("/api/captures/{captureID}/preview", s.handlePreviewCapture)
 		r.Post("/api/captures", s.handleCreateCapture)
 		r.Post("/api/captures/{captureID}/publish", s.handlePublishCapture)
+		r.Post("/api/captures/{captureID}/moderator-recheck", s.handleModeratorRecheckCapture)
 		r.Post("/api/captures/{captureID}/unpublish", s.handleUnpublishCapture)
 		r.Post("/api/captures/{captureID}/coordinates-free", s.handleSetCaptureCoordinatesFree)
 		r.Post("/api/captures/{captureID}/unlock-coordinates", s.handleUnlockCaptureCoordinates)

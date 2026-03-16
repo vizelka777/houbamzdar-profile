@@ -93,8 +93,45 @@
             <p class="section-label">Galerie</p>
             <h1>Všechny sdílené úlovky</h1>
             <p>
-                Prohlédněte si všechny fotografie, které naši houbaři přidali na veřejnou zeď.
+                Prohlédněte si všechny fotografie, které naši houbaři přidali na veřejnou zeď. Veřejné hledání podle `okresu` a `obce`
+                funguje jen u snímků, kde autor zpřístupnil souřadnice zdarma.
             </p>
+            <form id="gallery-filter-form" class="public-capture-filter-form">
+                <div class="public-capture-filter-grid">
+                    <label class="public-capture-filter-field">
+                        <span>Druh houby</span>
+                        <input id="gallery-filter-species" type="search" placeholder="např. hřib smrkový nebo boletus">
+                    </label>
+                    <label class="public-capture-filter-field">
+                        <span>Kraj</span>
+                        <input id="gallery-filter-kraj" type="search" placeholder="např. Vysočina">
+                    </label>
+                    <label class="public-capture-filter-field">
+                        <span>Okres</span>
+                        <input id="gallery-filter-okres" type="search" placeholder="jen pro sdílené souřadnice">
+                    </label>
+                    <label class="public-capture-filter-field">
+                        <span>Obec</span>
+                        <input id="gallery-filter-obec" type="search" placeholder="jen pro sdílené souřadnice">
+                    </label>
+                    <label class="public-capture-filter-field">
+                        <span>Řazení</span>
+                        <select id="gallery-filter-sort">
+                            <option value="published_desc">Nejnovější zveřejnění</option>
+                            <option value="captured_desc">Nejnovější nález</option>
+                            <option value="probability_desc">Nejvyšší pravděpodobnost</option>
+                            <option value="kraj_asc">Kraje A-Z</option>
+                            <option value="okres_asc">Okresy A-Z</option>
+                            <option value="obec_asc">Obce A-Z</option>
+                        </select>
+                    </label>
+                </div>
+                <div class="action-row">
+                    <button type="submit" class="btn btn-primary">Použít filtry</button>
+                    <button id="gallery-filter-reset" type="button" class="btn btn-secondary">Vymazat</button>
+                </div>
+            </form>
+            <p id="gallery-summary" class="muted-copy">Načítám fotografie...</p>
         </section>
 
         <div id="gallery-container" class="gallery-grid">

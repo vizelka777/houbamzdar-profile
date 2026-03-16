@@ -10,6 +10,7 @@ import (
 
 	"github.com/houbamzdar/bff/internal/config"
 	"github.com/houbamzdar/bff/internal/db"
+	"github.com/houbamzdar/bff/internal/media"
 	"github.com/houbamzdar/bff/internal/models"
 	"golang.org/x/oauth2"
 	_ "modernc.org/sqlite"
@@ -227,5 +228,419 @@ func TestCaptureCoordinateUnlockFlow(t *testing.T) {
 	}
 	if viewedPayload.Captures[0].UnlockedAt.IsZero() {
 		t.Fatalf("expected unlock timestamp in viewed captures payload")
+	}
+}
+
+func TestHandlePublishCaptureQueuesValidation(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{
+		DBURL:                  "file:" + filepath.Join(t.TempDir(), "test.db"),
+		FrontOrigin:            "https://houbamzdar.cz",
+		SessionCookieName:      "hzd_session",
+		CaptureAIValidatorURL:  "https://validator.example/validate-capture",
+		NominatimBaseURL:       "https://nominatim.openstreetmap.org",
+		NominatimUserAgent:     "houbamzdar-tests/1.0",
+		BunnyPrivateZone:       "private-zone",
+		BunnyPrivateStorageKey: "private-key",
+		BunnyPublicZone:        "public-zone",
+		BunnyPublicStorageKey:  "public-key",
+		BunnyPublicBaseURL:     "https://foto.houbamzdar.cz",
+		BunnyStorageHost:       "storage.bunnycdn.com",
+	}
+
+	database, err := db.New(cfg)
+	if err != nil {
+		t.Fatalf("open test database: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = database.Close()
+	})
+
+	user, _, err := database.UpsertUser(&models.OIDCClaims{
+		Iss:               "https://ahoj420.eu",
+		Sub:               "publish-queue-user",
+		PreferredUsername: "queueuser",
+		Email:             "publish-queue-user@example.test",
+		EmailVerified:     true,
+	}, &oauth2.Token{
+		AccessToken:  "queue-access",
+		RefreshToken: "queue-refresh",
+		Expiry:       time.Now().Add(time.Hour).UTC(),
+	})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	sessionID := "publish-queue-session"
+	if err := database.CreateSession(&models.Session{
+		SessionID: sessionID,
+		UserID:    user.ID,
+		ExpiresAt: time.Now().Add(time.Hour).UTC(),
+	}); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	lat := 49.1951
+	lon := 16.6068
+	capture := &models.Capture{
+		ID:                "publish-queue-capture",
+		UserID:            user.ID,
+		OriginalFileName:  "queue.jpg",
+		ContentType:       "image/jpeg",
+		SizeBytes:         2048,
+		Width:             1200,
+		Height:            900,
+		CapturedAt:        time.Date(2026, time.March, 16, 9, 0, 0, 0, time.UTC),
+		UploadedAt:        time.Date(2026, time.March, 16, 9, 0, 0, 0, time.UTC),
+		Latitude:          &lat,
+		Longitude:         &lon,
+		Status:            "private",
+		PrivateStorageKey: "captures/private/publish-queue-capture.jpg",
+	}
+	if err := database.CreateCapture(capture); err != nil {
+		t.Fatalf("create capture: %v", err)
+	}
+
+	srv := New(cfg, database, nil, &media.BunnyStorage{})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/captures/"+capture.ID+"/publish", nil)
+	req.AddCookie(&http.Cookie{Name: cfg.SessionCookieName, Value: sessionID})
+	rec := httptest.NewRecorder()
+	srv.Router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("expected status 202, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var payload struct {
+		OK      bool            `json:"ok"`
+		Capture *models.Capture `json:"capture"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !payload.OK || payload.Capture == nil {
+		t.Fatalf("unexpected payload: %+v", payload)
+	}
+	if payload.Capture.Status != "private" {
+		t.Fatalf("expected private status while validation is pending, got %q", payload.Capture.Status)
+	}
+	if payload.Capture.PublicationReviewStatus != db.CapturePublicationReviewPendingValidation {
+		t.Fatalf("expected pending_validation status, got %q", payload.Capture.PublicationReviewStatus)
+	}
+	if payload.Capture.PublicationRequestedAt.IsZero() {
+		t.Fatalf("expected publication_requested_at to be set")
+	}
+
+	reloaded, err := database.GetCaptureForUser(capture.ID, user.ID)
+	if err != nil {
+		t.Fatalf("reload capture: %v", err)
+	}
+	if reloaded.PublicationReviewStatus != db.CapturePublicationReviewPendingValidation {
+		t.Fatalf("expected database capture to be pending_validation, got %q", reloaded.PublicationReviewStatus)
+	}
+}
+
+func TestHandlePublishCaptureRejectsMissingCoordinates(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{
+		DBURL:                  "file:" + filepath.Join(t.TempDir(), "test.db"),
+		FrontOrigin:            "https://houbamzdar.cz",
+		SessionCookieName:      "hzd_session",
+		CaptureAIValidatorURL:  "https://validator.example/validate-capture",
+		NominatimBaseURL:       "https://nominatim.openstreetmap.org",
+		NominatimUserAgent:     "houbamzdar-tests/1.0",
+		BunnyPrivateZone:       "private-zone",
+		BunnyPrivateStorageKey: "private-key",
+		BunnyPublicZone:        "public-zone",
+		BunnyPublicStorageKey:  "public-key",
+		BunnyPublicBaseURL:     "https://foto.houbamzdar.cz",
+		BunnyStorageHost:       "storage.bunnycdn.com",
+	}
+
+	database, err := db.New(cfg)
+	if err != nil {
+		t.Fatalf("open test database: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = database.Close()
+	})
+
+	user, _, err := database.UpsertUser(&models.OIDCClaims{
+		Iss:               "https://ahoj420.eu",
+		Sub:               "publish-reject-user",
+		PreferredUsername: "rejectuser",
+		Email:             "publish-reject-user@example.test",
+		EmailVerified:     true,
+	}, &oauth2.Token{
+		AccessToken:  "reject-access",
+		RefreshToken: "reject-refresh",
+		Expiry:       time.Now().Add(time.Hour).UTC(),
+	})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	sessionID := "publish-reject-session"
+	if err := database.CreateSession(&models.Session{
+		SessionID: sessionID,
+		UserID:    user.ID,
+		ExpiresAt: time.Now().Add(time.Hour).UTC(),
+	}); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	capture := &models.Capture{
+		ID:                "publish-reject-capture",
+		UserID:            user.ID,
+		OriginalFileName:  "reject.jpg",
+		ContentType:       "image/jpeg",
+		SizeBytes:         2048,
+		Width:             1200,
+		Height:            900,
+		CapturedAt:        time.Date(2026, time.March, 16, 9, 0, 0, 0, time.UTC),
+		UploadedAt:        time.Date(2026, time.March, 16, 9, 0, 0, 0, time.UTC),
+		Status:            "private",
+		PrivateStorageKey: "captures/private/publish-reject-capture.jpg",
+	}
+	if err := database.CreateCapture(capture); err != nil {
+		t.Fatalf("create capture: %v", err)
+	}
+
+	srv := New(cfg, database, nil, &media.BunnyStorage{})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/captures/"+capture.ID+"/publish", nil)
+	req.AddCookie(&http.Cookie{Name: cfg.SessionCookieName, Value: sessionID})
+	rec := httptest.NewRecorder()
+	srv.Router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected status 422, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var payload struct {
+		OK      bool            `json:"ok"`
+		Error   string          `json:"error"`
+		Capture *models.Capture `json:"capture"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload.OK {
+		t.Fatalf("expected ok=false for rejected publish response")
+	}
+	if payload.Error == "" {
+		t.Fatalf("expected error message in response")
+	}
+	if payload.Capture == nil {
+		t.Fatalf("expected rejected capture in response")
+	}
+	if payload.Capture.PublicationReviewStatus != db.CapturePublicationReviewRejected {
+		t.Fatalf("expected rejected review status, got %q", payload.Capture.PublicationReviewStatus)
+	}
+	if payload.Capture.PublicationReviewReasonCode != db.CapturePublicationRejectMissingCoordinates {
+		t.Fatalf("expected missing_coordinates rejection, got %q", payload.Capture.PublicationReviewReasonCode)
+	}
+
+	reloaded, err := database.GetCaptureForUser(capture.ID, user.ID)
+	if err != nil {
+		t.Fatalf("reload capture: %v", err)
+	}
+	if reloaded.PublicationReviewStatus != db.CapturePublicationReviewRejected {
+		t.Fatalf("expected database capture to be rejected, got %q", reloaded.PublicationReviewStatus)
+	}
+	if reloaded.PublicationReviewReasonCode != db.CapturePublicationRejectMissingCoordinates {
+		t.Fatalf("expected missing_coordinates rejection in database, got %q", reloaded.PublicationReviewReasonCode)
+	}
+}
+
+func TestHandleModeratorRecheckCaptureUpdatesPublishedAnalysis(t *testing.T) {
+	t.Parallel()
+
+	validator := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("expected POST, got %s", r.Method)
+		}
+		var body struct {
+			CaptureID         string `json:"capture_id"`
+			PrivateStorageKey string `json:"private_storage_key"`
+			ReviewMode        string `json:"review_mode"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode validator request: %v", err)
+		}
+		if body.ReviewMode != "moderator_recheck" {
+			t.Fatalf("expected moderator_recheck mode, got %q", body.ReviewMode)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"ok":            true,
+			"has_mushrooms": true,
+			"model_code":    "gemini-2.5-pro",
+			"species": []map[string]interface{}{
+				{
+					"latin_name":          "Boletus edulis",
+					"czech_official_name": "hřib smrkový",
+					"probability":         0.97,
+				},
+				{
+					"latin_name":          "Amanita muscaria",
+					"czech_official_name": "muchomůrka červená",
+					"probability":         0.63,
+				},
+			},
+		})
+	}))
+	defer validator.Close()
+
+	cfg := &config.Config{
+		DBURL:                 "file:" + filepath.Join(t.TempDir(), "test.db"),
+		FrontOrigin:           "https://houbamzdar.cz",
+		SessionCookieName:     "hzd_session",
+		CaptureAIValidatorURL: validator.URL,
+	}
+
+	database, err := db.New(cfg)
+	if err != nil {
+		t.Fatalf("open test database: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = database.Close()
+	})
+
+	owner, _, err := database.UpsertUser(&models.OIDCClaims{
+		Iss:               "https://ahoj420.eu",
+		Sub:               "moderated-owner",
+		PreferredUsername: "owner",
+		Email:             "owner@example.test",
+	}, &oauth2.Token{
+		AccessToken:  "owner-access",
+		RefreshToken: "owner-refresh",
+		Expiry:       time.Now().Add(time.Hour).UTC(),
+	})
+	if err != nil {
+		t.Fatalf("create owner: %v", err)
+	}
+
+	moderator, _, err := database.UpsertUser(&models.OIDCClaims{
+		Iss:               "https://ahoj420.eu",
+		Sub:               "moderator-user",
+		PreferredUsername: "houbamzdar",
+		Email:             "moderator@example.test",
+	}, &oauth2.Token{
+		AccessToken:  "moderator-access",
+		RefreshToken: "moderator-refresh",
+		Expiry:       time.Now().Add(time.Hour).UTC(),
+	})
+	if err != nil {
+		t.Fatalf("create moderator: %v", err)
+	}
+	if !moderator.IsModerator {
+		t.Fatalf("expected houbamzdar user to be moderator")
+	}
+
+	sessionID := "moderator-session"
+	if err := database.CreateSession(&models.Session{
+		SessionID: sessionID,
+		UserID:    moderator.ID,
+		ExpiresAt: time.Now().Add(time.Hour).UTC(),
+	}); err != nil {
+		t.Fatalf("create moderator session: %v", err)
+	}
+
+	lat := 49.1951
+	lon := 16.6068
+	capture := &models.Capture{
+		ID:                "moderator-review-capture",
+		UserID:            owner.ID,
+		OriginalFileName:  "moderated.jpg",
+		ContentType:       "image/jpeg",
+		SizeBytes:         2048,
+		Width:             1200,
+		Height:            900,
+		CapturedAt:        time.Date(2026, time.March, 16, 11, 0, 0, 0, time.UTC),
+		UploadedAt:        time.Date(2026, time.March, 16, 11, 0, 0, 0, time.UTC),
+		Latitude:          &lat,
+		Longitude:         &lon,
+		Status:            "published",
+		PrivateStorageKey: "captures/private/moderator-review-capture.jpg",
+		PublicStorageKey:  "captures/published/owner/moderator-review-capture.jpg",
+		PublishedAt:       time.Date(2026, time.March, 16, 11, 5, 0, 0, time.UTC),
+	}
+	if err := database.CreateCapture(capture); err != nil {
+		t.Fatalf("create capture: %v", err)
+	}
+
+	srv := New(cfg, database, nil, &media.BunnyStorage{})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/captures/"+capture.ID+"/moderator-recheck", nil)
+	req.AddCookie(&http.Cookie{Name: cfg.SessionCookieName, Value: sessionID})
+	rec := httptest.NewRecorder()
+	srv.Router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var payload struct {
+		OK        bool                             `json:"ok"`
+		CaptureID string                           `json:"capture_id"`
+		ModelCode string                           `json:"model_code"`
+		Species   []*models.CaptureMushroomSpecies `json:"species"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !payload.OK || payload.CaptureID != capture.ID || payload.ModelCode != "gemini-2.5-pro" {
+		t.Fatalf("unexpected response payload: %+v", payload)
+	}
+	if len(payload.Species) != 2 {
+		t.Fatalf("expected 2 species in response, got %d", len(payload.Species))
+	}
+
+	captures, err := database.ListPublicCapturesWithFilters(db.PublicCaptureFilters{
+		Limit:  10,
+		Offset: 0,
+	}, 0)
+	if err != nil {
+		t.Fatalf("list public captures: %v", err)
+	}
+
+	var reviewed *models.Capture
+	for _, item := range captures {
+		if item.ID == capture.ID {
+			reviewed = item
+			break
+		}
+	}
+	if reviewed == nil {
+		t.Fatalf("expected reviewed capture in public list")
+	}
+	if reviewed.MushroomPrimaryLatinName != "Boletus edulis" {
+		t.Fatalf("expected primary latin name to be updated, got %q", reviewed.MushroomPrimaryLatinName)
+	}
+
+	var (
+		storedSpeciesCount int
+		reviewSource       string
+		reviewedByUserID   int64
+	)
+	if err := database.QueryRow(`SELECT COUNT(*) FROM capture_mushroom_species WHERE capture_id = ?`, capture.ID).Scan(&storedSpeciesCount); err != nil {
+		t.Fatalf("count stored species: %v", err)
+	}
+	if storedSpeciesCount != 2 {
+		t.Fatalf("expected 2 stored species rows, got %d", storedSpeciesCount)
+	}
+	if err := database.QueryRow(`SELECT review_source, COALESCE(reviewed_by_user_id, 0) FROM capture_mushroom_analysis WHERE capture_id = ?`, capture.ID).Scan(&reviewSource, &reviewedByUserID); err != nil {
+		t.Fatalf("load stored review metadata: %v", err)
+	}
+	if reviewSource != db.CaptureAnalysisSourceModeratorRecheck {
+		t.Fatalf("expected moderator review source, got %q", reviewSource)
+	}
+	if reviewedByUserID != moderator.ID {
+		t.Fatalf("expected reviewed_by_user_id %d, got %d", moderator.ID, reviewedByUserID)
 	}
 }

@@ -61,17 +61,8 @@ func (s *Server) handleCreatePost(w http.ResponseWriter, r *http.Request) {
 			}
 
 			if c.Status != "published" {
-				if s.Media != nil && s.Media.Enabled() {
-					publicKey, publicURL, err := s.Media.PublishCapture(r.Context(), c)
-					if err == nil {
-						if err := s.DB.PublishCapture(c.ID, user.ID, publicKey); err == nil {
-							c.Status = "published"
-							c.PublicStorageKey = publicKey
-							c.PublicURL = publicURL
-							c.PublishedAt = time.Now()
-						}
-					}
-				}
+				http.Error(w, "all attached captures must already be published and approved", http.StatusUnprocessableEntity)
+				return
 			}
 			captures = append(captures, c)
 		}
@@ -154,17 +145,8 @@ func (s *Server) handleUpdatePost(w http.ResponseWriter, r *http.Request) {
 			}
 
 			if c.Status != "published" {
-				if s.Media != nil && s.Media.Enabled() {
-					publicKey, publicURL, err := s.Media.PublishCapture(r.Context(), c)
-					if err == nil {
-						if err := s.DB.PublishCapture(c.ID, user.ID, publicKey); err == nil {
-							c.Status = "published"
-							c.PublicStorageKey = publicKey
-							c.PublicURL = publicURL
-							c.PublishedAt = time.Now()
-						}
-					}
-				}
+				http.Error(w, "all attached captures must already be published and approved", http.StatusUnprocessableEntity)
+				return
 			}
 			captures = append(captures, c)
 		}

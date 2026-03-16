@@ -138,7 +138,7 @@ func TestMigrateUpgradesLegacyUsersTable(t *testing.T) {
 	}
 
 	columns := userColumnSet(t, db)
-	for _, name := range []string{"access_token", "refresh_token", "token_expires_at"} {
+	for _, name := range []string{"access_token", "refresh_token", "token_expires_at", "is_moderator"} {
 		if _, ok := columns[name]; !ok {
 			t.Fatalf("expected users.%s to exist after migration", name)
 		}
@@ -189,6 +189,9 @@ func TestMigrateUpgradesLegacyUsersTable(t *testing.T) {
 	if got.TokenExpiresAt.IsZero() {
 		t.Fatalf("expected token expiry to persist")
 	}
+	if got.IsModerator {
+		t.Fatalf("expected ordinary migrated user to stay non-moderator")
+	}
 }
 
 func TestMigrateIsIdempotentForFreshSchema(t *testing.T) {
@@ -204,7 +207,7 @@ func TestMigrateIsIdempotentForFreshSchema(t *testing.T) {
 	}
 
 	columns := userColumnSet(t, db)
-	for _, name := range []string{"access_token", "refresh_token", "token_expires_at"} {
+	for _, name := range []string{"access_token", "refresh_token", "token_expires_at", "is_moderator"} {
 		if _, ok := columns[name]; !ok {
 			t.Fatalf("expected users.%s to exist after fresh migrate", name)
 		}
@@ -219,6 +222,33 @@ func TestMigrateIsIdempotentForFreshSchema(t *testing.T) {
 	}
 	if applied != 1 {
 		t.Fatalf("expected one recorded migration row after repeated migrate, got %d", applied)
+	}
+}
+
+func TestUpsertUserMarksHoubamzdarAsModerator(t *testing.T) {
+	t.Parallel()
+
+	rawDB := openTestDB(t)
+	if err := migrate(rawDB); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	wrapped := &DB{rawDB}
+	user, _, err := wrapped.UpsertUser(&models.OIDCClaims{
+		Iss:               "https://ahoj420.eu",
+		Sub:               "moderator-123",
+		PreferredUsername: "houbamzdar",
+		Email:             "mod@example.test",
+	}, &oauth2.Token{
+		AccessToken:  "access-token",
+		RefreshToken: "refresh-token",
+		Expiry:       time.Now().Add(time.Hour).UTC(),
+	})
+	if err != nil {
+		t.Fatalf("upsert moderator user: %v", err)
+	}
+	if !user.IsModerator {
+		t.Fatalf("expected houbamzdar user to be marked as moderator")
 	}
 }
 
@@ -1089,5 +1119,264 @@ func TestListPublicCapturesMasksPaidCoordinatesAndLeavesFreeVisible(t *testing.T
 	}
 	if captureByID[paidCapture.ID].Latitude == nil || captureByID[paidCapture.ID].Longitude == nil {
 		t.Fatalf("expected paid capture coordinates after unlock")
+	}
+}
+
+func TestMigrateCreatesCaptureEnrichmentTablesAndColumns(t *testing.T) {
+	t.Parallel()
+
+	rawDB := openTestDB(t)
+	if err := migrate(rawDB); err != nil {
+		t.Fatalf("migrate schema: %v", err)
+	}
+
+	photoColumns := tableColumnSet(t, rawDB, "photo_captures")
+	for _, name := range []string{
+		"coordinates_free",
+		"publication_review_status",
+		"publication_review_reason_code",
+		"publication_review_last_error",
+		"publication_review_checked_at",
+		"publication_requested_at",
+		"publication_review_attempts",
+		"publication_review_next_attempt_at",
+	} {
+		if _, ok := photoColumns[name]; !ok {
+			t.Fatalf("expected photo_captures.%s to exist", name)
+		}
+	}
+
+	mushroomAnalysisColumns := tableColumnSet(t, rawDB, "capture_mushroom_analysis")
+	for _, name := range []string{
+		"capture_id",
+		"has_mushrooms",
+		"primary_latin_name",
+		"primary_latin_name_norm",
+		"primary_czech_name",
+		"primary_czech_name_norm",
+		"primary_probability",
+		"model_code",
+		"review_source",
+		"reviewed_by_user_id",
+		"reviewed_at",
+		"raw_json",
+		"analyzed_at",
+	} {
+		if _, ok := mushroomAnalysisColumns[name]; !ok {
+			t.Fatalf("expected capture_mushroom_analysis.%s to exist", name)
+		}
+	}
+
+	mushroomSpeciesColumns := tableColumnSet(t, rawDB, "capture_mushroom_species")
+	for _, name := range []string{
+		"id",
+		"capture_id",
+		"latin_name",
+		"latin_name_norm",
+		"czech_official_name",
+		"czech_official_name_norm",
+		"probability",
+	} {
+		if _, ok := mushroomSpeciesColumns[name]; !ok {
+			t.Fatalf("expected capture_mushroom_species.%s to exist", name)
+		}
+	}
+
+	geoColumns := tableColumnSet(t, rawDB, "capture_geo_index")
+	for _, name := range []string{
+		"capture_id",
+		"country_code",
+		"kraj_name",
+		"kraj_name_norm",
+		"okres_name",
+		"okres_name_norm",
+		"obec_name",
+		"obec_name_norm",
+		"raw_json",
+		"resolved_at",
+	} {
+		if _, ok := geoColumns[name]; !ok {
+			t.Fatalf("expected capture_geo_index.%s to exist", name)
+		}
+	}
+}
+
+func TestListPublicCapturesWithFiltersRespectsGeoPrivacyAndSpeciesSearch(t *testing.T) {
+	t.Parallel()
+
+	rawDB := openTestDB(t)
+	if err := migrate(rawDB); err != nil {
+		t.Fatalf("migrate schema: %v", err)
+	}
+
+	database := &DB{rawDB}
+	author, _, err := database.UpsertUser(&models.OIDCClaims{
+		Iss:               "https://ahoj420.eu",
+		Sub:               "filter-author",
+		PreferredUsername: "filtrautor",
+		Email:             "filter-author@example.test",
+		EmailVerified:     true,
+	}, &oauth2.Token{
+		AccessToken:  "filter-author-access",
+		RefreshToken: "filter-author-refresh",
+		Expiry:       time.Now().Add(time.Hour).UTC(),
+	})
+	if err != nil {
+		t.Fatalf("create author: %v", err)
+	}
+
+	makeCapture := func(id string, lat, lon float64, capturedAt time.Time) *models.Capture {
+		return &models.Capture{
+			ID:                id,
+			UserID:            author.ID,
+			OriginalFileName:  id + ".jpg",
+			ContentType:       "image/jpeg",
+			SizeBytes:         2048,
+			Width:             1400,
+			Height:            900,
+			CapturedAt:        capturedAt,
+			UploadedAt:        capturedAt,
+			Latitude:          &lat,
+			Longitude:         &lon,
+			Status:            "private",
+			PrivateStorageKey: "captures/private/" + id + ".jpg",
+		}
+	}
+
+	insertPublished := func(capture *models.Capture, coordinatesFree bool, latinName, czechName string, probability float64, krajName, okresName, obecName string) {
+		t.Helper()
+
+		if err := database.CreateCapture(capture); err != nil {
+			t.Fatalf("create capture %s: %v", capture.ID, err)
+		}
+
+		analysis := &models.CaptureMushroomAnalysis{
+			CaptureID:                capture.ID,
+			HasMushrooms:             true,
+			PrimaryLatinName:         latinName,
+			PrimaryCzechOfficialName: czechName,
+			PrimaryProbability:       probability,
+			ModelCode:                "gemini-2.5-flash",
+			RawJSON:                  "{}",
+			AnalyzedAt:               capture.CapturedAt.Add(2 * time.Minute),
+		}
+		species := []*models.CaptureMushroomSpecies{
+			{
+				CaptureID:         capture.ID,
+				LatinName:         latinName,
+				CzechOfficialName: czechName,
+				Probability:       probability,
+			},
+		}
+		geo := &models.CaptureGeoIndex{
+			CaptureID:   capture.ID,
+			CountryCode: "CZ",
+			KrajName:    krajName,
+			OkresName:   okresName,
+			ObecName:    obecName,
+			RawJSON:     "{}",
+			ResolvedAt:  capture.CapturedAt.Add(time.Minute),
+		}
+
+		if err := database.FinalizeCapturePublicationApproved(
+			capture.ID,
+			author.ID,
+			"captures/public/"+capture.ID+".jpg",
+			analysis,
+			species,
+			geo,
+		); err != nil {
+			t.Fatalf("finalize capture %s: %v", capture.ID, err)
+		}
+
+		if err := database.SetCaptureCoordinatesFree(capture.ID, author.ID, coordinatesFree); err != nil {
+			t.Fatalf("set coordinates_free for %s: %v", capture.ID, err)
+		}
+	}
+
+	paidMoravia := makeCapture("capture-paid-moravia", 49.1001, 16.7001, time.Date(2026, time.March, 15, 8, 0, 0, 0, time.UTC))
+	freeMoravia := makeCapture("capture-free-moravia", 49.2002, 16.8002, time.Date(2026, time.March, 15, 9, 0, 0, 0, time.UTC))
+	freePraha := makeCapture("capture-free-praha", 50.0875, 14.4213, time.Date(2026, time.March, 15, 10, 0, 0, 0, time.UTC))
+
+	insertPublished(paidMoravia, false, "Boletus edulis", "hřib smrkový", 0.96, "Jihomoravský kraj", "Brno-venkov", "Rosice")
+	insertPublished(freeMoravia, true, "Boletus reticulatus", "hřib dubový", 0.88, "Jihomoravský kraj", "Brno-venkov", "Říčany")
+	insertPublished(freePraha, true, "Amanita muscaria", "muchomůrka červená", 0.72, "Hlavní město Praha", "Praha", "Praha")
+
+	speciesMatches, err := database.ListPublicCapturesWithFilters(PublicCaptureFilters{
+		Limit:        10,
+		SpeciesQuery: "hrib",
+	}, 0)
+	if err != nil {
+		t.Fatalf("list captures by species: %v", err)
+	}
+	if len(speciesMatches) != 2 {
+		t.Fatalf("expected 2 captures for species search, got %d", len(speciesMatches))
+	}
+
+	byID := make(map[string]*models.Capture, len(speciesMatches))
+	for _, capture := range speciesMatches {
+		byID[capture.ID] = capture
+	}
+	if byID[paidMoravia.ID] == nil || byID[freeMoravia.ID] == nil {
+		t.Fatalf("expected both boletus captures in species results, got %+v", byID)
+	}
+	if byID[paidMoravia.ID].KrajName != "Jihomoravský kraj" {
+		t.Fatalf("expected paid capture to keep kraj visible, got %+v", byID[paidMoravia.ID])
+	}
+	if byID[paidMoravia.ID].OkresName != "" || byID[paidMoravia.ID].ObecName != "" {
+		t.Fatalf("expected paid capture to hide lower geo levels, got %+v", byID[paidMoravia.ID])
+	}
+	if byID[paidMoravia.ID].Latitude != nil || byID[paidMoravia.ID].Longitude != nil || !byID[paidMoravia.ID].CoordinatesLocked {
+		t.Fatalf("expected paid capture coordinates to stay hidden for guests, got %+v", byID[paidMoravia.ID])
+	}
+	if byID[freeMoravia.ID].OkresName != "Brno-venkov" || byID[freeMoravia.ID].ObecName != "Říčany" {
+		t.Fatalf("expected free capture to expose lower geo levels, got %+v", byID[freeMoravia.ID])
+	}
+
+	krajMatches, err := database.ListPublicCapturesWithFilters(PublicCaptureFilters{
+		Limit:     10,
+		KrajQuery: "jihomoravsky",
+	}, 0)
+	if err != nil {
+		t.Fatalf("list captures by kraj: %v", err)
+	}
+	if len(krajMatches) != 2 {
+		t.Fatalf("expected 2 captures for kraj search, got %d", len(krajMatches))
+	}
+
+	okresMatches, err := database.ListPublicCapturesWithFilters(PublicCaptureFilters{
+		Limit:      10,
+		OkresQuery: "brno",
+	}, 0)
+	if err != nil {
+		t.Fatalf("list captures by okres: %v", err)
+	}
+	if len(okresMatches) != 1 || okresMatches[0].ID != freeMoravia.ID {
+		t.Fatalf("expected only free moravia capture for okres search, got %+v", okresMatches)
+	}
+
+	obecMatches, err := database.ListPublicCapturesWithFilters(PublicCaptureFilters{
+		Limit:     10,
+		ObecQuery: "ricany",
+	}, 0)
+	if err != nil {
+		t.Fatalf("list captures by obec: %v", err)
+	}
+	if len(obecMatches) != 1 || obecMatches[0].ID != freeMoravia.ID {
+		t.Fatalf("expected only free moravia capture for obec search, got %+v", obecMatches)
+	}
+
+	sortedByProbability, err := database.ListPublicCapturesWithFilters(PublicCaptureFilters{
+		Limit: 10,
+		Sort:  "probability_desc",
+	}, 0)
+	if err != nil {
+		t.Fatalf("list captures by probability: %v", err)
+	}
+	if len(sortedByProbability) != 3 {
+		t.Fatalf("expected 3 captures for sorted search, got %d", len(sortedByProbability))
+	}
+	if sortedByProbability[0].ID != paidMoravia.ID || sortedByProbability[1].ID != freeMoravia.ID || sortedByProbability[2].ID != freePraha.ID {
+		t.Fatalf("unexpected probability ordering: %+v", []string{sortedByProbability[0].ID, sortedByProbability[1].ID, sortedByProbability[2].ID})
 	}
 }

@@ -7,6 +7,7 @@ type User struct {
 	IDPIssuer           string    `json:"-"`
 	IDPSub              string    `json:"-"`
 	PreferredUsername   string    `json:"preferred_username"`
+	IsModerator         bool      `json:"is_moderator"`
 	Email               string    `json:"email"`
 	EmailVerified       bool      `json:"email_verified"`
 	PhoneNumber         string    `json:"phone_number"`
@@ -23,30 +24,80 @@ type User struct {
 }
 
 type Capture struct {
-	ID                string    `json:"id"`
-	UserID            int64     `json:"-"`
-	AuthorUserID      int64     `json:"author_user_id,omitempty"`
-	AuthorName        string    `json:"author_name,omitempty"`
-	AuthorAvatar      string    `json:"author_avatar,omitempty"`
-	ClientLocalID     string    `json:"client_local_id,omitempty"`
-	OriginalFileName  string    `json:"original_file_name"`
-	ContentType       string    `json:"content_type"`
-	SizeBytes         int64     `json:"size_bytes"`
-	Width             int       `json:"width"`
-	Height            int       `json:"height"`
-	CapturedAt        time.Time `json:"captured_at"`
-	UploadedAt        time.Time `json:"uploaded_at"`
-	Latitude          *float64  `json:"latitude,omitempty"`
-	Longitude         *float64  `json:"longitude,omitempty"`
-	AccuracyMeters    *float64  `json:"accuracy_meters,omitempty"`
-	CoordinatesFree   bool      `json:"coordinates_free"`
-	CoordinatesLocked bool      `json:"coordinates_locked"`
-	Status            string    `json:"status"`
-	PrivateStorageKey string    `json:"-"`
-	PublicStorageKey  string    `json:"-"`
-	PublicURL         string    `json:"public_url,omitempty"`
-	PublishedAt       time.Time `json:"published_at,omitempty"`
-	UnlockedAt        time.Time `json:"unlocked_at,omitempty"`
+	ID                             string                    `json:"id"`
+	UserID                         int64                     `json:"-"`
+	AuthorUserID                   int64                     `json:"author_user_id,omitempty"`
+	AuthorName                     string                    `json:"author_name,omitempty"`
+	AuthorAvatar                   string                    `json:"author_avatar,omitempty"`
+	ClientLocalID                  string                    `json:"client_local_id,omitempty"`
+	OriginalFileName               string                    `json:"original_file_name"`
+	ContentType                    string                    `json:"content_type"`
+	SizeBytes                      int64                     `json:"size_bytes"`
+	Width                          int                       `json:"width"`
+	Height                         int                       `json:"height"`
+	CapturedAt                     time.Time                 `json:"captured_at"`
+	UploadedAt                     time.Time                 `json:"uploaded_at"`
+	Latitude                       *float64                  `json:"latitude,omitempty"`
+	Longitude                      *float64                  `json:"longitude,omitempty"`
+	AccuracyMeters                 *float64                  `json:"accuracy_meters,omitempty"`
+	CoordinatesFree                bool                      `json:"coordinates_free"`
+	CoordinatesLocked              bool                      `json:"coordinates_locked"`
+	Status                         string                    `json:"status"`
+	PublicationReviewStatus        string                    `json:"publication_review_status,omitempty"`
+	PublicationReviewReasonCode    string                    `json:"publication_review_reason_code,omitempty"`
+	PublicationReviewLastError     string                    `json:"publication_review_last_error,omitempty"`
+	PublicationReviewCheckedAt     time.Time                 `json:"publication_review_checked_at,omitempty"`
+	PublicationRequestedAt         time.Time                 `json:"publication_requested_at,omitempty"`
+	PublicationReviewAttempts      int                       `json:"publication_review_attempts,omitempty"`
+	PublicationReviewNextAttemptAt time.Time                 `json:"publication_review_next_attempt_at,omitempty"`
+	PrivateStorageKey              string                    `json:"-"`
+	PublicStorageKey               string                    `json:"-"`
+	PublicURL                      string                    `json:"public_url,omitempty"`
+	PublishedAt                    time.Time                 `json:"published_at,omitempty"`
+	UnlockedAt                     time.Time                 `json:"unlocked_at,omitempty"`
+	HasMushrooms                   bool                      `json:"has_mushrooms,omitempty"`
+	MushroomPrimaryLatinName       string                    `json:"mushroom_primary_latin_name,omitempty"`
+	MushroomPrimaryCzechName       string                    `json:"mushroom_primary_czech_name,omitempty"`
+	MushroomPrimaryProbability     float64                   `json:"mushroom_primary_probability,omitempty"`
+	MushroomAnalysisAt             time.Time                 `json:"mushroom_analysis_at,omitempty"`
+	MushroomSpecies                []*CaptureMushroomSpecies `json:"mushroom_species,omitempty"`
+	CountryCode                    string                    `json:"country_code,omitempty"`
+	KrajName                       string                    `json:"kraj_name,omitempty"`
+	OkresName                      string                    `json:"okres_name,omitempty"`
+	ObecName                       string                    `json:"obec_name,omitempty"`
+	GeoResolvedAt                  time.Time                 `json:"geo_resolved_at,omitempty"`
+}
+
+type CaptureMushroomAnalysis struct {
+	CaptureID                string    `json:"capture_id"`
+	HasMushrooms             bool      `json:"has_mushrooms"`
+	PrimaryLatinName         string    `json:"primary_latin_name,omitempty"`
+	PrimaryCzechOfficialName string    `json:"primary_czech_official_name,omitempty"`
+	PrimaryProbability       float64   `json:"primary_probability,omitempty"`
+	ModelCode                string    `json:"model_code,omitempty"`
+	ReviewSource             string    `json:"review_source,omitempty"`
+	ReviewedByUserID         int64     `json:"reviewed_by_user_id,omitempty"`
+	ReviewedAt               time.Time `json:"reviewed_at,omitempty"`
+	RawJSON                  string    `json:"-"`
+	AnalyzedAt               time.Time `json:"analyzed_at"`
+}
+
+type CaptureMushroomSpecies struct {
+	ID                int64   `json:"id,omitempty"`
+	CaptureID         string  `json:"capture_id,omitempty"`
+	LatinName         string  `json:"latin_name"`
+	CzechOfficialName string  `json:"czech_official_name,omitempty"`
+	Probability       float64 `json:"probability"`
+}
+
+type CaptureGeoIndex struct {
+	CaptureID   string    `json:"capture_id"`
+	CountryCode string    `json:"country_code,omitempty"`
+	KrajName    string    `json:"kraj_name,omitempty"`
+	OkresName   string    `json:"okres_name,omitempty"`
+	ObecName    string    `json:"obec_name,omitempty"`
+	RawJSON     string    `json:"-"`
+	ResolvedAt  time.Time `json:"resolved_at"`
 }
 
 type Post struct {

@@ -10,11 +10,13 @@ import (
 	"net/http"
 	"path"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/houbamzdar/bff/internal/db"
+	"github.com/houbamzdar/bff/internal/enrichment"
 	"github.com/houbamzdar/bff/internal/media"
 	"github.com/houbamzdar/bff/internal/models"
 )
@@ -45,10 +47,9 @@ func (s *Server) handleListCaptures(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListPublicCaptures(w http.ResponseWriter, r *http.Request) {
-	limit, offset := parseLimitOffset(r, 24)
-
 	currentUserID := s.currentUserIDFromOptionalSession(r)
-	captures, err := s.DB.ListPublicCaptures(limit, offset, currentUserID)
+	filters := parsePublicCaptureFilters(r)
+	captures, err := s.DB.ListPublicCapturesWithFilters(filters, currentUserID)
 	if err != nil {
 		http.Error(w, "failed to list public captures", http.StatusInternalServerError)
 		return
@@ -142,8 +143,8 @@ func (s *Server) handlePublishCapture(w http.ResponseWriter, r *http.Request) {
 	user := r.Context().Value("user").(*models.User)
 	captureID := chi.URLParam(r, "captureID")
 
-	if s.Media == nil || !s.Media.Enabled() {
-		http.Error(w, "capture storage is not configured", http.StatusServiceUnavailable)
+	if s.Media == nil || !s.Media.Enabled() || s.Config.CaptureAIValidatorURL == "" || s.Config.NominatimBaseURL == "" {
+		http.Error(w, "publication validation is not configured", http.StatusServiceUnavailable)
 		return
 	}
 
@@ -163,16 +164,60 @@ func (s *Server) handlePublishCapture(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	publicKey, publicURL, err := s.Media.PublishCapture(r.Context(), capture)
-	if err != nil {
-		http.Error(w, "failed to publish capture", http.StatusBadGateway)
+	if capture.PublicationReviewStatus == db.CapturePublicationReviewApproved {
+		publicKey, publicURL, err := s.Media.PublishCapture(r.Context(), capture)
+		if err != nil {
+			http.Error(w, "failed to publish capture", http.StatusBadGateway)
+			return
+		}
+
+		if err := s.DB.PublishCapture(capture.ID, user.ID, publicKey); err != nil {
+			_ = s.Media.DeletePublic(r.Context(), publicKey)
+			http.Error(w, "failed to update capture state", http.StatusInternalServerError)
+			return
+		}
+
+		updated, err := s.DB.GetCaptureForUser(capture.ID, user.ID)
+		if err != nil {
+			http.Error(w, "failed to reload capture", http.StatusInternalServerError)
+			return
+		}
+		updated.PublicURL = publicURL
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"ok":      true,
+			"capture": updated,
+		})
 		return
 	}
 
-	if err := s.DB.PublishCapture(capture.ID, user.ID, publicKey); err != nil {
-		_ = s.Media.DeletePublic(r.Context(), publicKey)
-		http.Error(w, "failed to update capture state", http.StatusInternalServerError)
+	if capture.Latitude == nil || capture.Longitude == nil {
+		if err := s.DB.RejectCapturePublication(capture.ID, db.CapturePublicationRejectMissingCoordinates); err != nil {
+			http.Error(w, "failed to mark capture as rejected", http.StatusInternalServerError)
+			return
+		}
+		updated, err := s.DB.GetCaptureForUser(capture.ID, user.ID)
+		if err != nil {
+			http.Error(w, "failed to reload capture", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"ok":      false,
+			"capture": updated,
+			"error":   "capture is missing coordinates",
+		})
 		return
+	}
+
+	if capture.PublicationReviewStatus != db.CapturePublicationReviewPendingValidation {
+		if err := s.DB.RequestCapturePublicationValidation(capture.ID, user.ID); err != nil {
+			http.Error(w, "failed to queue publication validation", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	updated, err := s.DB.GetCaptureForUser(capture.ID, user.ID)
@@ -180,12 +225,65 @@ func (s *Server) handlePublishCapture(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to reload capture", http.StatusInternalServerError)
 		return
 	}
-	updated.PublicURL = publicURL
 
 	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"ok":      true,
 		"capture": updated,
+	})
+}
+
+func (s *Server) handleModeratorRecheckCapture(w http.ResponseWriter, r *http.Request) {
+	user := r.Context().Value("user").(*models.User)
+	if user == nil || !user.IsModerator {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	if s.Config.CaptureAIValidatorURL == "" {
+		http.Error(w, "publication validation is not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	captureID := chi.URLParam(r, "captureID")
+	capture, err := s.DB.GetCaptureByID(captureID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.Error(w, "capture not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "failed to load capture", http.StatusInternalServerError)
+		return
+	}
+
+	if capture.Status != "published" || strings.TrimSpace(capture.PublicStorageKey) == "" {
+		http.Error(w, "capture is not publicly shared", http.StatusUnprocessableEntity)
+		return
+	}
+
+	validator := enrichment.NewAIValidatorClient(s.Config)
+	analysis, species, err := validator.AnalyzeCaptureWithMode(r.Context(), capture, enrichment.AIReviewModeModeratorRecheck)
+	if err != nil {
+		http.Error(w, "failed to recheck capture: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	if analysis == nil || !analysis.HasMushrooms || len(species) == 0 {
+		http.Error(w, "advanced recheck did not find identifiable mushrooms; no changes were applied", http.StatusUnprocessableEntity)
+		return
+	}
+
+	if err := s.DB.ApplyCaptureModeratorReview(capture.ID, user.ID, analysis, species); err != nil {
+		http.Error(w, "failed to save moderator review", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"ok":         true,
+		"capture_id": capture.ID,
+		"model_code": analysis.ModelCode,
+		"species":    species,
 	})
 }
 
@@ -483,12 +581,44 @@ func parseCaptureListFilters(r *http.Request) db.CaptureListFilters {
 	return filters
 }
 
+func parsePublicCaptureFilters(r *http.Request) db.PublicCaptureFilters {
+	query := r.URL.Query()
+
+	filters := db.PublicCaptureFilters{
+		Limit:        parsePositiveInt(query.Get("limit"), 24),
+		Offset:       parseNonNegativeInt(query.Get("offset"), 0),
+		SpeciesQuery: query.Get("species"),
+		KrajQuery:    query.Get("kraj"),
+		OkresQuery:   query.Get("okres"),
+		ObecQuery:    query.Get("obec"),
+		Sort:         query.Get("sort"),
+	}
+
+	if raw := query.Get("has_mushrooms"); raw != "" {
+		value := raw == "1" || strings.EqualFold(raw, "true")
+		filters.HasMushrooms = &value
+	}
+
+	return filters
+}
+
 func parsePositiveInt(raw string, fallback int) int {
 	if raw == "" {
 		return fallback
 	}
 	value, err := strconv.Atoi(raw)
 	if err != nil || value <= 0 {
+		return fallback
+	}
+	return value
+}
+
+func parseNonNegativeInt(raw string, fallback int) int {
+	if raw == "" {
+		return fallback
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value < 0 {
 		return fallback
 	}
 	return value

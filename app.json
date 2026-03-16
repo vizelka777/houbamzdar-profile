@@ -23,10 +23,10 @@
       "id": "pdZdipupoFrUKG4-4iqd",
       "name": "houbamzdar",
       "packageId": "d2c1b95e-65e7-42a3-adb3-d27d9d1a4f72",
-      "image": "houbamzdar/bff:v24",
+      "image": "houbamzdar/bff:v26",
       "imageName": "bff",
       "imageNamespace": "houbamzdar",
-      "imageTag": "v24",
+      "imageTag": "v26",
       "imageRegistryId": "2725",
       "imageDigest": "",
       "imagePullPolicy": "always",
@@ -169,6 +169,22 @@
         {
           "name": "BUNNY_PUBLIC_BASE_URL",
           "value": "https://foto.houbamzdar.cz"
+        },
+        {
+          "name": "CAPTURE_AI_VALIDATOR_URL",
+          "value": "https://houbamzdar-ai-api.b-cdn.net/validate-capture"
+        },
+        {
+          "name": "CAPTURE_AI_VALIDATOR_TOKEN",
+          "value": "__SET_IN_BUNNY_CAPTURE_AI_VALIDATOR_TOKEN__"
+        },
+        {
+          "name": "NOMINATIM_BASE_URL",
+          "value": "https://nominatim.openstreetmap.org"
+        },
+        {
+          "name": "NOMINATIM_USER_AGENT",
+          "value": "HoubamZdar/1.0 (+https://houbamzdar.cz; contact: ops@houbamzdar.cz)"
         }
       ],
       "endpoints": [

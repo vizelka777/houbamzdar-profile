@@ -11,6 +11,7 @@ import (
 	"github.com/houbamzdar/bff/internal/auth"
 	"github.com/houbamzdar/bff/internal/config"
 	"github.com/houbamzdar/bff/internal/db"
+	"github.com/houbamzdar/bff/internal/enrichment"
 	"github.com/houbamzdar/bff/internal/media"
 	"github.com/houbamzdar/bff/internal/server"
 )
@@ -34,6 +35,14 @@ func main() {
 
 	mediaStorage := media.NewBunnyStorage(cfg)
 	srv := server.New(cfg, database, oidcProvider, mediaStorage)
+	enrichmentService := enrichment.New(cfg, database, mediaStorage)
+
+	workerCtx, workerCancel := context.WithCancel(context.Background())
+	defer workerCancel()
+
+	if enrichmentService.Enabled() {
+		go enrichmentService.Run(workerCtx)
+	}
 
 	go func() {
 		log.Printf("Starting server on port %s", cfg.Port)
@@ -47,4 +56,5 @@ func main() {
 	<-quit
 
 	log.Println("Shutting down gracefully...")
+	workerCancel()
 }

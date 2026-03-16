@@ -2,8 +2,8 @@ package config
 
 import (
 	"os"
-	"strings"
 	"strconv"
+	"strings"
 
 	"github.com/joho/godotenv"
 )
@@ -32,6 +32,11 @@ type Config struct {
 	BunnyPublicZone        string
 	BunnyPublicStorageKey  string
 	BunnyPublicBaseURL     string
+
+	CaptureAIValidatorURL   string
+	CaptureAIValidatorToken string
+	NominatimBaseURL        string
+	NominatimUserAgent      string
 }
 
 func Load() *Config {
@@ -80,6 +85,11 @@ func Load() *Config {
 		BunnyPublicZone:        os.Getenv("BUNNY_PUBLIC_STORAGE_ZONE"),
 		BunnyPublicStorageKey:  os.Getenv("BUNNY_PUBLIC_STORAGE_KEY"),
 		BunnyPublicBaseURL:     os.Getenv("BUNNY_PUBLIC_BASE_URL"),
+
+		CaptureAIValidatorURL:   os.Getenv("CAPTURE_AI_VALIDATOR_URL"),
+		CaptureAIValidatorToken: os.Getenv("CAPTURE_AI_VALIDATOR_TOKEN"),
+		NominatimBaseURL:        getEnv("NOMINATIM_BASE_URL", "https://nominatim.openstreetmap.org"),
+		NominatimUserAgent:      getEnv("NOMINATIM_USER_AGENT", "houbamzdar-mvp/1.0"),
 	}
 }
 

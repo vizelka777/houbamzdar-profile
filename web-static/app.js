@@ -351,6 +351,77 @@ function formatCaptureCoordinates(capture) {
     return `${Number(capture.latitude).toFixed(5)}, ${Number(capture.longitude).toFixed(5)}`;
 }
 
+function formatCaptureProbability(probability) {
+    const numeric = Number(probability);
+    if (!Number.isFinite(numeric) || numeric <= 0) {
+        return "";
+    }
+    return `${Math.round(numeric * 100)} %`;
+}
+
+function buildCaptureSpeciesLabel(capture) {
+    if (!capture) return "";
+
+    const czechName = String(capture.mushroom_primary_czech_name || "").trim();
+    const latinName = String(capture.mushroom_primary_latin_name || "").trim();
+    const probability = formatCaptureProbability(capture.mushroom_primary_probability);
+
+    let label = "";
+    if (czechName && latinName && czechName.toLowerCase() !== latinName.toLowerCase()) {
+        label = `${czechName} (${latinName})`;
+    } else {
+        label = czechName || latinName;
+    }
+
+    if (!label) {
+        return "";
+    }
+    if (!probability) {
+        return label;
+    }
+    return `${label} • ${probability}`;
+}
+
+function buildCaptureRegionLabel(capture) {
+    if (!capture) return "";
+
+    const parts = [];
+    const krajName = String(capture.kraj_name || "").trim();
+    const okresName = capture.coordinates_free ? String(capture.okres_name || "").trim() : "";
+    const obecName = capture.coordinates_free ? String(capture.obec_name || "").trim() : "";
+
+    if (obecName) {
+        parts.push(obecName);
+    }
+    if (okresName && !parts.includes(okresName)) {
+        parts.push(okresName);
+    }
+    if (krajName && !parts.includes(krajName)) {
+        parts.push(krajName);
+    }
+
+    return parts.join(", ");
+}
+
+function buildCaptureRegionSearchNote(capture) {
+    if (!capture) return "";
+
+    if (capture.coordinates_free) {
+        if (String(capture.obec_name || "").trim()) {
+            return "Vyhledatelné až po obec";
+        }
+        if (String(capture.okres_name || "").trim()) {
+            return "Vyhledatelné až po okres";
+        }
+    }
+
+    if (String(capture.kraj_name || "").trim()) {
+        return "Vyhledatelné podle kraje";
+    }
+
+    return "";
+}
+
 function buildCaptureAccessBadgeHtml(capture) {
     if (!capture) return "";
 

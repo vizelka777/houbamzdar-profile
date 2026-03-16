@@ -43,9 +43,18 @@ const migrationPostLikesTableID = "20260314_create_post_likes_table"
 const migrationCaptureCoordinatesFreeID = "20260315_add_capture_coordinates_free"
 const migrationHoubickaLedgerTableID = "20260315_create_houbicka_ledger_tables"
 const migrationCaptureCoordinateUnlocksTableID = "20260315_create_capture_coordinate_unlocks_table"
+const migrationCapturePublicationReviewColumnsID = "20260316_add_capture_publication_review_columns"
+const migrationCaptureMushroomAnalysisTablesID = "20260316_create_capture_mushroom_analysis_tables"
+const migrationCaptureGeoIndexTableID = "20260316_create_capture_geo_index_table"
+const migrationUsersModeratorColumnID = "20260316_add_users_is_moderator"
+const migrationCaptureMushroomAnalysisReviewColumnsID = "20260316_add_capture_mushroom_analysis_review_columns"
 
 var ErrInsufficientHoubickaBalance = errors.New("insufficient houbicka balance")
 var ErrCaptureHasNoCoordinates = errors.New("capture has no coordinates")
+
+func isModeratorUsername(username string) bool {
+	return strings.EqualFold(strings.TrimSpace(username), "houbamzdar")
+}
 
 func New(cfg *config.Config) (*DB, error) {
 	url := cfg.DBURL
@@ -84,6 +93,7 @@ func migrate(db *sql.DB) error {
 			idp_issuer TEXT NOT NULL,
 			idp_sub TEXT NOT NULL,
 			preferred_username TEXT,
+			is_moderator INTEGER NOT NULL DEFAULT 0,
 			email TEXT,
 			email_verified INTEGER NOT NULL DEFAULT 0,
 			phone_number TEXT,
@@ -142,6 +152,22 @@ func migrate(db *sql.DB) error {
 					return err
 				}
 				return nil
+			},
+		},
+		{
+			id: migrationUsersModeratorColumnID,
+			apply: func(tx *sql.Tx) error {
+				if err := ensureColumnExists(tx, "users", "is_moderator", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+					return err
+				}
+				_, err := tx.Exec(`
+					UPDATE users
+					SET is_moderator = CASE
+						WHEN lower(COALESCE(preferred_username, '')) = 'houbamzdar' THEN 1
+						ELSE 0
+					END
+				`)
+				return err
 			},
 		},
 		{
@@ -245,6 +271,33 @@ func migrate(db *sql.DB) error {
 			},
 		},
 		{
+			id: migrationCapturePublicationReviewColumnsID,
+			apply: func(tx *sql.Tx) error {
+				if err := ensureColumnExists(tx, "photo_captures", "publication_review_status", "TEXT NOT NULL DEFAULT 'none'"); err != nil {
+					return err
+				}
+				if err := ensureColumnExists(tx, "photo_captures", "publication_review_reason_code", "TEXT"); err != nil {
+					return err
+				}
+				if err := ensureColumnExists(tx, "photo_captures", "publication_review_last_error", "TEXT"); err != nil {
+					return err
+				}
+				if err := ensureColumnExists(tx, "photo_captures", "publication_review_checked_at", "TEXT"); err != nil {
+					return err
+				}
+				if err := ensureColumnExists(tx, "photo_captures", "publication_requested_at", "TEXT"); err != nil {
+					return err
+				}
+				if err := ensureColumnExists(tx, "photo_captures", "publication_review_attempts", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+					return err
+				}
+				if err := ensureColumnExists(tx, "photo_captures", "publication_review_next_attempt_at", "TEXT"); err != nil {
+					return err
+				}
+				return nil
+			},
+		},
+		{
 			id: migrationPostLikesTableID,
 			apply: func(tx *sql.Tx) error {
 				queries := []string{
@@ -259,6 +312,103 @@ func migrate(db *sql.DB) error {
 					`CREATE INDEX IF NOT EXISTS idx_post_likes_post_id ON post_likes(post_id);`,
 					`CREATE INDEX IF NOT EXISTS idx_post_likes_user_id ON post_likes(user_id);`,
 				}
+				for _, query := range queries {
+					if _, err := tx.Exec(query); err != nil {
+						return err
+					}
+				}
+				return nil
+			},
+		},
+		{
+			id: migrationCaptureMushroomAnalysisTablesID,
+			apply: func(tx *sql.Tx) error {
+				queries := []string{
+					`CREATE TABLE IF NOT EXISTS capture_mushroom_analysis (
+						capture_id TEXT PRIMARY KEY,
+						has_mushrooms INTEGER NOT NULL DEFAULT 0,
+						primary_latin_name TEXT,
+						primary_latin_name_norm TEXT,
+						primary_czech_name TEXT,
+						primary_czech_name_norm TEXT,
+						primary_probability REAL NOT NULL DEFAULT 0,
+						model_code TEXT,
+						review_source TEXT NOT NULL DEFAULT 'automatic_publish_validation',
+						reviewed_by_user_id INTEGER,
+						reviewed_at TEXT,
+						raw_json TEXT,
+						analyzed_at TEXT NOT NULL,
+						FOREIGN KEY(capture_id) REFERENCES photo_captures(id) ON DELETE CASCADE,
+						FOREIGN KEY(reviewed_by_user_id) REFERENCES users(id) ON DELETE SET NULL
+					);`,
+					`CREATE INDEX IF NOT EXISTS idx_capture_mushroom_analysis_has_mushrooms ON capture_mushroom_analysis(has_mushrooms);`,
+					`CREATE INDEX IF NOT EXISTS idx_capture_mushroom_analysis_probability ON capture_mushroom_analysis(primary_probability DESC);`,
+					`CREATE TABLE IF NOT EXISTS capture_mushroom_species (
+						id INTEGER PRIMARY KEY AUTOINCREMENT,
+						capture_id TEXT NOT NULL,
+						latin_name TEXT NOT NULL,
+						latin_name_norm TEXT NOT NULL,
+						czech_official_name TEXT,
+						czech_official_name_norm TEXT,
+						probability REAL NOT NULL DEFAULT 0,
+						created_at TEXT NOT NULL DEFAULT (datetime('now')),
+						FOREIGN KEY(capture_id) REFERENCES photo_captures(id) ON DELETE CASCADE
+					);`,
+					`CREATE INDEX IF NOT EXISTS idx_capture_mushroom_species_capture_id ON capture_mushroom_species(capture_id);`,
+					`CREATE INDEX IF NOT EXISTS idx_capture_mushroom_species_latin_norm ON capture_mushroom_species(latin_name_norm);`,
+					`CREATE INDEX IF NOT EXISTS idx_capture_mushroom_species_czech_norm ON capture_mushroom_species(czech_official_name_norm);`,
+				}
+
+				for _, query := range queries {
+					if _, err := tx.Exec(query); err != nil {
+						return err
+					}
+				}
+				return nil
+			},
+		},
+		{
+			id: migrationCaptureMushroomAnalysisReviewColumnsID,
+			apply: func(tx *sql.Tx) error {
+				if err := ensureColumnExists(tx, "capture_mushroom_analysis", "review_source", "TEXT NOT NULL DEFAULT 'automatic_publish_validation'"); err != nil {
+					return err
+				}
+				if err := ensureColumnExists(tx, "capture_mushroom_analysis", "reviewed_by_user_id", "INTEGER"); err != nil {
+					return err
+				}
+				if err := ensureColumnExists(tx, "capture_mushroom_analysis", "reviewed_at", "TEXT"); err != nil {
+					return err
+				}
+				_, err := tx.Exec(`
+					UPDATE capture_mushroom_analysis
+					SET review_source = 'automatic_publish_validation'
+					WHERE COALESCE(review_source, '') = ''
+				`)
+				return err
+			},
+		},
+		{
+			id: migrationCaptureGeoIndexTableID,
+			apply: func(tx *sql.Tx) error {
+				queries := []string{
+					`CREATE TABLE IF NOT EXISTS capture_geo_index (
+						capture_id TEXT PRIMARY KEY,
+						country_code TEXT,
+						kraj_name TEXT,
+						kraj_name_norm TEXT,
+						okres_name TEXT,
+						okres_name_norm TEXT,
+						obec_name TEXT,
+						obec_name_norm TEXT,
+						raw_json TEXT,
+						resolved_at TEXT NOT NULL,
+						FOREIGN KEY(capture_id) REFERENCES photo_captures(id) ON DELETE CASCADE
+					);`,
+					`CREATE INDEX IF NOT EXISTS idx_capture_geo_index_kraj_norm ON capture_geo_index(kraj_name_norm);`,
+					`CREATE INDEX IF NOT EXISTS idx_capture_geo_index_okres_norm ON capture_geo_index(okres_name_norm);`,
+					`CREATE INDEX IF NOT EXISTS idx_capture_geo_index_obec_norm ON capture_geo_index(obec_name_norm);`,
+				}
+
 				for _, query := range queries {
 					if _, err := tx.Exec(query); err != nil {
 						return err
@@ -404,6 +554,10 @@ func tableColumns(tx *sql.Tx, tableName string) (map[string]struct{}, error) {
 func (db *DB) UpsertUser(claims *models.OIDCClaims, token *oauth2.Token) (*models.User, bool, error) {
 	var user models.User
 	var exists bool
+	isModerator := 0
+	if isModeratorUsername(claims.PreferredUsername) {
+		isModerator = 1
+	}
 
 	err := db.QueryRow("SELECT id, COALESCE(about_me, '') FROM users WHERE idp_issuer = ? AND idp_sub = ?", claims.Iss, claims.Sub).Scan(&user.ID, &user.AboutMe)
 	if err == sql.ErrNoRows {
@@ -430,9 +584,9 @@ func (db *DB) UpsertUser(claims *models.OIDCClaims, token *oauth2.Token) (*model
 
 	if !exists {
 		res, err := db.Exec(`
-			INSERT INTO users (idp_issuer, idp_sub, preferred_username, email, email_verified, phone_number, phone_number_verified, picture, access_token, refresh_token, token_expires_at, last_idp_sync_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-		`, claims.Iss, claims.Sub, claims.PreferredUsername, claims.Email, ev, claims.PhoneNumber, pv, claims.Picture, token.AccessToken, token.RefreshToken, expiry)
+			INSERT INTO users (idp_issuer, idp_sub, preferred_username, is_moderator, email, email_verified, phone_number, phone_number_verified, picture, access_token, refresh_token, token_expires_at, last_idp_sync_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+		`, claims.Iss, claims.Sub, claims.PreferredUsername, isModerator, claims.Email, ev, claims.PhoneNumber, pv, claims.Picture, token.AccessToken, token.RefreshToken, expiry)
 		if err != nil {
 			return nil, false, err
 		}
@@ -445,6 +599,7 @@ func (db *DB) UpsertUser(claims *models.OIDCClaims, token *oauth2.Token) (*model
 		_, err := db.Exec(`
 			UPDATE users SET
 				preferred_username = ?,
+				is_moderator = ?,
 				email = ?,
 				email_verified = ?,
 				phone_number = ?,
@@ -456,7 +611,7 @@ func (db *DB) UpsertUser(claims *models.OIDCClaims, token *oauth2.Token) (*model
 				last_idp_sync_at = datetime('now'),
 				updated_at = datetime('now')
 			WHERE id = ?
-		`, claims.PreferredUsername, claims.Email, ev, claims.PhoneNumber, pv, claims.Picture, token.AccessToken, token.RefreshToken, expiry, user.ID)
+		`, claims.PreferredUsername, isModerator, claims.Email, ev, claims.PhoneNumber, pv, claims.Picture, token.AccessToken, token.RefreshToken, expiry, user.ID)
 		if err != nil {
 			return nil, false, err
 		}
@@ -537,6 +692,7 @@ func (db *DB) GetUser(id int64) (*models.User, error) {
 			idp_issuer,
 			idp_sub,
 			COALESCE(preferred_username, ''),
+			COALESCE(is_moderator, 0),
 			COALESCE(email, ''),
 			email_verified,
 			COALESCE(phone_number, ''),
@@ -550,7 +706,7 @@ func (db *DB) GetUser(id int64) (*models.User, error) {
 		FROM users
 		WHERE id = ?
 	`, id).Scan(
-		&user.ID, &user.IDPIssuer, &user.IDPSub, &user.PreferredUsername, &user.Email, &user.EmailVerified, &user.PhoneNumber, &user.PhoneNumberVerified, &user.Picture, &user.AboutMe, &user.AccessToken, &user.RefreshToken, &expiresAt, &user.HoubickaBalance,
+		&user.ID, &user.IDPIssuer, &user.IDPSub, &user.PreferredUsername, &user.IsModerator, &user.Email, &user.EmailVerified, &user.PhoneNumber, &user.PhoneNumberVerified, &user.Picture, &user.AboutMe, &user.AccessToken, &user.RefreshToken, &expiresAt, &user.HoubickaBalance,
 	)
 	if err == nil && expiresAt.Valid && expiresAt.String != "" {
 		user.TokenExpiresAt, _ = time.Parse(time.RFC3339, expiresAt.String)
@@ -646,7 +802,11 @@ func (db *DB) UpdateAboutMe(id int64, aboutMe string) error {
 const captureSelectColumns = `
 	SELECT id, user_id, COALESCE(client_local_id, ''), original_file_name, content_type, size_bytes, width, height,
 		captured_at, uploaded_at, latitude, longitude, accuracy_meters, status, private_storage_key,
-		COALESCE(public_storage_key, ''), COALESCE(published_at, ''), COALESCE(coordinates_free, 0)
+		COALESCE(public_storage_key, ''), COALESCE(published_at, ''), COALESCE(coordinates_free, 0),
+		COALESCE(publication_review_status, 'none'), COALESCE(publication_review_reason_code, ''),
+		COALESCE(publication_review_last_error, ''), COALESCE(publication_review_checked_at, ''),
+		COALESCE(publication_requested_at, ''), COALESCE(publication_review_attempts, 0),
+		COALESCE(publication_review_next_attempt_at, '')
 	FROM photo_captures
 `
 
@@ -813,16 +973,23 @@ func scanCaptureRow(row scanner) (*models.Capture, error) {
 
 func scanCapture(row scanner) (*models.Capture, error) {
 	var (
-		capture          models.Capture
-		clientLocalID    sql.NullString
-		capturedAtRaw    string
-		uploadedAtRaw    string
-		latitude         sql.NullFloat64
-		longitude        sql.NullFloat64
-		accuracyMeters   sql.NullFloat64
-		publicStorageKey sql.NullString
-		publishedAtRaw   sql.NullString
-		coordinatesFree  int
+		capture                        models.Capture
+		clientLocalID                  sql.NullString
+		capturedAtRaw                  string
+		uploadedAtRaw                  string
+		latitude                       sql.NullFloat64
+		longitude                      sql.NullFloat64
+		accuracyMeters                 sql.NullFloat64
+		publicStorageKey               sql.NullString
+		publishedAtRaw                 sql.NullString
+		coordinatesFree                int
+		publicationReviewStatus        string
+		publicationReviewReason        sql.NullString
+		publicationReviewLastError     sql.NullString
+		publicationReviewCheckedAt     sql.NullString
+		publicationRequestedAt         sql.NullString
+		publicationReviewAttempts      int
+		publicationReviewNextAttemptAt sql.NullString
 	)
 
 	if err := row.Scan(
@@ -844,6 +1011,13 @@ func scanCapture(row scanner) (*models.Capture, error) {
 		&publicStorageKey,
 		&publishedAtRaw,
 		&coordinatesFree,
+		&publicationReviewStatus,
+		&publicationReviewReason,
+		&publicationReviewLastError,
+		&publicationReviewCheckedAt,
+		&publicationRequestedAt,
+		&publicationReviewAttempts,
+		&publicationReviewNextAttemptAt,
 	); err != nil {
 		return nil, err
 	}
@@ -869,6 +1043,19 @@ func scanCapture(row scanner) (*models.Capture, error) {
 		capture.PublishedAt, _ = time.Parse(time.RFC3339, publishedAtRaw.String)
 	}
 	capture.CoordinatesFree = coordinatesFree == 1
+	capture.PublicationReviewStatus = publicationReviewStatus
+	capture.PublicationReviewReasonCode = publicationReviewReason.String
+	capture.PublicationReviewLastError = publicationReviewLastError.String
+	capture.PublicationReviewAttempts = publicationReviewAttempts
+	if publicationReviewCheckedAt.Valid && publicationReviewCheckedAt.String != "" {
+		capture.PublicationReviewCheckedAt, _ = time.Parse(time.RFC3339, publicationReviewCheckedAt.String)
+	}
+	if publicationRequestedAt.Valid && publicationRequestedAt.String != "" {
+		capture.PublicationRequestedAt, _ = time.Parse(time.RFC3339, publicationRequestedAt.String)
+	}
+	if publicationReviewNextAttemptAt.Valid && publicationReviewNextAttemptAt.String != "" {
+		capture.PublicationReviewNextAttemptAt, _ = time.Parse(time.RFC3339, publicationReviewNextAttemptAt.String)
+	}
 
 	return &capture, nil
 }
