@@ -52,6 +52,19 @@ function moderationReasonLabel(item) {
     return reason ? `Důvod: ${reason}` : "Důvod nebyl uložen";
 }
 
+function moderationNoteHtml(item) {
+    const note = String(item?.moderation_note || "").trim();
+    if (!note) {
+        return "";
+    }
+    return `
+        <div class="moderation-context-box">
+            <p class="muted-copy">Poznámka moderátora</p>
+            <p>${escapeHtml(note)}</p>
+        </div>
+    `;
+}
+
 function updateModerationSectionSummary(key) {
     const summary = document.getElementById(`moderation-hidden-${key}-summary`);
     const loadMoreButton = document.getElementById(`moderation-hidden-${key}-load-more`);
@@ -118,6 +131,7 @@ function renderHiddenCaptures() {
                             ${capture.kraj_name ? `<span>Kraj: ${escapeHtml(capture.kraj_name)}</span>` : ""}
                         </div>
                         <p class="muted-copy">${escapeHtml(moderationMeta.join(" · "))}</p>
+                        ${moderationNoteHtml(capture)}
                     </div>
                 </div>
             </article>
@@ -170,6 +184,7 @@ function renderHiddenPosts() {
                     <p>${escapeHtml(moderationExcerpt(post.content, 420))}</p>
                     <p class="muted-copy">${escapeHtml(moderationMeta.join(" · "))}</p>
                 </div>
+                ${moderationNoteHtml(post)}
                 ${previews.length ? `
                     <div class="moderation-preview-grid">
                         ${previews.map((capture) => {
@@ -231,6 +246,7 @@ function renderHiddenComments() {
                     <p>${escapeHtml(moderationExcerpt(comment.content, 340))}</p>
                     <p class="muted-copy">${escapeHtml(moderationMeta.join(" · "))}</p>
                 </div>
+                ${moderationNoteHtml(comment)}
                 <div class="moderation-context-box">
                     <p class="muted-copy">
                         Pod publikací autora <a href="${escapeHtml(postAuthorURL)}">${escapeHtml(comment.post_author_name || "Neznámý houbař")}</a>

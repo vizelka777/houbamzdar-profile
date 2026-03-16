@@ -181,6 +181,14 @@ func (db *DB) ListModerationHiddenCaptures(limit int, offset int) ([]*models.Cap
 			COALESCE(ma.primary_czech_name, ''),
 			COALESCE(ma.primary_probability, 0),
 			COALESCE(c.moderation_reason_code, ''),
+			COALESCE((
+				SELECT COALESCE(a.note, '')
+				FROM moderation_actions a
+				WHERE a.target_capture_id = c.id
+					AND a.action_kind = 'capture_visibility_updated'
+				ORDER BY a.created_at DESC
+				LIMIT 1
+			), ''),
 			COALESCE(c.moderated_by_user_id, 0),
 			COALESCE(mod.preferred_username, ''),
 			COALESCE(c.moderated_at, '')
@@ -233,6 +241,7 @@ func (db *DB) ListModerationHiddenCaptures(limit int, offset int) ([]*models.Cap
 			&c.MushroomPrimaryCzechName,
 			&c.MushroomPrimaryProbability,
 			&c.ModerationReasonCode,
+			&c.ModerationNote,
 			&c.ModeratedByUserID,
 			&c.ModeratedByName,
 			&moderatedAtRaw,
@@ -280,6 +289,14 @@ func (db *DB) ListModerationHiddenPosts(limit int, offset int, viewerUserID int6
 			p.created_at,
 			p.updated_at,
 			COALESCE(p.moderation_reason_code, ''),
+			COALESCE((
+				SELECT COALESCE(a.note, '')
+				FROM moderation_actions a
+				WHERE a.target_post_id = p.id
+					AND a.action_kind = 'post_visibility_updated'
+				ORDER BY a.created_at DESC
+				LIMIT 1
+			), ''),
 			COALESCE(p.moderated_by_user_id, 0),
 			COALESCE(mod.preferred_username, ''),
 			COALESCE(p.moderated_at, '')
@@ -314,6 +331,7 @@ func (db *DB) ListModerationHiddenPosts(limit int, offset int, viewerUserID int6
 			&createdAtRaw,
 			&updatedAtRaw,
 			&post.ModerationReasonCode,
+			&post.ModerationNote,
 			&post.ModeratedByUserID,
 			&post.ModeratedByName,
 			&moderatedAtRaw,
@@ -369,6 +387,14 @@ func (db *DB) ListModerationHiddenComments(limit int, offset int) ([]*models.Mod
 			pc.created_at,
 			pc.updated_at,
 			COALESCE(pc.moderation_reason_code, ''),
+			COALESCE((
+				SELECT COALESCE(a.note, '')
+				FROM moderation_actions a
+				WHERE a.target_comment_id = pc.id
+					AND a.action_kind = 'comment_visibility_updated'
+				ORDER BY a.created_at DESC
+				LIMIT 1
+			), ''),
 			COALESCE(pc.moderated_by_user_id, 0),
 			COALESCE(mod.preferred_username, ''),
 			COALESCE(pc.moderated_at, '')
@@ -407,6 +433,7 @@ func (db *DB) ListModerationHiddenComments(limit int, offset int) ([]*models.Mod
 			&createdAtRaw,
 			&updatedAtRaw,
 			&comment.ModerationReasonCode,
+			&comment.ModerationNote,
 			&comment.ModeratedByUserID,
 			&comment.ModeratedByName,
 			&moderatedAtRaw,

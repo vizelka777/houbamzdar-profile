@@ -75,6 +75,7 @@ type Capture struct {
 	GeoResolvedAt                  time.Time                 `json:"geo_resolved_at,omitempty"`
 	ModeratorHidden                bool                      `json:"moderator_hidden,omitempty"`
 	ModerationReasonCode           string                    `json:"moderation_reason_code,omitempty"`
+	ModerationNote                 string                    `json:"moderation_note,omitempty"`
 	ModeratedByUserID              int64                     `json:"moderated_by_user_id,omitempty"`
 	ModeratedByName                string                    `json:"moderated_by_name,omitempty"`
 	ModeratedAt                    time.Time                 `json:"moderated_at,omitempty"`
@@ -126,6 +127,7 @@ type Post struct {
 	UpdatedAt            time.Time  `json:"updated_at"`
 	ModeratorHidden      bool       `json:"moderator_hidden,omitempty"`
 	ModerationReasonCode string     `json:"moderation_reason_code,omitempty"`
+	ModerationNote       string     `json:"moderation_note,omitempty"`
 	ModeratedByUserID    int64      `json:"moderated_by_user_id,omitempty"`
 	ModeratedByName      string     `json:"moderated_by_name,omitempty"`
 	ModeratedAt          time.Time  `json:"moderated_at,omitempty"`
@@ -150,6 +152,7 @@ type Comment struct {
 	UpdatedAt            time.Time `json:"updated_at"`
 	ModeratorHidden      bool      `json:"moderator_hidden,omitempty"`
 	ModerationReasonCode string    `json:"moderation_reason_code,omitempty"`
+	ModerationNote       string    `json:"moderation_note,omitempty"`
 	ModeratedByUserID    int64     `json:"moderated_by_user_id,omitempty"`
 	ModeratedByName      string    `json:"moderated_by_name,omitempty"`
 	ModeratedAt          time.Time `json:"moderated_at,omitempty"`
@@ -168,6 +171,7 @@ type ModerationHiddenComment struct {
 	CreatedAt            time.Time `json:"created_at"`
 	UpdatedAt            time.Time `json:"updated_at"`
 	ModerationReasonCode string    `json:"moderation_reason_code,omitempty"`
+	ModerationNote       string    `json:"moderation_note,omitempty"`
 	ModeratedByUserID    int64     `json:"moderated_by_user_id,omitempty"`
 	ModeratedByName      string    `json:"moderated_by_name,omitempty"`
 	ModeratedAt          time.Time `json:"moderated_at,omitempty"`

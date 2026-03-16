@@ -450,6 +450,9 @@ func TestListModerationHiddenContentEndpoints(t *testing.T) {
 		if payload.Captures[0].ModeratedByName != moderator.PreferredUsername {
 			t.Fatalf("expected moderator name %q, got %q", moderator.PreferredUsername, payload.Captures[0].ModeratedByName)
 		}
+		if payload.Captures[0].ModerationNote != "hide capture" {
+			t.Fatalf("expected moderation note %q, got %q", "hide capture", payload.Captures[0].ModerationNote)
+		}
 	})
 
 	t.Run("hidden posts", func(t *testing.T) {
@@ -483,6 +486,9 @@ func TestListModerationHiddenContentEndpoints(t *testing.T) {
 		}
 		if payload.Posts[0].ModeratedByName != moderator.PreferredUsername {
 			t.Fatalf("expected moderator name %q, got %q", moderator.PreferredUsername, payload.Posts[0].ModeratedByName)
+		}
+		if payload.Posts[0].ModerationNote != "hide post" {
+			t.Fatalf("expected moderation note %q, got %q", "hide post", payload.Posts[0].ModerationNote)
 		}
 		if len(payload.Posts[0].Captures) != 1 || payload.Posts[0].Captures[0].ID != capture.ID {
 			t.Fatalf("expected hidden post to include capture %q, got %+v", capture.ID, payload.Posts[0].Captures)
@@ -523,6 +529,9 @@ func TestListModerationHiddenContentEndpoints(t *testing.T) {
 		}
 		if payload.Comments[0].ModeratedByName != moderator.PreferredUsername {
 			t.Fatalf("expected moderator name %q, got %q", moderator.PreferredUsername, payload.Comments[0].ModeratedByName)
+		}
+		if payload.Comments[0].ModerationNote != "hide comment" {
+			t.Fatalf("expected moderation note %q, got %q", "hide comment", payload.Comments[0].ModerationNote)
 		}
 	})
 }
