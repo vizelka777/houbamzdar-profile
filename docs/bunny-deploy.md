@@ -2,6 +2,11 @@
 
 Практическая памятка для деплоя `houbamzdar.cz` и `api.houbamzdar.cz` на Bunny без потери endpoint-конфигурации.
 
+Перед любым deploy или recovery сначала прочитать:
+
+- [`docs/bunny-deploy.md`](/home/houbamydar/houbamzdar-mvp/docs/bunny-deploy.md)
+- [`docs/bunny-deploy-incidents.md`](/home/houbamydar/houbamzdar-mvp/docs/bunny-deploy-incidents.md)
+
 ## Что деплоится
 
 - Backend API: Bunny Magic Containers, образ `houbamzdar/bff:vNN`

@@ -169,6 +169,7 @@ type aiValidatorRequest struct {
 	CaptureID         string `json:"capture_id"`
 	PrivateStorageKey string `json:"private_storage_key"`
 	ReviewMode        string `json:"review_mode,omitempty"`
+	ModelCode         string `json:"model_code,omitempty"`
 }
 
 type aiValidatorResponse struct {
@@ -178,11 +179,22 @@ type aiValidatorResponse struct {
 	Species      []*models.CaptureMushroomSpecies `json:"species"`
 }
 
-func (c *AIValidatorClient) AnalyzeCapture(ctx context.Context, capture *models.Capture) (*models.CaptureMushroomAnalysis, []*models.CaptureMushroomSpecies, error) {
-	return c.AnalyzeCaptureWithMode(ctx, capture, AIReviewModePublishValidation)
+type ModeratorModelOption struct {
+	Code  string `json:"code"`
+	Label string `json:"label"`
 }
 
-func (c *AIValidatorClient) AnalyzeCaptureWithMode(ctx context.Context, capture *models.Capture, reviewMode AIReviewMode) (*models.CaptureMushroomAnalysis, []*models.CaptureMushroomSpecies, error) {
+type moderatorModelsResponse struct {
+	OK           bool                    `json:"ok"`
+	DefaultModel string                  `json:"default_model"`
+	Models       []*ModeratorModelOption `json:"models"`
+}
+
+func (c *AIValidatorClient) AnalyzeCapture(ctx context.Context, capture *models.Capture) (*models.CaptureMushroomAnalysis, []*models.CaptureMushroomSpecies, error) {
+	return c.AnalyzeCaptureWithMode(ctx, capture, AIReviewModePublishValidation, "")
+}
+
+func (c *AIValidatorClient) AnalyzeCaptureWithMode(ctx context.Context, capture *models.Capture, reviewMode AIReviewMode, modelCode string) (*models.CaptureMushroomAnalysis, []*models.CaptureMushroomSpecies, error) {
 	if !c.Enabled() {
 		return nil, nil, fmt.Errorf("AI validator is not configured")
 	}
@@ -191,6 +203,7 @@ func (c *AIValidatorClient) AnalyzeCaptureWithMode(ctx context.Context, capture 
 		CaptureID:         capture.ID,
 		PrivateStorageKey: capture.PrivateStorageKey,
 		ReviewMode:        strings.TrimSpace(string(reviewMode)),
+		ModelCode:         strings.TrimSpace(modelCode),
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -253,6 +266,55 @@ func (c *AIValidatorClient) AnalyzeCaptureWithMode(ctx context.Context, capture 
 	}
 
 	return analysis, species, nil
+}
+
+func (c *AIValidatorClient) ModelsURL() string {
+	baseURL := strings.TrimSpace(c.baseURL)
+	if baseURL == "" {
+		return ""
+	}
+	parsed, err := url.Parse(baseURL)
+	if err != nil {
+		return ""
+	}
+	parsed.Path = "/models"
+	parsed.RawQuery = ""
+	return parsed.String()
+}
+
+func (c *AIValidatorClient) ListModeratorModels(ctx context.Context) ([]*ModeratorModelOption, string, error) {
+	modelsURL := c.ModelsURL()
+	if modelsURL == "" {
+		return nil, "", fmt.Errorf("AI validator models endpoint is not configured")
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, modelsURL, nil)
+	if err != nil {
+		return nil, "", err
+	}
+	if c.authToken != "" {
+		req.Header.Set("Authorization", "Bearer "+c.authToken)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, "", err
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return nil, "", err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, "", fmt.Errorf("AI validator models status %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
+	}
+
+	var decoded moderatorModelsResponse
+	if err := json.Unmarshal(respBody, &decoded); err != nil {
+		return nil, "", err
+	}
+	return decoded.Models, strings.TrimSpace(decoded.DefaultModel), nil
 }
 
 type NominatimResolver struct {

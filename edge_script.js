@@ -10,10 +10,15 @@ const BUNNY_PRIVATE_STORAGE_ZONE = "houbamzdarprivateedge";
 const BUNNY_PRIVATE_STORAGE_KEY = process.env.BUNNY_PRIVATE_STORAGE_KEY || "";
 const REVIEW_MODE_PUBLISH_VALIDATION = "publish_validation";
 const REVIEW_MODE_MODERATOR_RECHECK = "moderator_recheck";
+const MODEL_CATALOG_TTL_MS = 10 * 60 * 1000;
 const COMMON_HEADERS = {
     "content-type": "application/json; charset=utf-8",
     "cache-control": "no-store",
     "x-content-type-options": "nosniff"
+};
+let modelCatalogCache = {
+    fetchedAt: 0,
+    catalog: null
 };
 
 function json(data, status = 200) {
@@ -80,11 +85,110 @@ function normalizeSpecies(items) {
 	return Array.from(deduped.values()).sort((left, right) => right.probability - left.probability);
 }
 
-function pickGeminiModel(reviewMode) {
-	if (reviewMode === REVIEW_MODE_MODERATOR_RECHECK) {
-		return MODERATOR_GEMINI_MODEL;
-	}
-	return DEFAULT_GEMINI_MODEL;
+function stripModelPrefix(value) {
+    return String(value || "").replace(/^models\//, "").trim();
+}
+
+function isSelectableModeratorModel(model) {
+    const code = stripModelPrefix(model?.name);
+    if (!code || !code.startsWith("gemini-")) {
+        return false;
+    }
+    const methods = Array.isArray(model?.supportedGenerationMethods)
+        ? model.supportedGenerationMethods
+        : [];
+    if (!methods.includes("generateContent")) {
+        return false;
+    }
+
+    const excludedFragments = [
+        "tts",
+        "audio",
+        "robotics",
+        "computer-use",
+        "deep-research",
+        "embedding"
+    ];
+    return !excludedFragments.some((fragment) => code.includes(fragment));
+}
+
+function moderatorModelRank(code) {
+    const ranking = [
+        "gemini-3.1-pro-preview",
+        "gemini-3-pro-preview",
+        "gemini-2.5-pro",
+        "gemini-pro-latest",
+        "gemini-3-flash-preview",
+        "gemini-3.1-flash-image-preview",
+        "gemini-2.5-flash",
+        "gemini-flash-latest",
+        "gemini-2.5-flash-lite",
+        "gemini-flash-lite-latest",
+        "gemini-2.0-flash",
+        "gemini-2.0-flash-001",
+        "gemini-2.0-flash-lite",
+        "gemini-2.0-flash-lite-001"
+    ];
+    const idx = ranking.indexOf(code);
+    return idx === -1 ? ranking.length + 100 : idx;
+}
+
+async function fetchModeratorModelCatalog(forceRefresh = false) {
+    const now = Date.now();
+    if (!forceRefresh && modelCatalogCache.catalog && now-modelCatalogCache.fetchedAt < MODEL_CATALOG_TTL_MS) {
+        return modelCatalogCache.catalog;
+    }
+
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(GEMINI_API_KEY)}`);
+    const payload = await response.json();
+    if (!response.ok) {
+        throw new Error(payload?.error?.message || `Failed to list Gemini models: ${response.status}`);
+    }
+
+    const models = Array.isArray(payload?.models)
+        ? payload.models
+            .filter(isSelectableModeratorModel)
+            .map((model) => ({
+                code: stripModelPrefix(model.name),
+                label: stripModelPrefix(model.name)
+            }))
+            .sort((left, right) => {
+                const rankDiff = moderatorModelRank(left.code) - moderatorModelRank(right.code);
+                if (rankDiff !== 0) {
+                    return rankDiff;
+                }
+                return left.code.localeCompare(right.code);
+            })
+        : [];
+
+    const defaultModel = models.find((item) => item.code === "gemini-3.1-pro-preview")
+        || models.find((item) => item.code === MODERATOR_GEMINI_MODEL)
+        || models[0]
+        || null;
+
+    const catalog = {
+        ok: true,
+        default_model: defaultModel ? defaultModel.code : stripModelPrefix(MODERATOR_GEMINI_MODEL),
+        models
+    };
+    modelCatalogCache = {
+        fetchedAt: now,
+        catalog
+    };
+    return catalog;
+}
+
+async function pickGeminiModel(reviewMode, requestedModel = "") {
+    if (reviewMode !== REVIEW_MODE_MODERATOR_RECHECK) {
+        return DEFAULT_GEMINI_MODEL;
+    }
+
+    const catalog = await fetchModeratorModelCatalog();
+    const requestedCode = stripModelPrefix(requestedModel);
+    if (requestedCode && catalog.models.some((item) => item.code === requestedCode)) {
+        return requestedCode;
+    }
+    return catalog.default_model || MODERATOR_GEMINI_MODEL;
 }
 
 function buildPrompt(reviewMode) {
@@ -111,7 +215,7 @@ function buildPrompt(reviewMode) {
 	].join(" ");
 }
 
-async function analyzeCapture(privateStorageKey, reviewMode = REVIEW_MODE_PUBLISH_VALIDATION) {
+async function analyzeCapture(privateStorageKey, reviewMode = REVIEW_MODE_PUBLISH_VALIDATION, requestedModel = "") {
 	if (!GEMINI_API_KEY) {
 		throw new Error("Missing GEMINI_API_KEY");
 	}
@@ -121,7 +225,7 @@ async function analyzeCapture(privateStorageKey, reviewMode = REVIEW_MODE_PUBLIS
 	const mimeType = imageResponse.headers.get("content-type") || "image/jpeg";
 	const inlineImage = arrayBufferToBase64(imageBuffer);
 	const prompt = buildPrompt(reviewMode);
-	const modelCode = pickGeminiModel(reviewMode);
+	const modelCode = await pickGeminiModel(reviewMode, requestedModel);
 
 	const geminiResponse = await fetch(
 		`https://generativelanguage.googleapis.com/v1beta/models/${modelCode}:generateContent?key=${encodeURIComponent(GEMINI_API_KEY)}`,
@@ -173,6 +277,20 @@ BunnySDK.net.http.serve(async (request) => {
         return json({ ok: true, script: "houbamzdar-ai-analyze-api" });
     }
 
+    if (url.pathname === "/models") {
+        if (VALIDATOR_TOKEN) {
+            const authHeader = request.headers.get("authorization") || "";
+            if (authHeader !== `Bearer ${VALIDATOR_TOKEN}`) {
+                return json({ error: "Unauthorized" }, 401);
+            }
+        }
+        try {
+            return json(await fetchModeratorModelCatalog());
+        } catch (error) {
+            return json({ error: error instanceof Error ? error.message : "failed to list models" }, 500);
+        }
+    }
+
     if (url.pathname !== "/validate-capture") {
         return json({ error: "Not found" }, 404);
     }
@@ -193,12 +311,13 @@ BunnySDK.net.http.serve(async (request) => {
 		const captureID = String(body?.capture_id || "").trim();
 		const privateStorageKey = String(body?.private_storage_key || "").trim();
 		const reviewMode = String(body?.review_mode || REVIEW_MODE_PUBLISH_VALIDATION).trim() || REVIEW_MODE_PUBLISH_VALIDATION;
+        const requestedModel = String(body?.model_code || "").trim();
 
 		if (!captureID || !privateStorageKey) {
 			return json({ error: "Missing capture_id or private_storage_key" }, 400);
 		}
 
-		const result = await analyzeCapture(privateStorageKey, reviewMode);
+		const result = await analyzeCapture(privateStorageKey, reviewMode, requestedModel);
 		return json(result);
 	} catch (error) {
         return json({ error: error instanceof Error ? error.message : "validator failed" }, 500);

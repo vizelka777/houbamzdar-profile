@@ -1485,6 +1485,20 @@ img {
     font-size: 0.82rem;
 }
 
+.moderator-panel {
+    display: grid;
+    gap: 0.8rem;
+    margin-top: 1rem;
+    padding: 0.95rem 1rem;
+    border: 1px dashed rgba(19, 38, 29, 0.2);
+    border-radius: var(--radius-md);
+    background: rgba(255, 250, 242, 0.5);
+}
+
+.moderator-panel-field {
+    max-width: 28rem;
+}
+
 .feed-photo-frame {
     position: relative;
 }

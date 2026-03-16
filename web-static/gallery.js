@@ -12,6 +12,13 @@ const state = {
         okres: "",
         obec: "",
         sort: "published_desc"
+    },
+    moderation: {
+        models: [],
+        defaultModel: "",
+        selectedModel: "",
+        loading: false,
+        loadError: ""
     }
 };
 
@@ -96,11 +103,109 @@ function canModeratorRecheck() {
     return Boolean(state.me && state.me.is_moderator);
 }
 
+function syncModeratorModelPanel() {
+    const panel = document.getElementById("gallery-moderator-panel");
+    const select = document.getElementById("gallery-moderator-model");
+    const note = document.getElementById("gallery-moderator-note");
+    if (!panel || !select || !note) {
+        return;
+    }
+
+    if (!canModeratorRecheck()) {
+        panel.hidden = true;
+        return;
+    }
+
+    panel.hidden = false;
+    select.innerHTML = "";
+
+    if (state.moderation.loading) {
+        const option = document.createElement("option");
+        option.value = "";
+        option.textContent = "Načítám modely...";
+        select.appendChild(option);
+        select.disabled = true;
+        note.textContent = "Načítám dostupné Gemini modely z validátoru.";
+        return;
+    }
+
+    if (state.moderation.models.length === 0) {
+        const option = document.createElement("option");
+        option.value = "";
+        option.textContent = "Výchozí model backendu";
+        select.appendChild(option);
+        select.disabled = true;
+        note.textContent = state.moderation.loadError
+            || "Seznam modelů se nepodařilo načíst. Recheck použije výchozí model backendu.";
+        return;
+    }
+
+    state.moderation.models.forEach((model) => {
+        const option = document.createElement("option");
+        option.value = model.code;
+        option.textContent = model.label || model.code;
+        select.appendChild(option);
+    });
+
+    const fallbackModel = state.moderation.defaultModel || state.moderation.models[0].code;
+    const selectedModel = state.moderation.selectedModel || fallbackModel;
+    select.disabled = false;
+    select.value = selectedModel;
+    state.moderation.selectedModel = select.value;
+    note.textContent = `Dostupné Gemini modely pro moderatorský recheck: ${state.moderation.models.length}. Aktuálně vybraný model: ${select.value}.`;
+}
+
+async function loadModeratorModels() {
+    if (!canModeratorRecheck()) {
+        return;
+    }
+
+    state.moderation.loading = true;
+    state.moderation.loadError = "";
+    syncModeratorModelPanel();
+
+    try {
+        const response = await apiGet("/api/moderation/ai-models");
+        if (!response || !response.ok) {
+            throw new Error("Nepodařilo se načíst seznam modelů.");
+        }
+
+        const models = Array.isArray(response.models)
+            ? response.models
+                .map((item) => ({
+                    code: String(item?.code || "").trim(),
+                    label: String(item?.label || item?.code || "").trim()
+                }))
+                .filter((item) => item.code)
+            : [];
+
+        state.moderation.models = models;
+        state.moderation.defaultModel = String(response.default_model || "").trim();
+
+        const currentModelValid = state.moderation.selectedModel
+            && models.some((item) => item.code === state.moderation.selectedModel);
+        if (!currentModelValid) {
+            state.moderation.selectedModel = state.moderation.defaultModel || models[0]?.code || "";
+        }
+    } catch (error) {
+        console.error("Failed to load moderator AI models", error);
+        state.moderation.models = [];
+        state.moderation.defaultModel = "";
+        state.moderation.selectedModel = "";
+        state.moderation.loadError = error.message || "Nepodařilo se načíst seznam modelů.";
+    } finally {
+        state.moderation.loading = false;
+        syncModeratorModelPanel();
+    }
+}
+
 async function runModeratorRecheck(captureID, button) {
     if (!captureID || !canModeratorRecheck()) {
         return;
     }
-    if (!window.confirm("Spustit moderatorskou AI kontrolu přes Gemini 2.5 Pro a přepsat rozpoznané druhy?")) {
+    const selectedModel = state.moderation.selectedModel || state.moderation.defaultModel;
+    const modelLabel = selectedModel || "výchozí model";
+    if (!window.confirm(`Spustit moderatorskou AI kontrolu přes ${modelLabel} a přepsat rozpoznané druhy?`)) {
         return;
     }
 
@@ -111,7 +216,11 @@ async function runModeratorRecheck(captureID, button) {
     try {
         const response = await fetch(`${API_URL}/api/captures/${encodeURIComponent(captureID)}/moderator-recheck`, {
             method: "POST",
-            credentials: "include"
+            credentials: "include",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify(selectedModel ? { model_code: selectedModel } : {})
         });
         const payload = await response.json().catch(() => null);
         if (!response.ok || !payload || !payload.ok) {
@@ -158,7 +267,7 @@ function renderGallery(container) {
             ? `
                 <div class="gallery-item-actions">
                     <button type="button" class="btn btn-secondary gallery-moderator-action" data-capture-id="${escapeHtml(capture.id)}">
-                        AI Pro recheck
+                        AI recheck
                     </button>
                 </div>
             `
@@ -278,6 +387,7 @@ async function initGalleryPage() {
 
     readGalleryFiltersFromQuery();
     syncGalleryFilterInputs();
+    syncModeratorModelPanel();
 
     const loadMoreBtn = document.getElementById("load-more-gallery-btn");
     if (loadMoreBtn) {
@@ -306,6 +416,18 @@ async function initGalleryPage() {
         resetButton.addEventListener("click", async () => {
             await resetGalleryFilters();
         });
+    }
+
+    const moderatorModelSelect = document.getElementById("gallery-moderator-model");
+    if (moderatorModelSelect) {
+        moderatorModelSelect.addEventListener("change", () => {
+            state.moderation.selectedModel = moderatorModelSelect.value || "";
+            syncModeratorModelPanel();
+        });
+    }
+
+    if (canModeratorRecheck()) {
+        await loadModeratorModels();
     }
 
     await loadGallery({ reset: true });

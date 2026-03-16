@@ -262,8 +262,18 @@ func (s *Server) handleModeratorRecheckCapture(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	var req struct {
+		ModelCode string `json:"model_code"`
+	}
+	if r.Body != nil {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+	}
+
 	validator := enrichment.NewAIValidatorClient(s.Config)
-	analysis, species, err := validator.AnalyzeCaptureWithMode(r.Context(), capture, enrichment.AIReviewModeModeratorRecheck)
+	analysis, species, err := validator.AnalyzeCaptureWithMode(r.Context(), capture, enrichment.AIReviewModeModeratorRecheck, strings.TrimSpace(req.ModelCode))
 	if err != nil {
 		http.Error(w, "failed to recheck capture: "+err.Error(), http.StatusBadGateway)
 		return
@@ -284,6 +294,28 @@ func (s *Server) handleModeratorRecheckCapture(w http.ResponseWriter, r *http.Re
 		"capture_id": capture.ID,
 		"model_code": analysis.ModelCode,
 		"species":    species,
+	})
+}
+
+func (s *Server) handleListModeratorAIModels(w http.ResponseWriter, r *http.Request) {
+	user := r.Context().Value("user").(*models.User)
+	if user == nil || !user.IsModerator {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	validator := enrichment.NewAIValidatorClient(s.Config)
+	models, defaultModel, err := validator.ListModeratorModels(r.Context())
+	if err != nil {
+		http.Error(w, "failed to load moderator AI models", http.StatusBadGateway)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"ok":            true,
+		"default_model": defaultModel,
+		"models":        models,
 	})
 }
 

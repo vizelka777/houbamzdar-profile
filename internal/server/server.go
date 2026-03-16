@@ -67,6 +67,7 @@ func (s *Server) setupRoutes() {
 		r.Get("/api/me", s.handleGetMe)
 		r.Get("/api/me/viewed-captures", s.handleListViewedCaptures)
 		r.Post("/api/me/about", s.handlePostMeAbout)
+		r.Get("/api/moderation/ai-models", s.handleListModeratorAIModels)
 		r.Get("/api/captures", s.handleListCaptures)
 		r.Get("/api/captures/{captureID}/preview", s.handlePreviewCapture)
 		r.Post("/api/captures", s.handleCreateCapture)
