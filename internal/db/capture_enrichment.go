@@ -39,6 +39,12 @@ type PublicCaptureFilters struct {
 	Sort         string
 }
 
+type publicCaptureQuerySpec struct {
+	whereSQL string
+	orderBy  string
+	args     []interface{}
+}
+
 func normalizeSearchText(raw string) string {
 	value := strings.TrimSpace(strings.ToLower(raw))
 	replacer := strings.NewReplacer(
@@ -373,7 +379,15 @@ func (db *DB) ListPublicMapCapturesWithFilters(filters PublicCaptureFilters, vie
 	return db.listPublicCapturesWithFilters(filters, viewerUserID, true)
 }
 
-func (db *DB) listPublicCapturesWithFilters(filters PublicCaptureFilters, viewerUserID int64, requireVisibleCoordinates bool) ([]*models.Capture, error) {
+func (db *DB) CountPublicCapturesWithFilters(filters PublicCaptureFilters, viewerUserID int64) (int, error) {
+	return db.countPublicCapturesWithFilters(filters, viewerUserID, false)
+}
+
+func (db *DB) CountPublicMapCapturesWithFilters(filters PublicCaptureFilters, viewerUserID int64) (int, error) {
+	return db.countPublicCapturesWithFilters(filters, viewerUserID, true)
+}
+
+func buildPublicCaptureQuerySpec(filters PublicCaptureFilters, viewerUserID int64, requireVisibleCoordinates bool) publicCaptureQuerySpec {
 	filters = normalizePublicCaptureFilters(filters)
 
 	var (
@@ -461,6 +475,36 @@ func (db *DB) listPublicCapturesWithFilters(filters PublicCaptureFilters, viewer
 		orderBy = "CASE WHEN COALESCE(c.coordinates_free, 0) = 1 THEN COALESCE(gi.obec_name_norm, '') ELSE '' END, c.published_at DESC"
 	}
 
+	return publicCaptureQuerySpec{
+		whereSQL: strings.Join(whereClauses, " AND "),
+		orderBy:  orderBy,
+		args:     args,
+	}
+}
+
+func (db *DB) countPublicCapturesWithFilters(filters PublicCaptureFilters, viewerUserID int64, requireVisibleCoordinates bool) (int, error) {
+	spec := buildPublicCaptureQuerySpec(filters, viewerUserID, requireVisibleCoordinates)
+
+	query := fmt.Sprintf(`
+		SELECT COUNT(*)
+		FROM photo_captures c
+		JOIN users u ON c.user_id = u.id
+		LEFT JOIN capture_geo_index gi ON gi.capture_id = c.id
+		LEFT JOIN capture_mushroom_analysis ma ON ma.capture_id = c.id
+		WHERE %s
+	`, spec.whereSQL)
+
+	var total int
+	if err := db.QueryRow(query, spec.args...).Scan(&total); err != nil {
+		return 0, err
+	}
+	return total, nil
+}
+
+func (db *DB) listPublicCapturesWithFilters(filters PublicCaptureFilters, viewerUserID int64, requireVisibleCoordinates bool) ([]*models.Capture, error) {
+	filters = normalizePublicCaptureFilters(filters)
+	spec := buildPublicCaptureQuerySpec(filters, viewerUserID, requireVisibleCoordinates)
+
 	query := fmt.Sprintf(`
 		SELECT c.id, c.user_id, u.preferred_username, COALESCE(u.picture, ''), COALESCE(c.client_local_id, ''), c.original_file_name, c.content_type, c.size_bytes, c.width, c.height,
 			c.captured_at, c.uploaded_at, c.latitude, c.longitude, c.accuracy_meters, c.status, c.private_storage_key,
@@ -477,9 +521,9 @@ func (db *DB) listPublicCapturesWithFilters(filters PublicCaptureFilters, viewer
 		WHERE %s
 		ORDER BY %s
 		LIMIT ? OFFSET ?
-	`, strings.Join(whereClauses, " AND "), orderBy)
+	`, spec.whereSQL, spec.orderBy)
 
-	args = append(args, filters.Limit, filters.Offset)
+	args := append(append([]interface{}{}, spec.args...), filters.Limit, filters.Offset)
 	rows, err := db.Query(query, args...)
 	if err != nil {
 		return nil, err

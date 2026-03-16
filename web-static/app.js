@@ -444,6 +444,11 @@ function buildCaptureRegionLabel(capture) {
     return parts.join(", ");
 }
 
+function buildCaptureKrajLabel(capture) {
+    if (!capture) return "";
+    return String(capture.kraj_name || "").trim();
+}
+
 function buildCaptureRegionSearchNote(capture) {
     if (!capture) return "";
 
@@ -1277,6 +1282,7 @@ function updateLightboxMap() {
 
     const capture = currentLightboxCapture();
     const data = capture ? buildCaptureMapData(capture) : window.lightboxMapData[window.currentLightboxIndex];
+    const locationLabel = buildCaptureRegionLabel(capture);
 
     mapBtn.style.display = "none";
     mapBtn.disabled = false;
@@ -1296,19 +1302,30 @@ function updateLightboxMap() {
                 event.stopPropagation();
                 unlockCurrentLightboxCapture();
             };
-            setLightboxMessage("Po odemčení se fotografie uloží do přehledu „Prohlédnuté za houbičky“.");
+            setLightboxMessage(
+                locationLabel
+                    ? `Kraj: ${locationLabel}. Po odemčení se fotografie uloží do přehledu „Prohlédnuté za houbičky“.`
+                    : "Po odemčení se fotografie uloží do přehledu „Prohlédnuté za houbičky“."
+            );
         } else {
             mapBtn.textContent = "Přihlásit se pro souřadnice";
             mapBtn.onclick = (event) => {
                 event.stopPropagation();
                 window.location.href = `${API_URL}/auth/login`;
             };
-            setLightboxMessage("Souřadnice si mohou odemykat jen přihlášení uživatelé.");
+            setLightboxMessage(
+                locationLabel
+                    ? `Kraj: ${locationLabel}. Souřadnice si mohou odemykat jen přihlášení uživatelé.`
+                    : "Souřadnice si mohou odemykat jen přihlášení uživatelé."
+            );
         }
         return;
     }
 
     if (!data || Number.isNaN(data.lat) || Number.isNaN(data.lon)) {
+        if (locationLabel) {
+            setLightboxMessage(`Lokalita: ${locationLabel}.`, "success");
+        }
         return;
     }
 
@@ -1316,9 +1333,21 @@ function updateLightboxMap() {
     mapBtn.textContent = "Zobrazit na mapě";
 
     if (capture.coordinates_free) {
-        setLightboxMessage("Souřadnice této fotografie jsou zdarma.", "success");
+        setLightboxMessage(
+            locationLabel
+                ? `Lokalita: ${locationLabel}. Souřadnice této fotografie jsou zdarma.`
+                : "Souřadnice této fotografie jsou zdarma.",
+            "success"
+        );
     } else if (capture.unlocked_at) {
-        setLightboxMessage(`Souřadnice byly odemčeny ${formatDateTime(capture.unlocked_at)}.`, "success");
+        setLightboxMessage(
+            locationLabel
+                ? `Lokalita: ${locationLabel}. Souřadnice byly odemčeny ${formatDateTime(capture.unlocked_at)}.`
+                : `Souřadnice byly odemčeny ${formatDateTime(capture.unlocked_at)}.`,
+            "success"
+        );
+    } else if (locationLabel) {
+        setLightboxMessage(`Lokalita: ${locationLabel}.`, "success");
     }
 
     mapBtn.onclick = (event) => {

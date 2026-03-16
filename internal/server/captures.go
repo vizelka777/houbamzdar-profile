@@ -55,16 +55,36 @@ func (s *Server) handleListPublicCaptures(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	total, err := s.DB.CountPublicCapturesWithFilters(filters, currentUserID)
+	if err != nil {
+		http.Error(w, "failed to count public captures", http.StatusInternalServerError)
+		return
+	}
+
 	if captures == nil {
 		captures = []*models.Capture{}
 	} else {
 		attachPublicURLs(captures, s.Media)
 	}
 
+	page := 1
+	if filters.Limit > 0 {
+		page = (filters.Offset / filters.Limit) + 1
+	}
+	totalPages := 0
+	if total > 0 && filters.Limit > 0 {
+		totalPages = (total + filters.Limit - 1) / filters.Limit
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"ok":       true,
-		"captures": captures,
+		"ok":          true,
+		"captures":    captures,
+		"page":        page,
+		"page_size":   filters.Limit,
+		"total":       total,
+		"total_pages": totalPages,
+		"has_more":    filters.Offset+len(captures) < total,
 	})
 }
 
@@ -638,10 +658,19 @@ func parseCaptureListFilters(r *http.Request) db.CaptureListFilters {
 
 func parsePublicCaptureFilters(r *http.Request) db.PublicCaptureFilters {
 	query := r.URL.Query()
+	limit := parsePositiveInt(query.Get("limit"), 24)
+	if rawPageSize := query.Get("page_size"); rawPageSize != "" {
+		limit = parsePositiveInt(rawPageSize, limit)
+	}
+	offset := parseNonNegativeInt(query.Get("offset"), 0)
+	if rawPage := query.Get("page"); rawPage != "" {
+		page := parsePositiveInt(rawPage, 1)
+		offset = (page - 1) * limit
+	}
 
 	filters := db.PublicCaptureFilters{
-		Limit:        parsePositiveInt(query.Get("limit"), 24),
-		Offset:       parseNonNegativeInt(query.Get("offset"), 0),
+		Limit:        limit,
+		Offset:       offset,
 		SpeciesQuery: query.Get("species"),
 		KrajQuery:    query.Get("kraj"),
 		OkresQuery:   query.Get("okres"),

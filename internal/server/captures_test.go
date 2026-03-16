@@ -107,11 +107,19 @@ func TestCaptureCoordinateUnlockFlow(t *testing.T) {
 	}
 
 	var guestListPayload struct {
-		OK       bool              `json:"ok"`
-		Captures []*models.Capture `json:"captures"`
+		OK         bool              `json:"ok"`
+		Captures   []*models.Capture `json:"captures"`
+		Page       int               `json:"page"`
+		PageSize   int               `json:"page_size"`
+		Total      int               `json:"total"`
+		TotalPages int               `json:"total_pages"`
+		HasMore    bool              `json:"has_more"`
 	}
 	if err := json.NewDecoder(guestListRec.Body).Decode(&guestListPayload); err != nil {
 		t.Fatalf("decode guest public captures: %v", err)
+	}
+	if guestListPayload.Page != 1 || guestListPayload.PageSize != 10 || guestListPayload.Total != 2 || guestListPayload.TotalPages != 1 || guestListPayload.HasMore {
+		t.Fatalf("unexpected guest public capture pagination: %+v", guestListPayload)
 	}
 
 	captureByID := make(map[string]*models.Capture, len(guestListPayload.Captures))
@@ -151,6 +159,32 @@ func TestCaptureCoordinateUnlockFlow(t *testing.T) {
 	}
 	if guestMapPayload.Captures[0].Latitude == nil || guestMapPayload.Captures[0].Longitude == nil || guestMapPayload.Captures[0].CoordinatesLocked {
 		t.Fatalf("expected free guest map capture to expose coordinates, got %+v", guestMapPayload.Captures[0])
+	}
+
+	guestPagedReq := httptest.NewRequest(http.MethodGet, "/api/public/captures?page=2&page_size=1", nil)
+	guestPagedRec := httptest.NewRecorder()
+	srv.Router.ServeHTTP(guestPagedRec, guestPagedReq)
+	if guestPagedRec.Code != http.StatusOK {
+		t.Fatalf("expected status 200 for guest public capture page 2, got %d: %s", guestPagedRec.Code, guestPagedRec.Body.String())
+	}
+
+	var guestPagedPayload struct {
+		OK         bool              `json:"ok"`
+		Captures   []*models.Capture `json:"captures"`
+		Page       int               `json:"page"`
+		PageSize   int               `json:"page_size"`
+		Total      int               `json:"total"`
+		TotalPages int               `json:"total_pages"`
+		HasMore    bool              `json:"has_more"`
+	}
+	if err := json.NewDecoder(guestPagedRec.Body).Decode(&guestPagedPayload); err != nil {
+		t.Fatalf("decode guest paged public captures: %v", err)
+	}
+	if guestPagedPayload.Page != 2 || guestPagedPayload.PageSize != 1 || guestPagedPayload.Total != 2 || guestPagedPayload.TotalPages != 2 || guestPagedPayload.HasMore {
+		t.Fatalf("unexpected guest paged public capture pagination: %+v", guestPagedPayload)
+	}
+	if len(guestPagedPayload.Captures) != 1 {
+		t.Fatalf("expected 1 capture on guest page 2, got %d", len(guestPagedPayload.Captures))
 	}
 
 	guestUnlockReq := httptest.NewRequest(http.MethodPost, "/api/captures/"+paidCapture.ID+"/unlock-coordinates", nil)

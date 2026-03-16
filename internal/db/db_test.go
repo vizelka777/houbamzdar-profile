@@ -1312,6 +1312,16 @@ func TestListPublicCapturesWithFiltersRespectsGeoPrivacyAndSpeciesSearch(t *test
 	if len(speciesMatches) != 2 {
 		t.Fatalf("expected 2 captures for species search, got %d", len(speciesMatches))
 	}
+	speciesTotal, err := database.CountPublicCapturesWithFilters(PublicCaptureFilters{
+		Limit:        1,
+		SpeciesQuery: "hrib",
+	}, 0)
+	if err != nil {
+		t.Fatalf("count captures by species: %v", err)
+	}
+	if speciesTotal != 2 {
+		t.Fatalf("expected species search total 2, got %d", speciesTotal)
+	}
 
 	byID := make(map[string]*models.Capture, len(speciesMatches))
 	for _, capture := range speciesMatches {
@@ -1388,6 +1398,15 @@ func TestListPublicCapturesWithFiltersRespectsGeoPrivacyAndSpeciesSearch(t *test
 	}
 	if len(mapMatches) != 2 {
 		t.Fatalf("expected 2 visible map captures for guest, got %d", len(mapMatches))
+	}
+	mapTotal, err := database.CountPublicMapCapturesWithFilters(PublicCaptureFilters{
+		Limit: 1,
+	}, 0)
+	if err != nil {
+		t.Fatalf("count public map captures: %v", err)
+	}
+	if mapTotal != 2 {
+		t.Fatalf("expected visible map total 2 for guest, got %d", mapTotal)
 	}
 	if mapMatches[0].ID != freePraha.ID || mapMatches[1].ID != freeMoravia.ID {
 		t.Fatalf("unexpected guest map captures ordering: %+v", []string{mapMatches[0].ID, mapMatches[1].ID})

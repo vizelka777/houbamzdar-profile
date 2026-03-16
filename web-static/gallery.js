@@ -2,7 +2,8 @@ const state = {
     captures: [],
     page: 1,
     pageSize: 24,
-    hasMore: true,
+    total: 0,
+    totalPages: 0,
     isLoading: false,
     session: null,
     me: null,
@@ -22,8 +23,17 @@ const state = {
     }
 };
 
+function parsePositivePage(raw, fallback = 1) {
+    const value = Number.parseInt(String(raw || ""), 10);
+    if (!Number.isFinite(value) || value <= 0) {
+        return fallback;
+    }
+    return value;
+}
+
 function readGalleryFiltersFromQuery() {
     const query = new URLSearchParams(window.location.search);
+    state.page = parsePositivePage(query.get("page"), 1);
     state.filters.species = (query.get("species") || "").trim();
     state.filters.kraj = (query.get("kraj") || "").trim();
     state.filters.okres = (query.get("okres") || "").trim();
@@ -48,6 +58,7 @@ function syncGalleryFilterInputs() {
 
 function syncGalleryQueryString() {
     const params = new URLSearchParams();
+    if (state.page > 1) params.set("page", String(state.page));
     if (state.filters.species) params.set("species", state.filters.species);
     if (state.filters.kraj) params.set("kraj", state.filters.kraj);
     if (state.filters.okres) params.set("okres", state.filters.okres);
@@ -73,8 +84,8 @@ function readGalleryFiltersFromForm() {
 
 function buildGalleryQuery() {
     const params = new URLSearchParams();
-    params.set("limit", String(state.pageSize));
-    params.set("offset", String((state.page - 1) * state.pageSize));
+    params.set("page", String(state.page));
+    params.set("page_size", String(state.pageSize));
     if (state.filters.species) params.set("species", state.filters.species);
     if (state.filters.kraj) params.set("kraj", state.filters.kraj);
     if (state.filters.okres) params.set("okres", state.filters.okres);
@@ -96,7 +107,12 @@ function updateGallerySummary() {
         return;
     }
 
-    summary.textContent = `Načteno ${state.captures.length} veřejných fotografií pro aktuální filtr.`;
+    if (state.totalPages > 1) {
+        summary.textContent = `Nalezeno ${state.total} veřejných fotografií. Zobrazuji stranu ${state.page} z ${state.totalPages}.`;
+        return;
+    }
+
+    summary.textContent = `Nalezeno ${state.total} veřejných fotografií pro aktuální filtr.`;
 }
 
 function canModeratorRecheck() {
@@ -261,8 +277,7 @@ function renderGallery(container) {
         const accessBadge = buildCaptureAccessBadgeHtml(capture);
         const authorURL = buildPublicProfileURL(capture.author_user_id);
         const species = buildCaptureSpeciesLabel(capture);
-        const region = buildCaptureRegionLabel(capture);
-        const regionNote = buildCaptureRegionSearchNote(capture);
+        const region = buildCaptureKrajLabel(capture);
         const moderatorAction = canModeratorRecheck()
             ? `
                 <div class="gallery-item-actions">
@@ -287,8 +302,7 @@ function renderGallery(container) {
                 </div>
                 <div class="gallery-item-copy">
                     ${species ? `<strong class="gallery-item-species">${escapeHtml(species)}</strong>` : ""}
-                    ${region ? `<p>${escapeHtml(region)}</p>` : ""}
-                    ${regionNote ? `<p>${escapeHtml(regionNote)}</p>` : ""}
+                    ${region ? `<p>Kraj: ${escapeHtml(region)}</p>` : ""}
                     ${moderatorAction}
                 </div>
             </div>
@@ -317,9 +331,93 @@ function renderGallery(container) {
     });
 }
 
+// For now the gallery uses numbered pagination instead of incremental "load more".
+// If browsing feedback is worse, this is the seam to revert back.
+function buildGalleryPaginationItems(currentPage, totalPages) {
+    if (totalPages <= 7) {
+        return Array.from({ length: totalPages }, (_, idx) => idx + 1);
+    }
+
+    const candidates = new Set([
+        1,
+        totalPages,
+        currentPage - 1,
+        currentPage,
+        currentPage + 1
+    ]);
+    if (currentPage <= 3) {
+        candidates.add(2);
+        candidates.add(3);
+    }
+    if (currentPage >= totalPages - 2) {
+        candidates.add(totalPages - 1);
+        candidates.add(totalPages - 2);
+    }
+
+    const pages = Array.from(candidates)
+        .filter((value) => value >= 1 && value <= totalPages)
+        .sort((left, right) => left - right);
+
+    const items = [];
+    let previous = 0;
+    pages.forEach((pageNumber) => {
+        if (previous && pageNumber - previous > 1) {
+            items.push("gap");
+        }
+        items.push(pageNumber);
+        previous = pageNumber;
+    });
+    return items;
+}
+
+function renderGalleryPagination() {
+    const pagination = document.getElementById("gallery-pagination");
+    if (!pagination) {
+        return;
+    }
+
+    if (state.totalPages <= 1) {
+        pagination.hidden = true;
+        pagination.innerHTML = "";
+        return;
+    }
+
+    const items = buildGalleryPaginationItems(state.page, state.totalPages);
+    pagination.hidden = false;
+    pagination.innerHTML = [
+        `<button type="button" class="btn btn-secondary" data-page="${state.page - 1}" ${state.page <= 1 ? "disabled" : ""}>Předchozí</button>`,
+        ...items.map((item) => {
+            if (item === "gap") {
+                return '<span class="gallery-pagination-gap" aria-hidden="true">…</span>';
+            }
+            const active = item === state.page;
+            return `
+                <button
+                    type="button"
+                    class="btn ${active ? "btn-primary" : "btn-secondary"}"
+                    data-page="${item}"
+                    ${active ? "aria-current=\"page\" disabled" : ""}
+                >${item}</button>
+            `;
+        }),
+        `<button type="button" class="btn btn-secondary" data-page="${state.page + 1}" ${state.page >= state.totalPages ? "disabled" : ""}>Další</button>`
+    ].join("");
+
+    pagination.querySelectorAll("[data-page]").forEach((button) => {
+        button.addEventListener("click", async () => {
+            const nextPage = parsePositivePage(button.dataset.page, state.page);
+            if (nextPage === state.page || nextPage < 1 || nextPage > state.totalPages || state.isLoading) {
+                return;
+            }
+            state.page = nextPage;
+            syncGalleryQueryString();
+            await loadGallery();
+        });
+    });
+}
+
 async function loadGallery({ reset = false } = {}) {
     const container = document.getElementById("gallery-container");
-    const loadMoreBtn = document.getElementById("load-more-gallery-btn");
     if (!container || state.isLoading) {
         return;
     }
@@ -327,7 +425,8 @@ async function loadGallery({ reset = false } = {}) {
     state.isLoading = true;
     if (reset) {
         state.page = 1;
-        state.hasMore = true;
+        state.total = 0;
+        state.totalPages = 0;
         state.captures = [];
         container.innerHTML = '<p class="muted-copy" style="grid-column: 1 / -1; text-align: center;">Načítám fotografie...</p>';
         updateGallerySummary();
@@ -339,21 +438,25 @@ async function loadGallery({ reset = false } = {}) {
             throw new Error("Nepodařilo se načíst galerii.");
         }
 
-        const newCaptures = Array.isArray(res.captures) ? res.captures : [];
-        state.hasMore = newCaptures.length === state.pageSize;
-        state.captures = reset ? newCaptures : state.captures.concat(newCaptures);
+        state.total = Number.isFinite(Number(res.total)) ? Number(res.total) : 0;
+        state.totalPages = Number.isFinite(Number(res.total_pages)) ? Number(res.total_pages) : 0;
+        if (state.totalPages > 0 && state.page > state.totalPages) {
+            state.page = state.totalPages;
+            syncGalleryQueryString();
+            state.isLoading = false;
+            await loadGallery();
+            return;
+        }
+
+        state.captures = Array.isArray(res.captures) ? res.captures : [];
 
         renderGallery(container);
-
-        if (loadMoreBtn) {
-            loadMoreBtn.style.display = state.hasMore ? "inline-block" : "none";
-            loadMoreBtn.disabled = false;
-        }
+        renderGalleryPagination();
     } catch (error) {
         console.error("Failed to load gallery", error);
-        if (loadMoreBtn) {
-            loadMoreBtn.disabled = false;
-        }
+        state.total = 0;
+        state.totalPages = 0;
+        renderGalleryPagination();
         container.innerHTML = `<p class="muted-copy" style="grid-column: 1 / -1; text-align: center;">${escapeHtml(error.message || "Chyba při načítání galerie.")}</p>`;
     } finally {
         state.isLoading = false;
@@ -369,9 +472,10 @@ async function resetGalleryFilters() {
         obec: "",
         sort: "published_desc"
     };
+    state.page = 1;
     syncGalleryFilterInputs();
     syncGalleryQueryString();
-    await loadGallery({ reset: true });
+    await loadGallery();
 }
 
 async function initGalleryPage() {
@@ -389,23 +493,12 @@ async function initGalleryPage() {
     syncGalleryFilterInputs();
     syncModeratorModelPanel();
 
-    const loadMoreBtn = document.getElementById("load-more-gallery-btn");
-    if (loadMoreBtn) {
-        loadMoreBtn.addEventListener("click", async () => {
-            if (!state.hasMore || state.isLoading) {
-                return;
-            }
-            loadMoreBtn.disabled = true;
-            state.page += 1;
-            await loadGallery();
-        });
-    }
-
     const filterForm = document.getElementById("gallery-filter-form");
     if (filterForm) {
         filterForm.addEventListener("submit", async (event) => {
             event.preventDefault();
             readGalleryFiltersFromForm();
+            state.page = 1;
             syncGalleryQueryString();
             await loadGallery({ reset: true });
         });

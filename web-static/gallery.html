@@ -63,6 +63,66 @@
             height: 100%;
             object-fit: cover;
         }
+        .gallery-overview {
+            margin-bottom: 1.75rem;
+            padding: 0;
+            overflow: hidden;
+        }
+        .gallery-overview-summary {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 1rem;
+            padding: 1.35rem 1.4rem;
+            cursor: pointer;
+            list-style: none;
+        }
+        .gallery-overview-summary::-webkit-details-marker {
+            display: none;
+        }
+        .gallery-overview-summary::after {
+            content: "▾";
+            font-size: 1.1rem;
+            color: var(--muted);
+            transition: transform 0.2s ease;
+            transform: rotate(-90deg);
+            margin-top: 0.2rem;
+        }
+        .gallery-overview[open] .gallery-overview-summary::after {
+            transform: rotate(0deg);
+        }
+        .gallery-overview-summary h1 {
+            margin-bottom: 0.3rem;
+        }
+        .gallery-overview-subtitle,
+        .gallery-overview-trigger {
+            margin: 0;
+            color: var(--muted);
+        }
+        .gallery-overview-trigger {
+            font-size: 0.92rem;
+            font-weight: 600;
+            white-space: nowrap;
+            padding-top: 0.3rem;
+        }
+        .gallery-overview-body {
+            padding: 0 1.4rem 1.4rem;
+            border-top: 1px solid var(--border-color);
+        }
+        .gallery-pagination {
+            justify-content: center;
+            gap: 0.55rem;
+            margin: 2rem 0;
+        }
+        .gallery-pagination .btn {
+            min-width: 2.9rem;
+            justify-content: center;
+        }
+        .gallery-pagination-gap {
+            color: var(--muted);
+            font-weight: 700;
+            user-select: none;
+        }
 
         /* Lightbox modal */
         .lightbox { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.9); align-items: center; justify-content: center; flex-direction: column;}
@@ -89,67 +149,73 @@
     </header>
 
     <main class="content-main content-main-narrow">
-        <section class="page-intro card" style="margin-bottom: 2rem;">
-            <p class="section-label">Galerie</p>
-            <h1>Všechny sdílené úlovky</h1>
-            <p>
-                Prohlédněte si všechny fotografie, které naši houbaři přidali na veřejnou zeď. Veřejné hledání podle `okresu` a `obce`
-                funguje jen u snímků, kde autor zpřístupnil souřadnice zdarma.
-            </p>
-            <form id="gallery-filter-form" class="public-capture-filter-form">
-                <div class="public-capture-filter-grid">
-                    <label class="public-capture-filter-field">
-                        <span>Druh houby</span>
-                        <input id="gallery-filter-species" type="search" placeholder="např. hřib smrkový nebo boletus">
-                    </label>
-                    <label class="public-capture-filter-field">
-                        <span>Kraj</span>
-                        <input id="gallery-filter-kraj" type="search" placeholder="např. Vysočina">
-                    </label>
-                    <label class="public-capture-filter-field">
-                        <span>Okres</span>
-                        <input id="gallery-filter-okres" type="search" placeholder="jen pro sdílené souřadnice">
-                    </label>
-                    <label class="public-capture-filter-field">
-                        <span>Obec</span>
-                        <input id="gallery-filter-obec" type="search" placeholder="jen pro sdílené souřadnice">
-                    </label>
-                    <label class="public-capture-filter-field">
-                        <span>Řazení</span>
-                        <select id="gallery-filter-sort">
-                            <option value="published_desc">Nejnovější zveřejnění</option>
-                            <option value="captured_desc">Nejnovější nález</option>
-                            <option value="probability_desc">Nejvyšší pravděpodobnost</option>
-                            <option value="kraj_asc">Kraje A-Z</option>
-                            <option value="okres_asc">Okresy A-Z</option>
-                            <option value="obec_asc">Obce A-Z</option>
-                        </select>
-                    </label>
+        <details id="gallery-overview" class="gallery-overview card">
+            <summary class="gallery-overview-summary">
+                <div>
+                    <p class="section-label">Galerie</p>
+                    <h1>Všechny sdílené úlovky</h1>
+                    <p class="gallery-overview-subtitle">Filtry, řazení a moderátorské nástroje jsou schované tady.</p>
                 </div>
-                <div class="action-row">
-                    <button type="submit" class="btn btn-primary">Použít filtry</button>
-                    <button id="gallery-filter-reset" type="button" class="btn btn-secondary">Vymazat</button>
-                </div>
-            </form>
-            <div id="gallery-moderator-panel" class="moderator-panel" hidden>
-                <label class="public-capture-filter-field moderator-panel-field">
-                    <span>Moderátorský AI model</span>
-                    <select id="gallery-moderator-model"></select>
-                </label>
-                <p id="gallery-moderator-note" class="muted-copy">
-                    Vybraný model se použije pro tlačítko AI recheck u zveřejněných fotografií.
+                <p class="gallery-overview-trigger">Otevřít panel</p>
+            </summary>
+            <div class="gallery-overview-body">
+                <p>
+                    Prohlédněte si všechny fotografie, které naši houbaři přidali na veřejnou zeď. Veřejné hledání podle okresu a obce
+                    funguje jen u snímků, kde autor zpřístupnil souřadnice zdarma.
                 </p>
+                <form id="gallery-filter-form" class="public-capture-filter-form">
+                    <div class="public-capture-filter-grid">
+                        <label class="public-capture-filter-field">
+                            <span>Druh houby</span>
+                            <input id="gallery-filter-species" type="search" placeholder="např. hřib smrkový nebo boletus">
+                        </label>
+                        <label class="public-capture-filter-field">
+                            <span>Kraj</span>
+                            <input id="gallery-filter-kraj" type="search" placeholder="např. Vysočina">
+                        </label>
+                        <label class="public-capture-filter-field">
+                            <span>Okres</span>
+                            <input id="gallery-filter-okres" type="search" placeholder="jen pro sdílené souřadnice">
+                        </label>
+                        <label class="public-capture-filter-field">
+                            <span>Obec</span>
+                            <input id="gallery-filter-obec" type="search" placeholder="jen pro sdílené souřadnice">
+                        </label>
+                        <label class="public-capture-filter-field">
+                            <span>Řazení</span>
+                            <select id="gallery-filter-sort">
+                                <option value="published_desc">Nejnovější zveřejnění</option>
+                                <option value="captured_desc">Nejnovější nález</option>
+                                <option value="probability_desc">Nejvyšší pravděpodobnost</option>
+                                <option value="kraj_asc">Kraje A-Z</option>
+                                <option value="okres_asc">Okresy A-Z</option>
+                                <option value="obec_asc">Obce A-Z</option>
+                            </select>
+                        </label>
+                    </div>
+                    <div class="action-row">
+                        <button type="submit" class="btn btn-primary">Použít filtry</button>
+                        <button id="gallery-filter-reset" type="button" class="btn btn-secondary">Vymazat</button>
+                    </div>
+                </form>
+                <div id="gallery-moderator-panel" class="moderator-panel" hidden>
+                    <label class="public-capture-filter-field moderator-panel-field">
+                        <span>Moderátorský AI model</span>
+                        <select id="gallery-moderator-model"></select>
+                    </label>
+                    <p id="gallery-moderator-note" class="muted-copy">
+                        Vybraný model se použije pro tlačítko AI recheck u zveřejněných fotografií.
+                    </p>
+                </div>
+                <p id="gallery-summary" class="muted-copy">Načítám fotografie...</p>
             </div>
-            <p id="gallery-summary" class="muted-copy">Načítám fotografie...</p>
-        </section>
+        </details>
 
         <div id="gallery-container" class="gallery-grid">
             <p class="muted-copy" style="grid-column: 1 / -1; text-align: center;">Načítám fotografie...</p>
         </div>
 
-        <div style="text-align: center; margin-top: 2rem; margin-bottom: 2rem;">
-            <button id="load-more-gallery-btn" class="btn btn-secondary" style="display: none;">Načíst další fotky</button>
-        </div>
+        <nav id="gallery-pagination" class="server-pagination gallery-pagination" aria-label="Stránkování galerie" hidden></nav>
     </main>
 
     <!-- Lightbox pro galerii -->
