@@ -62,6 +62,10 @@ func (b *BunnyStorage) Enabled() bool {
 	return b != nil
 }
 
+func (b *BunnyStorage) CanReadPrivate() bool {
+	return b != nil && b.httpClient != nil && b.host != "" && b.privateZone != "" && b.privateKey != ""
+}
+
 func NormalizeImage(raw []byte, contentType string) (*NormalizedAsset, error) {
 	if len(raw) == 0 {
 		return nil, fmt.Errorf("empty image payload")

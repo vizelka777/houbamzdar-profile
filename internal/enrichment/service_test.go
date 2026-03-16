@@ -2,10 +2,14 @@ package enrichment
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
+	"github.com/houbamzdar/bff/internal/config"
 	"github.com/houbamzdar/bff/internal/models"
 )
 
@@ -141,5 +145,65 @@ func TestNominatimResolverCacheExpiry(t *testing.T) {
 	}
 	if len(resolver.cache) != 0 {
 		t.Fatalf("expected stale cache entry to be evicted")
+	}
+}
+
+func TestAIValidatorClientAnalyzeCaptureWithInlineImage(t *testing.T) {
+	t.Parallel()
+
+	var got aiValidatorRequest
+	validator := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("expected POST, got %s", r.Method)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatalf("decode validator request: %v", err)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"ok":            true,
+			"has_mushrooms": true,
+			"model_code":    "gemini-2.5-flash",
+			"species": []map[string]interface{}{
+				{
+					"latin_name":          "Boletus edulis",
+					"czech_official_name": "hřib smrkový",
+					"probability":         0.94,
+				},
+			},
+		})
+	}))
+	defer validator.Close()
+
+	client := NewAIValidatorClient(&config.Config{
+		CaptureAIValidatorURL: validator.URL,
+	})
+	capture := &models.Capture{
+		ID:                "capture-inline",
+		PrivateStorageKey: "captures/private/capture-inline.jpg",
+	}
+
+	analysis, species, err := client.AnalyzeCaptureWithModeAndImage(context.Background(), capture, AIReviewModePublishValidation, "", &AIValidatorInlineImage{
+		Data:     "ZmFrZS1pbWFnZS1ieXRlcw==",
+		MimeType: "image/jpeg",
+	})
+	if err != nil {
+		t.Fatalf("analyze capture: %v", err)
+	}
+	if analysis == nil || !analysis.HasMushrooms {
+		t.Fatalf("expected mushroom analysis, got %+v", analysis)
+	}
+	if len(species) != 1 {
+		t.Fatalf("expected 1 species, got %d", len(species))
+	}
+	if got.CaptureID != capture.ID {
+		t.Fatalf("expected capture id %q, got %q", capture.ID, got.CaptureID)
+	}
+	if got.PrivateStorageKey != capture.PrivateStorageKey {
+		t.Fatalf("expected private storage key %q, got %q", capture.PrivateStorageKey, got.PrivateStorageKey)
+	}
+	if got.InlineImageData == "" || got.InlineImageMime != "image/jpeg" {
+		t.Fatalf("expected inline image payload, got %+v", got)
 	}
 }

@@ -319,9 +319,50 @@ function buildPublicProfileURL(userID) {
     return `/public-profile.html?user=${encodeURIComponent(userID)}`;
 }
 
-function buildCaptureImageURL(capture) {
+const CAPTURE_IMAGE_VARIANTS = {
+    original: null,
+    thumb: {
+        width: "384",
+        quality: "68"
+    },
+    popup: {
+        width: "640",
+        quality: "72"
+    }
+};
+
+function isOptimizerEligibleCaptureURL(url) {
+    const hostname = String(url?.hostname || "").toLowerCase();
+    return hostname === "foto.houbamzdar.cz" || hostname.endsWith(".b-cdn.net");
+}
+
+function applyCaptureImageVariant(urlString, variant = "original") {
+    const preset = CAPTURE_IMAGE_VARIANTS[variant] || CAPTURE_IMAGE_VARIANTS.original;
+    if (!preset) {
+        return urlString;
+    }
+
+    try {
+        const url = new URL(urlString, window.location.origin);
+        if (!isOptimizerEligibleCaptureURL(url)) {
+            return urlString;
+        }
+
+        Object.entries(preset).forEach(([key, value]) => {
+            url.searchParams.set(key, value);
+        });
+        return url.toString();
+    } catch (error) {
+        console.warn("Failed to build capture image variant", error);
+        return urlString;
+    }
+}
+
+function buildCaptureImageURL(capture, variant = "original") {
     if (!capture) return "";
-    if (capture.public_url) return capture.public_url;
+    if (capture.public_url) {
+        return applyCaptureImageVariant(capture.public_url, variant);
+    }
     return `${API_URL}/api/captures/${encodeURIComponent(capture.id)}/preview`;
 }
 
@@ -679,7 +720,7 @@ function renderViewedCaptures(captures) {
     }
 
     container.innerHTML = items.map((capture) => {
-        const imageUrl = buildCaptureImageURL(capture);
+        const imageUrl = buildCaptureImageURL(capture, "thumb");
         const badge = buildCaptureAccessBadgeHtml(capture);
         const imageHtml = capture.public_url
             ? `<img src="${escapeHtml(imageUrl)}" alt="Odemčená fotografie" class="viewed-capture-thumb" loading="lazy">`
@@ -878,7 +919,7 @@ function buildPublicTrustProfile(profile) {
 }
 
 function buildCapturePopupPreviewHtml(capture, altText) {
-    const imageUrl = capture?.public_url ? buildCaptureImageURL(capture) : "";
+    const imageUrl = capture?.public_url ? buildCaptureImageURL(capture, "popup") : "";
     if (!imageUrl) {
         return '<div class="map-popup-placeholder">Bez veřejného náhledu</div>';
     }
@@ -888,7 +929,7 @@ function buildCapturePopupPreviewHtml(capture, altText) {
 
 function buildPublicProfileMapPopupHtml(capture) {
     const authorName = capture.author_name || publicProfileState.user?.preferred_username || "Neznámý houbař";
-    const imageUrl = capture.public_url ? buildCaptureImageURL(capture) : "";
+    const imageUrl = capture.public_url ? buildCaptureImageURL(capture, "original") : "";
     const previewHtml = imageUrl
         ? `<a href="${escapeHtml(imageUrl)}" target="_blank" rel="noreferrer">${buildCapturePopupPreviewHtml(capture, authorName)}</a>`
         : buildCapturePopupPreviewHtml(capture, authorName);
@@ -1201,7 +1242,7 @@ async function unlockCurrentLightboxCapture() {
 
         const updatedCapture = payload.capture;
         window.lightboxCaptureData[window.currentLightboxIndex] = updatedCapture;
-        window.lightboxImages[window.currentLightboxIndex] = buildCaptureImageURL(updatedCapture);
+        window.lightboxImages[window.currentLightboxIndex] = buildCaptureImageURL(updatedCapture, "original");
         window.lightboxMapData[window.currentLightboxIndex] = buildCaptureMapData(updatedCapture);
 
         if (window.appMe && typeof payload.balance === "number") {

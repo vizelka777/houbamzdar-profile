@@ -304,7 +304,7 @@ function attachCommentSectionHandlers(card, post, postsStore = state.posts) {
 function buildInlineMapPopupHtml(capture, post) {
     const authorName = post.author_name || "Neznámý houbař";
     const previewHtml = capture.public_url
-        ? `<img src="${escapeHtml(buildCaptureImageURL(capture))}" alt="${escapeHtml(authorName)}" loading="lazy">`
+        ? `<img src="${escapeHtml(buildCaptureImageURL(capture, "popup"))}" alt="${escapeHtml(authorName)}" loading="lazy">`
         : '<div class="map-popup-placeholder">Bez veřejného náhledu</div>';
 
     return `
@@ -325,7 +325,7 @@ function openPostCaptureLightbox(post, captureID) {
         return;
     }
 
-    window.lightboxImages = post.captures.map((capture) => buildCaptureImageURL(capture));
+    window.lightboxImages = post.captures.map((capture) => buildCaptureImageURL(capture, "original"));
     window.lightboxCaptureData = post.captures;
     window.lightboxMapData = post.captures.map((capture) => buildCaptureMapData(capture));
     window.currentLightboxIndex = startIndex;
@@ -475,7 +475,7 @@ function renderPosts(postsToRender, container, options = {}) {
         if (post.captures && post.captures.length > 0) {
             capturesHtml = '<div class="feed-gallery">';
             post.captures.forEach((capture, idx) => {
-                const url = escapeHtml(buildCaptureImageURL(capture));
+                const url = escapeHtml(buildCaptureImageURL(capture, "thumb"));
                 const accessBadge = buildCaptureAccessBadgeHtml(capture);
                 capturesHtml += `
                     <div class="feed-photo-frame">
@@ -578,7 +578,7 @@ function renderPosts(postsToRender, container, options = {}) {
 
         card.querySelectorAll(".feed-photo").forEach((photo) => {
             photo.addEventListener("click", (event) => {
-                window.lightboxImages = post.captures.map((capture) => buildCaptureImageURL(capture));
+                window.lightboxImages = post.captures.map((capture) => buildCaptureImageURL(capture, "original"));
                 window.lightboxCaptureData = post.captures;
                 window.lightboxMapData = post.captures.map((capture) => buildCaptureMapData(capture));
                 window.currentLightboxIndex = parseInt(event.target.dataset.idx, 10);

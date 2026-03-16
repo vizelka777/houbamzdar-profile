@@ -76,18 +76,18 @@ function currentProfileMapItems() {
     return currentProfileDataset().items.filter((capture) => captureHasCoordinates(capture));
 }
 
-function profileCaptureImageURL(capture) {
+function profileCaptureImageURL(capture, variant = "original") {
     if (!capture) {
         return "";
     }
 
     if (capture.public_url) {
-        return buildCaptureImageURL(capture);
+        return buildCaptureImageURL(capture, variant);
     }
 
     const me = window.appMe || null;
     if (me && Number(me.id) === Number(capture.user_id || capture.author_user_id)) {
-        return buildCaptureImageURL(capture);
+        return buildCaptureImageURL(capture, variant);
     }
 
     return "";
@@ -100,7 +100,7 @@ function openProfileMapLightbox(captureID) {
         return;
     }
 
-    window.lightboxImages = capturesToOpen.map((capture) => profileCaptureImageURL(capture));
+    window.lightboxImages = capturesToOpen.map((capture) => profileCaptureImageURL(capture, "original"));
     window.lightboxCaptureData = capturesToOpen;
     window.lightboxMapData = capturesToOpen.map((capture) => buildCaptureMapData(capture));
     window.currentLightboxIndex = startIndex;
@@ -111,7 +111,7 @@ function openProfileMapLightbox(captureID) {
 }
 
 function buildProfilePopupHtml(capture) {
-    const imageURL = profileCaptureImageURL(capture);
+    const imageURL = profileCaptureImageURL(capture, "popup");
     const previewHtml = imageURL
         ? `<img src="${escapeHtml(imageURL)}" alt="${escapeHtml(capture.author_name || "Fotografie")}" loading="lazy">`
         : '<div class="map-popup-placeholder">Bez náhledu</div>';

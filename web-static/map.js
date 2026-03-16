@@ -110,7 +110,7 @@ function buildGlobalMapPopupHtml(capture) {
     const authorUrl = escapeHtml(buildPublicProfileURL(capture.author_user_id));
     const date = escapeHtml(formatDateTime(capture.captured_at));
     const imageHtml = capture.public_url
-        ? `<a href="${escapeHtml(buildCaptureImageURL(capture))}" target="_blank" rel="noreferrer"><img src="${escapeHtml(buildCaptureImageURL(capture))}" alt="${author}" loading="lazy"></a>`
+        ? `<a href="${escapeHtml(buildCaptureImageURL(capture, "original"))}" target="_blank" rel="noreferrer"><img src="${escapeHtml(buildCaptureImageURL(capture, "popup"))}" alt="${author}" loading="lazy"></a>`
         : '<div class="map-popup-placeholder">Bez veřejného náhledu</div>';
     const species = buildCaptureSpeciesLabel(capture);
     const region = buildCaptureRegionLabel(capture);
@@ -188,7 +188,8 @@ function renderGlobalMapMarkers() {
 function buildGlobalMapResultCard(capture) {
     const authorName = escapeHtml(capture.author_name || "Neznámý houbař");
     const authorURL = escapeHtml(buildPublicProfileURL(capture.author_user_id));
-    const previewURL = escapeHtml(buildCaptureImageURL(capture));
+    const previewURL = escapeHtml(buildCaptureImageURL(capture, "thumb"));
+    const fullURL = escapeHtml(buildCaptureImageURL(capture, "original"));
     const date = escapeHtml(formatDateTime(capture.captured_at));
     const species = buildCaptureSpeciesLabel(capture);
     const region = buildCaptureRegionLabel(capture);
@@ -199,7 +200,7 @@ function buildGlobalMapResultCard(capture) {
 
     return `
         <article class="public-capture-result-card">
-            <a href="${previewURL}" target="_blank" rel="noreferrer" class="public-capture-result-thumb-link">
+            <a href="${fullURL}" target="_blank" rel="noreferrer" class="public-capture-result-thumb-link">
                 <img src="${previewURL}" alt="${authorName}" class="public-capture-result-thumb" loading="lazy">
                 ${buildCaptureAccessBadgeHtml(capture)}
             </a>

@@ -250,12 +250,12 @@ function renderGallery(container) {
         return;
     }
 
-    window.lightboxImages = state.captures.map((capture) => buildCaptureImageURL(capture));
+    window.lightboxImages = state.captures.map((capture) => buildCaptureImageURL(capture, "original"));
     window.lightboxCaptureData = state.captures;
     window.lightboxMapData = state.captures.map((capture) => buildCaptureMapData(capture));
 
     container.innerHTML = state.captures.map((capture, idx) => {
-        const url = escapeHtml(buildCaptureImageURL(capture));
+        const url = escapeHtml(buildCaptureImageURL(capture, "thumb"));
         const avatarUrl = capture.author_avatar || "/default-avatar.png";
         const authorName = capture.author_name || "Neznámý houbař";
         const accessBadge = buildCaptureAccessBadgeHtml(capture);

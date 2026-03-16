@@ -215,15 +215,19 @@ function buildPrompt(reviewMode) {
 	].join(" ");
 }
 
-async function analyzeCapture(privateStorageKey, reviewMode = REVIEW_MODE_PUBLISH_VALIDATION, requestedModel = "") {
+async function analyzeCapture({ privateStorageKey = "", inlineImageData = "", inlineImageMimeType = "", reviewMode = REVIEW_MODE_PUBLISH_VALIDATION, requestedModel = "" } = {}) {
 	if (!GEMINI_API_KEY) {
 		throw new Error("Missing GEMINI_API_KEY");
 	}
 
-	const imageResponse = await readPrivateCapture(privateStorageKey);
-	const imageBuffer = await imageResponse.arrayBuffer();
-	const mimeType = imageResponse.headers.get("content-type") || "image/jpeg";
-	const inlineImage = arrayBufferToBase64(imageBuffer);
+	let mimeType = String(inlineImageMimeType || "").trim() || "image/jpeg";
+	let inlineImage = String(inlineImageData || "").trim();
+	if (!inlineImage) {
+		const imageResponse = await readPrivateCapture(privateStorageKey);
+		const imageBuffer = await imageResponse.arrayBuffer();
+		mimeType = imageResponse.headers.get("content-type") || "image/jpeg";
+		inlineImage = arrayBufferToBase64(imageBuffer);
+	}
 	const prompt = buildPrompt(reviewMode);
 	const modelCode = await pickGeminiModel(reviewMode, requestedModel);
 
@@ -310,14 +314,22 @@ BunnySDK.net.http.serve(async (request) => {
 		const body = await request.json();
 		const captureID = String(body?.capture_id || "").trim();
 		const privateStorageKey = String(body?.private_storage_key || "").trim();
+		const inlineImageData = String(body?.inline_image_data || "").trim();
+		const inlineImageMimeType = String(body?.inline_image_mime_type || "").trim();
 		const reviewMode = String(body?.review_mode || REVIEW_MODE_PUBLISH_VALIDATION).trim() || REVIEW_MODE_PUBLISH_VALIDATION;
         const requestedModel = String(body?.model_code || "").trim();
 
-		if (!captureID || !privateStorageKey) {
-			return json({ error: "Missing capture_id or private_storage_key" }, 400);
+		if (!captureID || (!privateStorageKey && !inlineImageData)) {
+			return json({ error: "Missing capture_id or image payload" }, 400);
 		}
 
-		const result = await analyzeCapture(privateStorageKey, reviewMode, requestedModel);
+		const result = await analyzeCapture({
+			privateStorageKey,
+			inlineImageData,
+			inlineImageMimeType,
+			reviewMode,
+			requestedModel
+		});
 		return json(result);
 	} catch (error) {
         return json({ error: error instanceof Error ? error.message : "validator failed" }, 500);
