@@ -30,6 +30,10 @@ function commentIsMine(comment) {
     return Boolean(me && comment && Number(comment.author_user_id) === Number(me.id));
 }
 
+function commentCanBeModerated() {
+    return userCanModerateClient(activeUser());
+}
+
 function buildAuthorLinkHTML(userID, avatarURL, authorName, avatarClass, nameClass) {
     const safeAvatar = escapeHtml(avatarURL || DEFAULT_AVATAR_URL);
     const safeName = escapeHtml(authorName || "Registrovaný houbař");
@@ -44,14 +48,28 @@ function buildAuthorLinkHTML(userID, avatarURL, authorName, avatarClass, nameCla
 }
 
 function buildCommentActionsHtml(comment) {
-    if (!commentIsMine(comment)) {
+    const actions = [];
+
+    if (commentIsMine(comment)) {
+        actions.push(`
+            <button type="button" class="btn btn-secondary comment-action-btn comment-edit-btn" data-comment-id="${escapeHtml(comment.id)}">Upravit</button>
+            <button type="button" class="btn btn-secondary comment-action-btn comment-delete-btn" data-comment-id="${escapeHtml(comment.id)}">Smazat</button>
+        `);
+    }
+
+    if (commentCanBeModerated()) {
+        actions.push(`
+            <button type="button" class="btn btn-secondary comment-action-btn comment-hide-btn" data-comment-id="${escapeHtml(comment.id)}">Skrýt</button>
+        `);
+    }
+
+    if (!actions.length) {
         return "";
     }
 
     return `
         <div class="comment-actions">
-            <button type="button" class="btn btn-secondary comment-action-btn comment-edit-btn" data-comment-id="${escapeHtml(comment.id)}">Upravit</button>
-            <button type="button" class="btn btn-secondary comment-action-btn comment-delete-btn" data-comment-id="${escapeHtml(comment.id)}">Smazat</button>
+            ${actions.join("")}
         </div>
     `;
 }
@@ -295,10 +313,50 @@ function attachCommentDeleteHandlers(card, post, postsStore) {
     });
 }
 
+function attachCommentModerationHandlers(card, post, postsStore) {
+    card.querySelectorAll(".comment-hide-btn").forEach((button) => {
+        button.addEventListener("click", async () => {
+            const commentID = button.dataset.commentId;
+            if (!commentID) return;
+            if (!window.confirm("Opravdu chcete tento komentář skrýt z veřejné zdi?")) {
+                return;
+            }
+            const note = window.prompt("Poznámka k moderaci (volitelné):", "");
+            if (note === null) {
+                return;
+            }
+
+            button.disabled = true;
+            try {
+                const res = await apiJsonRequest(`/api/moderation/comments/${encodeURIComponent(commentID)}/visibility`, {
+                    method: "POST",
+                    body: {
+                        hidden: true,
+                        reason_code: "manual_moderation",
+                        note
+                    }
+                });
+                if (!res || !res.ok) {
+                    throw new Error("Komentář se nepodařilo skrýt.");
+                }
+
+                const targetPost = findPostById(post.id, postsStore) || post;
+                targetPost.comments = (targetPost.comments || []).filter((comment) => comment.id !== commentID);
+                renderCommentsSection(card, targetPost, postsStore);
+            } catch (error) {
+                console.error("Failed to hide comment", error);
+                button.disabled = false;
+                window.alert(error.message || "Komentář se nepodařilo skrýt.");
+            }
+        });
+    });
+}
+
 function attachCommentSectionHandlers(card, post, postsStore = state.posts) {
     attachCommentCreateHandler(card, post, postsStore);
     attachCommentEditHandlers(card, post, postsStore);
     attachCommentDeleteHandlers(card, post, postsStore);
+    attachCommentModerationHandlers(card, post, postsStore);
 }
 
 function buildInlineMapPopupHtml(capture, post) {
@@ -457,6 +515,55 @@ function attachPostManagementHandlers(card, post, postsStore, options) {
     }
 }
 
+function attachPostModerationHandlers(card, post, postsStore, options) {
+    if (!userCanModerateClient(activeUser())) {
+        return;
+    }
+
+    const hideBtn = card.querySelector(".post-hide-btn");
+    if (!hideBtn) {
+        return;
+    }
+
+    hideBtn.addEventListener("click", async () => {
+        if (!window.confirm("Opravdu chcete tuto publikaci skrýt z veřejné zdi?")) {
+            return;
+        }
+        const note = window.prompt("Poznámka k moderaci (volitelné):", "");
+        if (note === null) {
+            return;
+        }
+
+        hideBtn.disabled = true;
+        try {
+            const res = await apiJsonRequest(`/api/moderation/posts/${encodeURIComponent(post.id)}/visibility`, {
+                method: "POST",
+                body: {
+                    hidden: true,
+                    reason_code: "manual_moderation",
+                    note
+                }
+            });
+            if (!res || !res.ok) {
+                throw new Error("Publikaci se nepodařilo skrýt.");
+            }
+
+            const nextPosts = postsStore.filter((item) => item.id !== post.id);
+            postsStore.length = 0;
+            nextPosts.forEach((item) => postsStore.push(item));
+            card.remove();
+
+            if (typeof options.onPostDeleted === "function") {
+                options.onPostDeleted(post, nextPosts);
+            }
+        } catch (error) {
+            console.error("Failed to hide post", error);
+            hideBtn.disabled = false;
+            window.alert(error.message || "Publikaci se nepodařilo skrýt.");
+        }
+    });
+}
+
 function renderPosts(postsToRender, container, options = {}) {
     const postsStore = options.postsStore || state.posts;
     const isLoggedIn = Boolean(activeSession() && activeSession().logged_in);
@@ -498,11 +605,19 @@ function renderPosts(postsToRender, container, options = {}) {
         const mapDivHtml = hasCoords ? `<div id="${mapId}" class="feed-map-container"></div>` : "";
         const activeClass = post.is_liked_by_me ? "active" : "";
         const canManage = Boolean(options.allowPostManagement && me && Number(me.id) === Number(post.author_user_id));
+        const canModerate = userCanModerateClient(me);
         const managementHtml = canManage
             ? `
                 <div class="post-management-row">
                     <button type="button" class="btn btn-secondary post-edit-btn">Upravit publikaci</button>
                     <button type="button" class="btn btn-secondary post-delete-btn">Smazat publikaci</button>
+                </div>
+            `
+            : "";
+        const moderationHtml = canModerate
+            ? `
+                <div class="post-management-row">
+                    <button type="button" class="btn btn-secondary post-hide-btn">Skrýt publikaci</button>
                 </div>
             `
             : "";
@@ -520,6 +635,7 @@ function renderPosts(postsToRender, container, options = {}) {
             ${capturesHtml}
             ${mapDivHtml}
             ${managementHtml}
+            ${moderationHtml}
             <div class="feed-actions">
                 <button class="like-btn ${activeClass}" data-id="${post.id}">
                     <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round">
@@ -589,6 +705,7 @@ function renderPosts(postsToRender, container, options = {}) {
         });
 
         attachPostManagementHandlers(card, post, postsStore, options);
+        attachPostModerationHandlers(card, post, postsStore, options);
         attachCommentSectionHandlers(card, post, postsStore);
     });
 }

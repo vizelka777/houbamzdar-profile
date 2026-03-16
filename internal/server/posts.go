@@ -34,6 +34,9 @@ var (
 
 func (s *Server) handleCreatePost(w http.ResponseWriter, r *http.Request) {
 	user := r.Context().Value("user").(*models.User)
+	if !s.ensureCanPublish(w, user) {
+		return
+	}
 
 	var req models.CreatePostRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -111,6 +114,9 @@ func (s *Server) handleGetPost(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleUpdatePost(w http.ResponseWriter, r *http.Request) {
 	user := r.Context().Value("user").(*models.User)
+	if !s.ensureCanPublish(w, user) {
+		return
+	}
 	postID := chi.URLParam(r, "postID")
 
 	post, err := s.DB.GetPost(postID, user.ID)
@@ -184,6 +190,9 @@ func (s *Server) handleDeletePost(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleCreatePostComment(w http.ResponseWriter, r *http.Request) {
 	user := r.Context().Value("user").(*models.User)
+	if !s.ensureCanComment(w, user) {
+		return
+	}
 	postID := chi.URLParam(r, "postID")
 
 	var req models.CreateCommentRequest
@@ -242,6 +251,9 @@ func (s *Server) handleCreatePostComment(w http.ResponseWriter, r *http.Request)
 
 func (s *Server) handleUpdatePostComment(w http.ResponseWriter, r *http.Request) {
 	user := r.Context().Value("user").(*models.User)
+	if !s.ensureCanComment(w, user) {
+		return
+	}
 	postID := chi.URLParam(r, "postID")
 	commentID := chi.URLParam(r, "commentID")
 
@@ -354,6 +366,9 @@ func (s *Server) handleListPublicPosts(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleTogglePostLike(w http.ResponseWriter, r *http.Request) {
 	user := r.Context().Value("user").(*models.User)
+	if !s.ensureNotBanned(w, user) {
+		return
+	}
 	postID := chi.URLParam(r, "postID")
 
 	newCount, isLiked, err := s.DB.TogglePostLike(postID, user.ID)

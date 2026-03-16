@@ -167,6 +167,26 @@ async function apiDelete(path) {
     }
 }
 
+async function apiJsonRequest(path, options = {}) {
+    const requestOptions = {
+        method: options.method || "GET",
+        credentials: "include",
+        headers: {}
+    };
+
+    if (options.body !== undefined) {
+        requestOptions.headers["Content-Type"] = "application/json";
+        requestOptions.body = JSON.stringify(options.body);
+    }
+
+    const response = await fetch(`${API_URL}${path}`, requestOptions);
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+        throw new Error(payload?.error || payload?.message || `HTTP error ${response.status}`);
+    }
+    return payload;
+}
+
 function createLinkButton(label, href, className) {
     const link = document.createElement("a");
     link.className = `btn ${className}`;
@@ -489,6 +509,14 @@ function buildCaptureAccessBadgeHtml(capture) {
 function setAppIdentity(session, me) {
     window.appSession = session || null;
     window.appMe = me || null;
+}
+
+function userCanModerateClient(user = window.appMe) {
+    return Boolean(user && (user.is_moderator || user.is_admin));
+}
+
+function userCanAdminClient(user = window.appMe) {
+    return Boolean(user && user.is_admin);
 }
 
 function refreshHoubickaBalanceViews() {
@@ -868,10 +896,227 @@ function renderPublicOwnerPanel(visible) {
     `;
 }
 
+function toDatetimeLocalValue(raw) {
+    if (!raw) {
+        return "";
+    }
+    const parsed = new Date(raw);
+    if (Number.isNaN(parsed.getTime())) {
+        return "";
+    }
+    const local = new Date(parsed.getTime() - (parsed.getTimezoneOffset() * 60_000));
+    return local.toISOString().slice(0, 16);
+}
+
+function fromDatetimeLocalValue(raw) {
+    const value = String(raw || "").trim();
+    if (!value) {
+        return "";
+    }
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+        return "";
+    }
+    return parsed.toISOString();
+}
+
+function renderPublicModeratorPanel(visible, allowRoleEditing) {
+    const slot = document.getElementById("public-moderator-panel-slot");
+    if (!slot) {
+        return;
+    }
+
+    if (!visible) {
+        slot.innerHTML = "";
+        return;
+    }
+
+    slot.innerHTML = `
+        <section id="public-moderator-panel" class="about-shell card moderator-control-panel">
+            <div class="about-head">
+                <div>
+                    <p class="section-label">Moderace uživatele</p>
+                    <h2>Omezení a role</h2>
+                </div>
+                <p class="muted-copy">
+                    Moderace neodemyká skryté souřadnice. Tyto údaje zůstávají dostupné jen přes běžný houbičkový flow.
+                </p>
+            </div>
+
+            <div class="form-grid moderator-control-grid">
+                <label class="field-block">
+                    <span>Ban do</span>
+                    <input id="moderation-banned-until" type="datetime-local">
+                </label>
+                <label class="field-block">
+                    <span>Mute komentářů do</span>
+                    <input id="moderation-comments-muted-until" type="datetime-local">
+                </label>
+                <label class="field-block">
+                    <span>Stop publikace do</span>
+                    <input id="moderation-publishing-suspended-until" type="datetime-local">
+                </label>
+            </div>
+
+            <label class="field-block">
+                <span>Poznámka moderátora</span>
+                <textarea id="moderation-note-input" rows="4" maxlength="2000" placeholder="Interní poznámka k zásahu"></textarea>
+            </label>
+
+            <div class="action-row">
+                <button id="moderation-save-restrictions-btn" type="button" class="btn btn-secondary">Uložit omezení</button>
+                <span id="moderation-status" class="status-message" aria-live="polite"></span>
+            </div>
+
+            <div id="moderation-roles-panel" class="moderation-roles-panel" ${allowRoleEditing ? "" : "hidden"}>
+                <div class="field-row">
+                    <label class="moderation-checkbox">
+                        <input id="moderation-role-is-moderator" type="checkbox">
+                        <span>Moderator</span>
+                    </label>
+                    <label class="moderation-checkbox">
+                        <input id="moderation-role-is-admin" type="checkbox">
+                        <span>Admin</span>
+                    </label>
+                </div>
+                <div class="action-row">
+                    <button id="moderation-save-roles-btn" type="button" class="btn btn-secondary">Uložit role</button>
+                </div>
+            </div>
+        </section>
+    `;
+}
+
+function syncPublicModeratorPanel() {
+    const user = publicProfileState.moderationUser;
+    if (!user) {
+        return;
+    }
+
+    const noteInput = document.getElementById("moderation-note-input");
+    const bannedInput = document.getElementById("moderation-banned-until");
+    const commentsMutedInput = document.getElementById("moderation-comments-muted-until");
+    const publishingSuspendedInput = document.getElementById("moderation-publishing-suspended-until");
+    const moderatorCheckbox = document.getElementById("moderation-role-is-moderator");
+    const adminCheckbox = document.getElementById("moderation-role-is-admin");
+
+    if (noteInput) {
+        noteInput.value = user.moderation_note || "";
+    }
+    if (bannedInput) {
+        bannedInput.value = toDatetimeLocalValue(user.banned_until);
+    }
+    if (commentsMutedInput) {
+        commentsMutedInput.value = toDatetimeLocalValue(user.comments_muted_until);
+    }
+    if (publishingSuspendedInput) {
+        publishingSuspendedInput.value = toDatetimeLocalValue(user.publishing_suspended_until);
+    }
+    if (moderatorCheckbox) {
+        moderatorCheckbox.checked = Boolean(user.is_moderator);
+    }
+    if (adminCheckbox) {
+        adminCheckbox.checked = Boolean(user.is_admin);
+    }
+}
+
+async function loadPublicModerationUser() {
+    if (!userCanModerateClient(window.appMe) || publicProfileState.isOwner || !publicProfileState.requestedUserID) {
+        publicProfileState.moderationUser = null;
+        renderPublicModeratorPanel(false, false);
+        return;
+    }
+
+    renderPublicModeratorPanel(true, userCanAdminClient(window.appMe));
+
+    try {
+        const result = await apiJsonRequest(`/api/moderation/users/${encodeURIComponent(publicProfileState.requestedUserID)}`);
+        if (!result || !result.ok || !result.user) {
+            throw new Error("Nepodařilo se načíst stav moderace uživatele.");
+        }
+        publicProfileState.moderationUser = result.user;
+        syncPublicModeratorPanel();
+        attachPublicModeratorPanelHandlers();
+    } catch (error) {
+        console.error("Failed to load moderation user", error);
+        const status = document.getElementById("moderation-status");
+        setStatusMessage(status, error.message || "Nepodařilo se načíst stav moderace.", "error");
+    }
+}
+
+function attachPublicModeratorPanelHandlers() {
+    const restrictionsBtn = document.getElementById("moderation-save-restrictions-btn");
+    const rolesBtn = document.getElementById("moderation-save-roles-btn");
+    const status = document.getElementById("moderation-status");
+
+    if (restrictionsBtn && !restrictionsBtn.dataset.bound) {
+        restrictionsBtn.dataset.bound = "1";
+        restrictionsBtn.addEventListener("click", async () => {
+            try {
+                restrictionsBtn.disabled = true;
+                setStatusMessage(status, "Ukládám omezení...");
+
+                const payload = await apiJsonRequest(
+                    `/api/moderation/users/${encodeURIComponent(publicProfileState.requestedUserID)}/restrictions`,
+                    {
+                        method: "POST",
+                        body: {
+                            banned_until: fromDatetimeLocalValue(document.getElementById("moderation-banned-until")?.value),
+                            comments_muted_until: fromDatetimeLocalValue(document.getElementById("moderation-comments-muted-until")?.value),
+                            publishing_suspended_until: fromDatetimeLocalValue(document.getElementById("moderation-publishing-suspended-until")?.value),
+                            note: document.getElementById("moderation-note-input")?.value || "",
+                            reason_code: "manual_moderation"
+                        }
+                    }
+                );
+                publicProfileState.moderationUser = payload.user || null;
+                syncPublicModeratorPanel();
+                setStatusMessage(status, "Omezení uložena.", "success");
+            } catch (error) {
+                console.error("Failed to save user restrictions", error);
+                setStatusMessage(status, error.message || "Omezení se nepodařilo uložit.", "error");
+            } finally {
+                restrictionsBtn.disabled = false;
+            }
+        });
+    }
+
+    if (rolesBtn && !rolesBtn.dataset.bound) {
+        rolesBtn.dataset.bound = "1";
+        rolesBtn.addEventListener("click", async () => {
+            try {
+                rolesBtn.disabled = true;
+                setStatusMessage(status, "Ukládám role...");
+                const payload = await apiJsonRequest(
+                    `/api/moderation/users/${encodeURIComponent(publicProfileState.requestedUserID)}/roles`,
+                    {
+                        method: "POST",
+                        body: {
+                            is_moderator: Boolean(document.getElementById("moderation-role-is-moderator")?.checked),
+                            is_admin: Boolean(document.getElementById("moderation-role-is-admin")?.checked),
+                            note: document.getElementById("moderation-note-input")?.value || "",
+                            reason_code: "manual_role_update"
+                        }
+                    }
+                );
+                publicProfileState.moderationUser = payload.user || null;
+                syncPublicModeratorPanel();
+                setStatusMessage(status, "Role uloženy.", "success");
+            } catch (error) {
+                console.error("Failed to save user roles", error);
+                setStatusMessage(status, error.message || "Role se nepodařilo uložit.", "error");
+            } finally {
+                rolesBtn.disabled = false;
+            }
+        });
+    }
+}
+
 const publicProfileState = {
     requestedUserID: 0,
     isOwner: false,
     user: null,
+    moderationUser: null,
     posts: [],
     captures: [],
     postsLimit: 6,
@@ -1109,6 +1354,8 @@ async function initPublicProfilePage() {
 
     publicProfileState.user = null;
     publicProfileState.isOwner = false;
+    publicProfileState.moderationUser = null;
+    renderPublicModeratorPanel(false, false);
     renderPublicOwnerPanel(false);
 
     const params = new URLSearchParams(window.location.search);
@@ -1172,6 +1419,8 @@ async function initPublicProfilePage() {
         loadPublicProfilePosts(false),
         loadPublicProfileCaptures(false)
     ]);
+
+    await loadPublicModerationUser();
 }
 
 // Společná Lightbox logika

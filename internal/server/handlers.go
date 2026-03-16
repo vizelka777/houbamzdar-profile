@@ -209,8 +209,10 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"logged_in": true,
 		"user": map[string]interface{}{
+			"id":                 user.ID,
 			"preferred_username": user.PreferredUsername,
 			"is_moderator":       user.IsModerator,
+			"is_admin":           user.IsAdmin,
 			"picture":            user.Picture,
 		},
 	})

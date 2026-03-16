@@ -1428,3 +1428,195 @@ func TestListPublicCapturesWithFiltersRespectsGeoPrivacyAndSpeciesSearch(t *test
 		t.Fatalf("expected only free moravia capture on guest map species search, got %+v", mapSpeciesMatches)
 	}
 }
+
+func TestModerationHidesPublicContentAndBannedProfiles(t *testing.T) {
+	t.Parallel()
+
+	rawDB := openTestDB(t)
+	if err := migrate(rawDB); err != nil {
+		t.Fatalf("migrate schema: %v", err)
+	}
+
+	database := &DB{rawDB}
+	moderator, _, err := database.UpsertUser(&models.OIDCClaims{
+		Iss:               "https://ahoj420.eu",
+		Sub:               "moderation-root",
+		PreferredUsername: "houbamzdar",
+		Email:             "houbamzdar@example.test",
+		EmailVerified:     true,
+	}, &oauth2.Token{
+		AccessToken:  "moderation-root-access",
+		RefreshToken: "moderation-root-refresh",
+		Expiry:       time.Now().Add(time.Hour).UTC(),
+	})
+	if err != nil {
+		t.Fatalf("create moderator: %v", err)
+	}
+
+	author, _, err := database.UpsertUser(&models.OIDCClaims{
+		Iss:               "https://ahoj420.eu",
+		Sub:               "moderation-author",
+		PreferredUsername: "lesni_autor",
+		Email:             "lesni-autor@example.test",
+		EmailVerified:     true,
+	}, &oauth2.Token{
+		AccessToken:  "moderation-author-access",
+		RefreshToken: "moderation-author-refresh",
+		Expiry:       time.Now().Add(time.Hour).UTC(),
+	})
+	if err != nil {
+		t.Fatalf("create author: %v", err)
+	}
+
+	commenter, _, err := database.UpsertUser(&models.OIDCClaims{
+		Iss:               "https://ahoj420.eu",
+		Sub:               "moderation-commenter",
+		PreferredUsername: "komentator",
+		Email:             "komentator@example.test",
+		EmailVerified:     true,
+	}, &oauth2.Token{
+		AccessToken:  "moderation-commenter-access",
+		RefreshToken: "moderation-commenter-refresh",
+		Expiry:       time.Now().Add(time.Hour).UTC(),
+	})
+	if err != nil {
+		t.Fatalf("create commenter: %v", err)
+	}
+
+	capturedAt := time.Date(2026, time.March, 16, 10, 0, 0, 0, time.UTC)
+	lat := 49.1234
+	lon := 16.5432
+	capture := &models.Capture{
+		ID:                "moderation-capture-001",
+		UserID:            author.ID,
+		OriginalFileName:  "moderation-capture.jpg",
+		ContentType:       "image/jpeg",
+		SizeBytes:         4096,
+		Width:             1600,
+		Height:            1200,
+		CapturedAt:        capturedAt,
+		UploadedAt:        capturedAt,
+		Latitude:          &lat,
+		Longitude:         &lon,
+		Status:            "published",
+		PrivateStorageKey: "captures/private/moderation-capture-001.jpg",
+		PublicStorageKey:  "captures/public/moderation-capture-001.jpg",
+		PublishedAt:       capturedAt.Add(2 * time.Minute),
+	}
+	if err := database.CreateCapture(capture); err != nil {
+		t.Fatalf("create capture: %v", err)
+	}
+
+	post := &models.Post{
+		ID:        "moderation-post-001",
+		UserID:    author.ID,
+		Content:   "Veřejný post před moderací",
+		Status:    "published",
+		CreatedAt: capturedAt.Add(3 * time.Minute),
+		UpdatedAt: capturedAt.Add(3 * time.Minute),
+		Captures:  []*models.Capture{capture},
+	}
+	if err := database.CreatePost(post); err != nil {
+		t.Fatalf("create post: %v", err)
+	}
+
+	comment := &models.Comment{
+		ID:        "moderation-comment-001",
+		PostID:    post.ID,
+		UserID:    commenter.ID,
+		Content:   "Tohle je potřeba zkontrolovat.",
+		CreatedAt: capturedAt.Add(4 * time.Minute),
+		UpdatedAt: capturedAt.Add(4 * time.Minute),
+	}
+	if err := database.CreatePostComment(comment); err != nil {
+		t.Fatalf("create comment: %v", err)
+	}
+
+	publicPosts, err := database.ListPublicPosts(10, 0, 0)
+	if err != nil {
+		t.Fatalf("list public posts before moderation: %v", err)
+	}
+	if len(publicPosts) != 1 || len(publicPosts[0].Comments) != 1 || len(publicPosts[0].Captures) != 1 {
+		t.Fatalf("unexpected public post before moderation: %+v", publicPosts)
+	}
+
+	if err := database.SetCommentModeratorHidden(comment.ID, moderator.ID, true, "manual_review", "hide comment"); err != nil {
+		t.Fatalf("hide comment: %v", err)
+	}
+
+	publicPosts, err = database.ListPublicPosts(10, 0, 0)
+	if err != nil {
+		t.Fatalf("list public posts after comment moderation: %v", err)
+	}
+	if len(publicPosts) != 1 || len(publicPosts[0].Comments) != 0 {
+		t.Fatalf("expected moderated comment to disappear from public feed, got %+v", publicPosts)
+	}
+
+	ownerPost, err := database.GetPost(post.ID, author.ID)
+	if err != nil {
+		t.Fatalf("get owner post after comment moderation: %v", err)
+	}
+	if len(ownerPost.Comments) != 1 || !ownerPost.Comments[0].ModeratorHidden {
+		t.Fatalf("expected owner view to keep moderated comment metadata, got %+v", ownerPost.Comments)
+	}
+
+	if err := database.SetCaptureModeratorHidden(capture.ID, moderator.ID, true, "manual_review", "hide capture"); err != nil {
+		t.Fatalf("hide capture: %v", err)
+	}
+
+	publicCaptures, err := database.ListPublicCapturesWithFilters(PublicCaptureFilters{Limit: 10}, 0)
+	if err != nil {
+		t.Fatalf("list public captures after moderation: %v", err)
+	}
+	if len(publicCaptures) != 0 {
+		t.Fatalf("expected moderated capture to disappear from public captures, got %+v", publicCaptures)
+	}
+	if totalCaptures, err := database.CountPublicCapturesByUser(author.ID); err != nil {
+		t.Fatalf("count public captures after moderation: %v", err)
+	} else if totalCaptures != 0 {
+		t.Fatalf("expected 0 public captures after moderation, got %d", totalCaptures)
+	}
+
+	publicPosts, err = database.ListPublicPosts(10, 0, 0)
+	if err != nil {
+		t.Fatalf("list public posts after capture moderation: %v", err)
+	}
+	if len(publicPosts) != 1 || len(publicPosts[0].Captures) != 0 {
+		t.Fatalf("expected moderated capture to disappear from public post, got %+v", publicPosts)
+	}
+
+	if err := database.SetPostModeratorHidden(post.ID, moderator.ID, true, "manual_review", "hide post"); err != nil {
+		t.Fatalf("hide post: %v", err)
+	}
+
+	publicPosts, err = database.ListPublicPosts(10, 0, 0)
+	if err != nil {
+		t.Fatalf("list public posts after post moderation: %v", err)
+	}
+	if len(publicPosts) != 0 {
+		t.Fatalf("expected moderated post to disappear from public feed, got %+v", publicPosts)
+	}
+	exists, err := database.PublicPostExists(post.ID)
+	if err != nil {
+		t.Fatalf("public post exists after moderation: %v", err)
+	}
+	if exists {
+		t.Fatalf("expected moderated post to be treated as non-public")
+	}
+
+	profile, err := database.GetPublicUserProfile(author.ID)
+	if err != nil {
+		t.Fatalf("get public profile before ban: %v", err)
+	}
+	if profile.PublicPostsCount != 0 || profile.PublicCapturesCount != 0 {
+		t.Fatalf("expected moderated content to be removed from public counts, got %+v", profile)
+	}
+
+	if err := database.SetUserRestrictions(author.ID, moderator.ID, time.Now().UTC().Add(2*time.Hour), time.Time{}, time.Time{}, "ban", "temporary ban"); err != nil {
+		t.Fatalf("ban author: %v", err)
+	}
+
+	if _, err := database.GetPublicUserProfile(author.ID); err != sql.ErrNoRows {
+		t.Fatalf("expected banned user profile to disappear, got %v", err)
+	}
+}

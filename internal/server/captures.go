@@ -112,6 +112,9 @@ func (s *Server) handleListPublicMapCaptures(w http.ResponseWriter, r *http.Requ
 
 func (s *Server) handleCreateCapture(w http.ResponseWriter, r *http.Request) {
 	user := r.Context().Value("user").(*models.User)
+	if !s.ensureNotBanned(w, user) {
+		return
+	}
 
 	if s.Media == nil || !s.Media.Enabled() {
 		http.Error(w, "capture storage is not configured", http.StatusServiceUnavailable)
@@ -183,6 +186,9 @@ func (s *Server) handleCreateCapture(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handlePublishCapture(w http.ResponseWriter, r *http.Request) {
 	user := r.Context().Value("user").(*models.User)
+	if !s.ensureCanPublish(w, user) {
+		return
+	}
 	captureID := chi.URLParam(r, "captureID")
 
 	if s.Media == nil || !s.Media.Enabled() || s.Config.CaptureAIValidatorURL == "" || s.Config.NominatimBaseURL == "" {
@@ -278,7 +284,7 @@ func (s *Server) handlePublishCapture(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleModeratorRecheckCapture(w http.ResponseWriter, r *http.Request) {
 	user := r.Context().Value("user").(*models.User)
-	if user == nil || !user.IsModerator {
+	if !userCanModerate(user) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
@@ -342,7 +348,7 @@ func (s *Server) handleModeratorRecheckCapture(w http.ResponseWriter, r *http.Re
 
 func (s *Server) handleListModeratorAIModels(w http.ResponseWriter, r *http.Request) {
 	user := r.Context().Value("user").(*models.User)
-	if user == nil || !user.IsModerator {
+	if !userCanModerate(user) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
@@ -364,6 +370,9 @@ func (s *Server) handleListModeratorAIModels(w http.ResponseWriter, r *http.Requ
 
 func (s *Server) handleSetCaptureCoordinatesFree(w http.ResponseWriter, r *http.Request) {
 	user := r.Context().Value("user").(*models.User)
+	if !s.ensureNotBanned(w, user) {
+		return
+	}
 	captureID := chi.URLParam(r, "captureID")
 
 	capture, err := s.DB.GetCaptureForUser(captureID, user.ID)
@@ -405,6 +414,9 @@ func (s *Server) handleSetCaptureCoordinatesFree(w http.ResponseWriter, r *http.
 
 func (s *Server) handleUnlockCaptureCoordinates(w http.ResponseWriter, r *http.Request) {
 	user := r.Context().Value("user").(*models.User)
+	if !s.ensureNotBanned(w, user) {
+		return
+	}
 	captureID := chi.URLParam(r, "captureID")
 
 	balance, alreadyUnlocked, err := s.DB.UnlockCaptureCoordinates(user.ID, captureID)

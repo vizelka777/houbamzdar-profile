@@ -48,12 +48,27 @@ const migrationCaptureMushroomAnalysisTablesID = "20260316_create_capture_mushro
 const migrationCaptureGeoIndexTableID = "20260316_create_capture_geo_index_table"
 const migrationUsersModeratorColumnID = "20260316_add_users_is_moderator"
 const migrationCaptureMushroomAnalysisReviewColumnsID = "20260316_add_capture_mushroom_analysis_review_columns"
+const migrationUsersModerationColumnsID = "20260316_add_users_moderation_columns"
+const migrationContentModerationColumnsID = "20260316_add_content_moderation_columns"
+const migrationModerationActionsTableID = "20260316_create_moderation_actions_table"
 
 var ErrInsufficientHoubickaBalance = errors.New("insufficient houbicka balance")
 var ErrCaptureHasNoCoordinates = errors.New("capture has no coordinates")
 
 func isModeratorUsername(username string) bool {
 	return strings.EqualFold(strings.TrimSpace(username), "houbamzdar")
+}
+
+func isAdminUsername(username string) bool {
+	return strings.EqualFold(strings.TrimSpace(username), "houbamzdar")
+}
+
+func moderationNowRFC3339() string {
+	return time.Now().UTC().Format(time.RFC3339)
+}
+
+func publicUserNotBannedClause(alias string) string {
+	return fmt.Sprintf("(COALESCE(%s.banned_until, '') = '' OR %s.banned_until <= ?)", alias, alias)
 }
 
 func New(cfg *config.Config) (*DB, error) {
@@ -94,12 +109,19 @@ func migrate(db *sql.DB) error {
 			idp_sub TEXT NOT NULL,
 			preferred_username TEXT,
 			is_moderator INTEGER NOT NULL DEFAULT 0,
+			is_admin INTEGER NOT NULL DEFAULT 0,
 			email TEXT,
 			email_verified INTEGER NOT NULL DEFAULT 0,
 			phone_number TEXT,
 			phone_number_verified INTEGER NOT NULL DEFAULT 0,
 			picture TEXT,
 			about_me TEXT,
+			banned_until TEXT,
+			comments_muted_until TEXT,
+			publishing_suspended_until TEXT,
+			moderation_note TEXT,
+			moderated_by_user_id INTEGER,
+			moderated_at TEXT,
 			access_token TEXT,
 			refresh_token TEXT,
 			token_expires_at TEXT,
@@ -171,6 +193,40 @@ func migrate(db *sql.DB) error {
 			},
 		},
 		{
+			id: migrationUsersModerationColumnsID,
+			apply: func(tx *sql.Tx) error {
+				if err := ensureColumnExists(tx, "users", "is_admin", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+					return err
+				}
+				if err := ensureColumnExists(tx, "users", "banned_until", "TEXT"); err != nil {
+					return err
+				}
+				if err := ensureColumnExists(tx, "users", "comments_muted_until", "TEXT"); err != nil {
+					return err
+				}
+				if err := ensureColumnExists(tx, "users", "publishing_suspended_until", "TEXT"); err != nil {
+					return err
+				}
+				if err := ensureColumnExists(tx, "users", "moderation_note", "TEXT"); err != nil {
+					return err
+				}
+				if err := ensureColumnExists(tx, "users", "moderated_by_user_id", "INTEGER"); err != nil {
+					return err
+				}
+				if err := ensureColumnExists(tx, "users", "moderated_at", "TEXT"); err != nil {
+					return err
+				}
+				_, err := tx.Exec(`
+					UPDATE users
+					SET is_admin = CASE
+						WHEN lower(COALESCE(preferred_username, '')) = 'houbamzdar' THEN 1
+						ELSE COALESCE(is_admin, 0)
+					END
+				`)
+				return err
+			},
+		},
+		{
 			id: migrationPhotoCapturesTableID,
 			apply: func(tx *sql.Tx) error {
 				queries := []string{
@@ -189,6 +245,10 @@ func migrate(db *sql.DB) error {
 						longitude REAL,
 						accuracy_meters REAL,
 						status TEXT NOT NULL DEFAULT 'private',
+						moderator_hidden INTEGER NOT NULL DEFAULT 0,
+						moderation_reason_code TEXT,
+						moderated_by_user_id INTEGER,
+						moderated_at TEXT,
 						private_storage_key TEXT NOT NULL,
 						public_storage_key TEXT,
 						published_at TEXT,
@@ -216,6 +276,10 @@ func migrate(db *sql.DB) error {
 						user_id INTEGER NOT NULL,
 						content TEXT NOT NULL,
 						status TEXT NOT NULL DEFAULT 'published',
+						moderator_hidden INTEGER NOT NULL DEFAULT 0,
+						moderation_reason_code TEXT,
+						moderated_by_user_id INTEGER,
+						moderated_at TEXT,
 						created_at TEXT NOT NULL,
 						updated_at TEXT NOT NULL,
 						FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -248,6 +312,10 @@ func migrate(db *sql.DB) error {
 						post_id TEXT NOT NULL,
 						user_id INTEGER NOT NULL,
 						content TEXT NOT NULL,
+						moderator_hidden INTEGER NOT NULL DEFAULT 0,
+						moderation_reason_code TEXT,
+						moderated_by_user_id INTEGER,
+						moderated_at TEXT,
 						created_at TEXT NOT NULL,
 						updated_at TEXT NOT NULL,
 						FOREIGN KEY(post_id) REFERENCES posts(id) ON DELETE CASCADE,
@@ -487,6 +555,62 @@ func migrate(db *sql.DB) error {
 				return nil
 			},
 		},
+		{
+			id: migrationContentModerationColumnsID,
+			apply: func(tx *sql.Tx) error {
+				for _, tableName := range []string{"photo_captures", "posts", "post_comments"} {
+					if err := ensureColumnExists(tx, tableName, "moderator_hidden", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+						return err
+					}
+					if err := ensureColumnExists(tx, tableName, "moderation_reason_code", "TEXT"); err != nil {
+						return err
+					}
+					if err := ensureColumnExists(tx, tableName, "moderated_by_user_id", "INTEGER"); err != nil {
+						return err
+					}
+					if err := ensureColumnExists(tx, tableName, "moderated_at", "TEXT"); err != nil {
+						return err
+					}
+				}
+				return nil
+			},
+		},
+		{
+			id: migrationModerationActionsTableID,
+			apply: func(tx *sql.Tx) error {
+				queries := []string{
+					`CREATE TABLE IF NOT EXISTS moderation_actions (
+						id TEXT PRIMARY KEY,
+						actor_user_id INTEGER NOT NULL,
+						target_user_id INTEGER,
+						target_capture_id TEXT,
+						target_post_id TEXT,
+						target_comment_id TEXT,
+						action_kind TEXT NOT NULL,
+						reason_code TEXT,
+						note TEXT,
+						meta_json TEXT,
+						created_at TEXT NOT NULL DEFAULT (datetime('now')),
+						FOREIGN KEY(actor_user_id) REFERENCES users(id) ON DELETE CASCADE,
+						FOREIGN KEY(target_user_id) REFERENCES users(id) ON DELETE SET NULL,
+						FOREIGN KEY(target_capture_id) REFERENCES photo_captures(id) ON DELETE SET NULL,
+						FOREIGN KEY(target_post_id) REFERENCES posts(id) ON DELETE SET NULL,
+						FOREIGN KEY(target_comment_id) REFERENCES post_comments(id) ON DELETE SET NULL
+					);`,
+					`CREATE INDEX IF NOT EXISTS idx_moderation_actions_actor_created ON moderation_actions(actor_user_id, created_at DESC);`,
+					`CREATE INDEX IF NOT EXISTS idx_moderation_actions_target_user_created ON moderation_actions(target_user_id, created_at DESC);`,
+					`CREATE INDEX IF NOT EXISTS idx_moderation_actions_target_capture_created ON moderation_actions(target_capture_id, created_at DESC);`,
+					`CREATE INDEX IF NOT EXISTS idx_moderation_actions_target_post_created ON moderation_actions(target_post_id, created_at DESC);`,
+					`CREATE INDEX IF NOT EXISTS idx_moderation_actions_target_comment_created ON moderation_actions(target_comment_id, created_at DESC);`,
+				}
+				for _, query := range queries {
+					if _, err := tx.Exec(query); err != nil {
+						return err
+					}
+				}
+				return nil
+			},
+		},
 	}
 
 	for _, migration := range migrations {
@@ -558,6 +682,10 @@ func (db *DB) UpsertUser(claims *models.OIDCClaims, token *oauth2.Token) (*model
 	if isModeratorUsername(claims.PreferredUsername) {
 		isModerator = 1
 	}
+	isAdmin := 0
+	if isAdminUsername(claims.PreferredUsername) {
+		isAdmin = 1
+	}
 
 	err := db.QueryRow("SELECT id, COALESCE(about_me, '') FROM users WHERE idp_issuer = ? AND idp_sub = ?", claims.Iss, claims.Sub).Scan(&user.ID, &user.AboutMe)
 	if err == sql.ErrNoRows {
@@ -584,9 +712,9 @@ func (db *DB) UpsertUser(claims *models.OIDCClaims, token *oauth2.Token) (*model
 
 	if !exists {
 		res, err := db.Exec(`
-			INSERT INTO users (idp_issuer, idp_sub, preferred_username, is_moderator, email, email_verified, phone_number, phone_number_verified, picture, access_token, refresh_token, token_expires_at, last_idp_sync_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-		`, claims.Iss, claims.Sub, claims.PreferredUsername, isModerator, claims.Email, ev, claims.PhoneNumber, pv, claims.Picture, token.AccessToken, token.RefreshToken, expiry)
+			INSERT INTO users (idp_issuer, idp_sub, preferred_username, is_moderator, is_admin, email, email_verified, phone_number, phone_number_verified, picture, access_token, refresh_token, token_expires_at, last_idp_sync_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+		`, claims.Iss, claims.Sub, claims.PreferredUsername, isModerator, isAdmin, claims.Email, ev, claims.PhoneNumber, pv, claims.Picture, token.AccessToken, token.RefreshToken, expiry)
 		if err != nil {
 			return nil, false, err
 		}
@@ -599,7 +727,6 @@ func (db *DB) UpsertUser(claims *models.OIDCClaims, token *oauth2.Token) (*model
 		_, err := db.Exec(`
 			UPDATE users SET
 				preferred_username = ?,
-				is_moderator = ?,
 				email = ?,
 				email_verified = ?,
 				phone_number = ?,
@@ -609,9 +736,17 @@ func (db *DB) UpsertUser(claims *models.OIDCClaims, token *oauth2.Token) (*model
 				refresh_token = ?,
 				token_expires_at = ?,
 				last_idp_sync_at = datetime('now'),
-				updated_at = datetime('now')
+				updated_at = datetime('now'),
+				is_moderator = CASE
+					WHEN is_moderator = 1 OR ? = 1 THEN 1
+					ELSE 0
+				END,
+				is_admin = CASE
+					WHEN is_admin = 1 OR ? = 1 THEN 1
+					ELSE 0
+				END
 			WHERE id = ?
-		`, claims.PreferredUsername, isModerator, claims.Email, ev, claims.PhoneNumber, pv, claims.Picture, token.AccessToken, token.RefreshToken, expiry, user.ID)
+		`, claims.PreferredUsername, claims.Email, ev, claims.PhoneNumber, pv, claims.Picture, token.AccessToken, token.RefreshToken, expiry, isModerator, isAdmin, user.ID)
 		if err != nil {
 			return nil, false, err
 		}
@@ -686,6 +821,10 @@ func (db *DB) DeleteSession(sessionID string) error {
 func (db *DB) GetUser(id int64) (*models.User, error) {
 	var user models.User
 	var expiresAt sql.NullString
+	var bannedUntil sql.NullString
+	var commentsMutedUntil sql.NullString
+	var publishingSuspendedUntil sql.NullString
+	var moderatedAt sql.NullString
 	err := db.QueryRow(`
 		SELECT
 			id,
@@ -693,12 +832,19 @@ func (db *DB) GetUser(id int64) (*models.User, error) {
 			idp_sub,
 			COALESCE(preferred_username, ''),
 			COALESCE(is_moderator, 0),
+			COALESCE(is_admin, 0),
 			COALESCE(email, ''),
 			email_verified,
 			COALESCE(phone_number, ''),
 			phone_number_verified,
 			COALESCE(picture, ''),
 			COALESCE(about_me, ''),
+			banned_until,
+			comments_muted_until,
+			publishing_suspended_until,
+			COALESCE(moderation_note, ''),
+			COALESCE(moderated_by_user_id, 0),
+			moderated_at,
 			COALESCE(access_token, ''),
 			COALESCE(refresh_token, ''),
 			token_expires_at,
@@ -706,10 +852,22 @@ func (db *DB) GetUser(id int64) (*models.User, error) {
 		FROM users
 		WHERE id = ?
 	`, id).Scan(
-		&user.ID, &user.IDPIssuer, &user.IDPSub, &user.PreferredUsername, &user.IsModerator, &user.Email, &user.EmailVerified, &user.PhoneNumber, &user.PhoneNumberVerified, &user.Picture, &user.AboutMe, &user.AccessToken, &user.RefreshToken, &expiresAt, &user.HoubickaBalance,
+		&user.ID, &user.IDPIssuer, &user.IDPSub, &user.PreferredUsername, &user.IsModerator, &user.IsAdmin, &user.Email, &user.EmailVerified, &user.PhoneNumber, &user.PhoneNumberVerified, &user.Picture, &user.AboutMe, &bannedUntil, &commentsMutedUntil, &publishingSuspendedUntil, &user.ModerationNote, &user.ModeratedByUserID, &moderatedAt, &user.AccessToken, &user.RefreshToken, &expiresAt, &user.HoubickaBalance,
 	)
 	if err == nil && expiresAt.Valid && expiresAt.String != "" {
 		user.TokenExpiresAt, _ = time.Parse(time.RFC3339, expiresAt.String)
+	}
+	if err == nil && bannedUntil.Valid && bannedUntil.String != "" {
+		user.BannedUntil, _ = time.Parse(time.RFC3339, bannedUntil.String)
+	}
+	if err == nil && commentsMutedUntil.Valid && commentsMutedUntil.String != "" {
+		user.CommentsMutedUntil, _ = time.Parse(time.RFC3339, commentsMutedUntil.String)
+	}
+	if err == nil && publishingSuspendedUntil.Valid && publishingSuspendedUntil.String != "" {
+		user.PublishingSuspendedUntil, _ = time.Parse(time.RFC3339, publishingSuspendedUntil.String)
+	}
+	if err == nil && moderatedAt.Valid && moderatedAt.String != "" {
+		user.ModeratedAt, _ = time.Parse(time.RFC3339, moderatedAt.String)
 	}
 	return &user, err
 }
@@ -759,8 +917,9 @@ func (db *DB) GetPublicUserProfile(id int64) (*models.PublicUserProfile, error) 
 		emailVerifiedInt       int
 		phoneNumberVerifiedInt int
 	)
+	now := moderationNowRFC3339()
 
-	err := db.QueryRow(`
+	err := db.QueryRow(fmt.Sprintf(`
 		SELECT
 			id,
 			COALESCE(preferred_username, ''),
@@ -769,11 +928,11 @@ func (db *DB) GetPublicUserProfile(id int64) (*models.PublicUserProfile, error) 
 			email_verified,
 			phone_number_verified,
 			created_at,
-			(SELECT COUNT(*) FROM posts WHERE user_id = users.id AND status = 'published'),
-			(SELECT COUNT(*) FROM photo_captures WHERE user_id = users.id AND status = 'published' AND public_storage_key IS NOT NULL AND public_storage_key != '')
+			(SELECT COUNT(*) FROM posts WHERE user_id = users.id AND status = 'published' AND COALESCE(moderator_hidden, 0) = 0),
+			(SELECT COUNT(*) FROM photo_captures WHERE user_id = users.id AND status = 'published' AND COALESCE(moderator_hidden, 0) = 0 AND public_storage_key IS NOT NULL AND public_storage_key != '')
 		FROM users
-		WHERE id = ?
-	`, id).Scan(
+		WHERE id = ? AND %s
+	`, publicUserNotBannedClause("users")), id, now).Scan(
 		&profile.ID,
 		&profile.PreferredUsername,
 		&profile.Picture,
@@ -803,6 +962,7 @@ const captureSelectColumns = `
 	SELECT id, user_id, COALESCE(client_local_id, ''), original_file_name, content_type, size_bytes, width, height,
 		captured_at, uploaded_at, latitude, longitude, accuracy_meters, status, private_storage_key,
 		COALESCE(public_storage_key, ''), COALESCE(published_at, ''), COALESCE(coordinates_free, 0),
+		COALESCE(moderator_hidden, 0), COALESCE(moderation_reason_code, ''), COALESCE(moderated_by_user_id, 0), COALESCE(moderated_at, ''),
 		COALESCE(publication_review_status, 'none'), COALESCE(publication_review_reason_code, ''),
 		COALESCE(publication_review_last_error, ''), COALESCE(publication_review_checked_at, ''),
 		COALESCE(publication_requested_at, ''), COALESCE(publication_review_attempts, 0),
@@ -983,6 +1143,10 @@ func scanCapture(row scanner) (*models.Capture, error) {
 		publicStorageKey               sql.NullString
 		publishedAtRaw                 sql.NullString
 		coordinatesFree                int
+		moderatorHidden                int
+		moderationReasonCode           sql.NullString
+		moderatedByUserID              int64
+		moderatedAt                    sql.NullString
 		publicationReviewStatus        string
 		publicationReviewReason        sql.NullString
 		publicationReviewLastError     sql.NullString
@@ -1011,6 +1175,10 @@ func scanCapture(row scanner) (*models.Capture, error) {
 		&publicStorageKey,
 		&publishedAtRaw,
 		&coordinatesFree,
+		&moderatorHidden,
+		&moderationReasonCode,
+		&moderatedByUserID,
+		&moderatedAt,
 		&publicationReviewStatus,
 		&publicationReviewReason,
 		&publicationReviewLastError,
@@ -1043,6 +1211,12 @@ func scanCapture(row scanner) (*models.Capture, error) {
 		capture.PublishedAt, _ = time.Parse(time.RFC3339, publishedAtRaw.String)
 	}
 	capture.CoordinatesFree = coordinatesFree == 1
+	capture.ModeratorHidden = moderatorHidden == 1
+	capture.ModerationReasonCode = moderationReasonCode.String
+	capture.ModeratedByUserID = moderatedByUserID
+	if moderatedAt.Valid && moderatedAt.String != "" {
+		capture.ModeratedAt, _ = time.Parse(time.RFC3339, moderatedAt.String)
+	}
 	capture.PublicationReviewStatus = publicationReviewStatus
 	capture.PublicationReviewReasonCode = publicationReviewReason.String
 	capture.PublicationReviewLastError = publicationReviewLastError.String
@@ -1150,13 +1324,13 @@ func (db *DB) GetPost(postID string, userID int64) (*models.Post, error) {
 	p.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
 	p.AuthorUserID = p.UserID
 
-	captures, err := db.getCapturesForPost(p.ID, userID)
+	captures, err := db.getCapturesForPost(p.ID, userID, true)
 	if err != nil {
 		return nil, err
 	}
 	p.Captures = captures
 
-	comments, err := db.getCommentsForPost(p.ID)
+	comments, err := db.getCommentsForPost(p.ID, true)
 	if err != nil {
 		return nil, err
 	}
@@ -1223,12 +1397,14 @@ func (db *DB) DeletePost(postID string, userID int64) error {
 
 func (db *DB) PublicPostExists(postID string) (bool, error) {
 	var exists int
-	err := db.QueryRow(`
+	now := moderationNowRFC3339()
+	err := db.QueryRow(fmt.Sprintf(`
 		SELECT 1
-		FROM posts
-		WHERE id = ? AND status = 'published'
+		FROM posts p
+		JOIN users u ON p.user_id = u.id
+		WHERE p.id = ? AND p.status = 'published' AND COALESCE(p.moderator_hidden, 0) = 0 AND %s
 		LIMIT 1
-	`, postID).Scan(&exists)
+	`, publicUserNotBannedClause("u")), postID, now).Scan(&exists)
 	if err == sql.ErrNoRows {
 		return false, nil
 	}
@@ -1278,7 +1454,8 @@ func (db *DB) UpdatePostComment(postID, commentID string, userID int64, content 
 	}
 
 	comment, err := scanCommentRow(tx.QueryRow(`
-		SELECT pc.id, pc.post_id, pc.user_id, COALESCE(u.preferred_username, ''), COALESCE(u.picture, ''), pc.content, pc.created_at, pc.updated_at
+		SELECT pc.id, pc.post_id, pc.user_id, COALESCE(u.preferred_username, ''), COALESCE(u.picture, ''), pc.content, pc.created_at, pc.updated_at,
+			COALESCE(pc.moderator_hidden, 0), COALESCE(pc.moderation_reason_code, ''), COALESCE(pc.moderated_by_user_id, 0), COALESCE(pc.moderated_at, '')
 		FROM post_comments pc
 		JOIN users u ON pc.user_id = u.id
 		WHERE pc.id = ? AND pc.post_id = ?
@@ -1345,13 +1522,13 @@ func (db *DB) ListPosts(userID int64, limit, offset int) ([]*models.Post, error)
 	}
 
 	for _, p := range posts {
-		captures, err := db.getCapturesForPost(p.ID, userID)
+		captures, err := db.getCapturesForPost(p.ID, userID, true)
 		if err != nil {
 			return nil, err
 		}
 		p.Captures = captures
 
-		comments, err := db.getCommentsForPost(p.ID)
+		comments, err := db.getCommentsForPost(p.ID, true)
 		if err != nil {
 			return nil, err
 		}
@@ -1362,16 +1539,19 @@ func (db *DB) ListPosts(userID int64, limit, offset int) ([]*models.Post, error)
 }
 
 func (db *DB) ListPublicPosts(limit, offset int, currentUserID int64) ([]*models.Post, error) {
-	rows, err := db.Query(`
+	now := moderationNowRFC3339()
+	rows, err := db.Query(fmt.Sprintf(`
 		SELECT p.id, p.user_id, u.preferred_username, COALESCE(u.picture, ''), p.content, p.status, p.created_at, p.updated_at,
                (SELECT COUNT(*) FROM post_likes WHERE post_id = p.id) as likes_count,
                (SELECT EXISTS(SELECT 1 FROM post_likes WHERE post_id = p.id AND user_id = ?)) as is_liked_by_me
 		FROM posts p
 		JOIN users u ON p.user_id = u.id
 		WHERE p.status = 'published'
+			AND COALESCE(p.moderator_hidden, 0) = 0
+			AND %s
 		ORDER BY p.created_at DESC
 		LIMIT ? OFFSET ?
-	`, currentUserID, limit, offset)
+	`, publicUserNotBannedClause("u")), currentUserID, now, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -1394,13 +1574,13 @@ func (db *DB) ListPublicPosts(limit, offset int, currentUserID int64) ([]*models
 	}
 
 	for _, p := range posts {
-		captures, err := db.getCapturesForPost(p.ID, currentUserID)
+		captures, err := db.getCapturesForPost(p.ID, currentUserID, false)
 		if err != nil {
 			return nil, err
 		}
 		p.Captures = captures
 
-		comments, err := db.getCommentsForPost(p.ID)
+		comments, err := db.getCommentsForPost(p.ID, false)
 		if err != nil {
 			return nil, err
 		}
@@ -1412,25 +1592,28 @@ func (db *DB) ListPublicPosts(limit, offset int, currentUserID int64) ([]*models
 
 func (db *DB) CountPublicPostsByUser(userID int64) (int, error) {
 	var total int
-	err := db.QueryRow(`
+	now := moderationNowRFC3339()
+	err := db.QueryRow(fmt.Sprintf(`
 		SELECT COUNT(*)
-		FROM posts
-		WHERE user_id = ? AND status = 'published'
-	`, userID).Scan(&total)
+		FROM posts p
+		JOIN users u ON p.user_id = u.id
+		WHERE p.user_id = ? AND p.status = 'published' AND COALESCE(p.moderator_hidden, 0) = 0 AND %s
+	`, publicUserNotBannedClause("u")), userID, now).Scan(&total)
 	return total, err
 }
 
 func (db *DB) ListPublicPostsByUser(userID int64, limit, offset int, currentUserID int64) ([]*models.Post, error) {
-	rows, err := db.Query(`
+	now := moderationNowRFC3339()
+	rows, err := db.Query(fmt.Sprintf(`
 		SELECT p.id, p.user_id, COALESCE(u.preferred_username, ''), COALESCE(u.picture, ''), p.content, p.status, p.created_at, p.updated_at,
 		       (SELECT COUNT(*) FROM post_likes WHERE post_id = p.id) as likes_count,
 		       (SELECT EXISTS(SELECT 1 FROM post_likes WHERE post_id = p.id AND user_id = ?)) as is_liked_by_me
 		FROM posts p
 		JOIN users u ON p.user_id = u.id
-		WHERE p.status = 'published' AND p.user_id = ?
+		WHERE p.status = 'published' AND p.user_id = ? AND COALESCE(p.moderator_hidden, 0) = 0 AND %s
 		ORDER BY p.created_at DESC
 		LIMIT ? OFFSET ?
-	`, currentUserID, userID, limit, offset)
+	`, publicUserNotBannedClause("u")), currentUserID, userID, now, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -1453,13 +1636,13 @@ func (db *DB) ListPublicPostsByUser(userID int64, limit, offset int, currentUser
 	}
 
 	for _, p := range posts {
-		captures, err := db.getCapturesForPost(p.ID, currentUserID)
+		captures, err := db.getCapturesForPost(p.ID, currentUserID, false)
 		if err != nil {
 			return nil, err
 		}
 		p.Captures = captures
 
-		comments, err := db.getCommentsForPost(p.ID)
+		comments, err := db.getCommentsForPost(p.ID, false)
 		if err != nil {
 			return nil, err
 		}
@@ -1470,16 +1653,17 @@ func (db *DB) ListPublicPostsByUser(userID int64, limit, offset int, currentUser
 }
 
 func (db *DB) ListPublicCaptures(limit, offset int, viewerUserID int64) ([]*models.Capture, error) {
-	rows, err := db.Query(`
+	now := moderationNowRFC3339()
+	rows, err := db.Query(fmt.Sprintf(`
 		SELECT c.id, c.user_id, u.preferred_username, COALESCE(u.picture, ''), COALESCE(c.client_local_id, ''), c.original_file_name, c.content_type, c.size_bytes, c.width, c.height,
 			c.captured_at, c.uploaded_at, c.latitude, c.longitude, c.accuracy_meters, c.status, c.private_storage_key,
 			COALESCE(c.public_storage_key, ''), COALESCE(c.published_at, ''), COALESCE(c.coordinates_free, 0)
 		FROM photo_captures c
 		JOIN users u ON c.user_id = u.id
-		WHERE c.status = 'published' AND c.public_storage_key IS NOT NULL AND c.public_storage_key != ''
+		WHERE c.status = 'published' AND COALESCE(c.moderator_hidden, 0) = 0 AND c.public_storage_key IS NOT NULL AND c.public_storage_key != '' AND %s
 		ORDER BY c.published_at DESC, c.captured_at DESC
 		LIMIT ? OFFSET ?
-	`, limit, offset)
+	`, publicUserNotBannedClause("u")), now, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -1519,25 +1703,28 @@ func (db *DB) ListPublicCaptures(limit, offset int, viewerUserID int64) ([]*mode
 
 func (db *DB) CountPublicCapturesByUser(userID int64) (int, error) {
 	var total int
-	err := db.QueryRow(`
+	now := moderationNowRFC3339()
+	err := db.QueryRow(fmt.Sprintf(`
 		SELECT COUNT(*)
-		FROM photo_captures
-		WHERE user_id = ? AND status = 'published' AND public_storage_key IS NOT NULL AND public_storage_key != ''
-	`, userID).Scan(&total)
+		FROM photo_captures c
+		JOIN users u ON c.user_id = u.id
+		WHERE c.user_id = ? AND c.status = 'published' AND COALESCE(c.moderator_hidden, 0) = 0 AND c.public_storage_key IS NOT NULL AND c.public_storage_key != '' AND %s
+	`, publicUserNotBannedClause("u")), userID, now).Scan(&total)
 	return total, err
 }
 
 func (db *DB) ListPublicCapturesByUser(userID int64, limit, offset int, viewerUserID int64) ([]*models.Capture, error) {
-	rows, err := db.Query(`
+	now := moderationNowRFC3339()
+	rows, err := db.Query(fmt.Sprintf(`
 		SELECT c.id, c.user_id, COALESCE(u.preferred_username, ''), COALESCE(u.picture, ''), COALESCE(c.client_local_id, ''), c.original_file_name, c.content_type, c.size_bytes, c.width, c.height,
 			c.captured_at, c.uploaded_at, c.latitude, c.longitude, c.accuracy_meters, c.status, c.private_storage_key,
 			COALESCE(c.public_storage_key, ''), COALESCE(c.published_at, ''), COALESCE(c.coordinates_free, 0)
 		FROM photo_captures c
 		JOIN users u ON c.user_id = u.id
-		WHERE c.user_id = ? AND c.status = 'published' AND c.public_storage_key IS NOT NULL AND c.public_storage_key != ''
+		WHERE c.user_id = ? AND c.status = 'published' AND COALESCE(c.moderator_hidden, 0) = 0 AND c.public_storage_key IS NOT NULL AND c.public_storage_key != '' AND %s
 		ORDER BY c.published_at DESC, c.captured_at DESC
 		LIMIT ? OFFSET ?
-	`, userID, limit, offset)
+	`, publicUserNotBannedClause("u")), userID, now, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -1577,8 +1764,13 @@ func (db *DB) ListPublicCapturesByUser(userID int64, limit, offset int, viewerUs
 	return captures, nil
 }
 
-func (db *DB) getCapturesForPost(postID string, viewerUserID int64) ([]*models.Capture, error) {
-	cRows, err := db.Query(`
+func (db *DB) getCapturesForPost(postID string, viewerUserID int64, includeModerated bool) ([]*models.Capture, error) {
+	var (
+		query string
+		args  []interface{}
+	)
+	if includeModerated {
+		query = `
 		SELECT c.id, c.user_id, COALESCE(c.client_local_id, ''), c.original_file_name, c.content_type, c.size_bytes, c.width, c.height,
 			c.captured_at, c.uploaded_at, c.latitude, c.longitude, c.accuracy_meters, c.status, c.private_storage_key,
 			COALESCE(c.public_storage_key, ''), COALESCE(c.published_at, ''), COALESCE(c.coordinates_free, 0)
@@ -1586,7 +1778,27 @@ func (db *DB) getCapturesForPost(postID string, viewerUserID int64) ([]*models.C
 		JOIN post_captures pc ON c.id = pc.capture_id
 		WHERE pc.post_id = ?
 		ORDER BY pc.display_order ASC
-	`, postID)
+	`
+		args = []interface{}{postID}
+	} else {
+		query = fmt.Sprintf(`
+		SELECT c.id, c.user_id, COALESCE(c.client_local_id, ''), c.original_file_name, c.content_type, c.size_bytes, c.width, c.height,
+			c.captured_at, c.uploaded_at, c.latitude, c.longitude, c.accuracy_meters, c.status, c.private_storage_key,
+			COALESCE(c.public_storage_key, ''), COALESCE(c.published_at, ''), COALESCE(c.coordinates_free, 0)
+		FROM photo_captures c
+		JOIN post_captures pc ON c.id = pc.capture_id
+		JOIN users u ON c.user_id = u.id
+		WHERE pc.post_id = ?
+			AND c.status = 'published'
+			AND COALESCE(c.moderator_hidden, 0) = 0
+			AND c.public_storage_key IS NOT NULL
+			AND c.public_storage_key != ''
+			AND %s
+		ORDER BY pc.display_order ASC
+	`, publicUserNotBannedClause("u"))
+		args = []interface{}{postID, moderationNowRFC3339()}
+	}
+	cRows, err := db.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -1623,7 +1835,20 @@ func (db *DB) getCapturesForPost(postID string, viewerUserID int64) ([]*models.C
 }
 
 func (db *DB) GetPublicCaptureByID(captureID string) (*models.Capture, error) {
-	row := db.QueryRow(captureSelectColumns+` WHERE id = ? AND status = 'published' LIMIT 1`, captureID)
+	row := db.QueryRow(fmt.Sprintf(`
+		SELECT c.id, c.user_id, COALESCE(c.client_local_id, ''), c.original_file_name, c.content_type, c.size_bytes, c.width, c.height,
+			c.captured_at, c.uploaded_at, c.latitude, c.longitude, c.accuracy_meters, c.status, c.private_storage_key,
+			COALESCE(c.public_storage_key, ''), COALESCE(c.published_at, ''), COALESCE(c.coordinates_free, 0),
+			COALESCE(c.moderator_hidden, 0), COALESCE(c.moderation_reason_code, ''), COALESCE(c.moderated_by_user_id, 0), COALESCE(c.moderated_at, ''),
+			COALESCE(c.publication_review_status, 'none'), COALESCE(c.publication_review_reason_code, ''),
+			COALESCE(c.publication_review_last_error, ''), COALESCE(c.publication_review_checked_at, ''),
+			COALESCE(c.publication_requested_at, ''), COALESCE(c.publication_review_attempts, 0),
+			COALESCE(c.publication_review_next_attempt_at, '')
+		FROM photo_captures c
+		JOIN users u ON c.user_id = u.id
+		WHERE c.id = ? AND c.status = 'published' AND COALESCE(c.moderator_hidden, 0) = 0 AND %s
+		LIMIT 1
+	`, publicUserNotBannedClause("u")), captureID, moderationNowRFC3339())
 	return scanCaptureRow(row)
 }
 
@@ -1909,7 +2134,20 @@ func (db *DB) UnlockCaptureCoordinates(viewerUserID int64, captureID string) (in
 	}
 	defer tx.Rollback()
 
-	capture, err := scanCaptureRow(tx.QueryRow(captureSelectColumns+` WHERE id = ? AND status = 'published' LIMIT 1`, captureID))
+	capture, err := scanCaptureRow(tx.QueryRow(fmt.Sprintf(`
+		SELECT c.id, c.user_id, COALESCE(c.client_local_id, ''), c.original_file_name, c.content_type, c.size_bytes, c.width, c.height,
+			c.captured_at, c.uploaded_at, c.latitude, c.longitude, c.accuracy_meters, c.status, c.private_storage_key,
+			COALESCE(c.public_storage_key, ''), COALESCE(c.published_at, ''), COALESCE(c.coordinates_free, 0),
+			COALESCE(c.moderator_hidden, 0), COALESCE(c.moderation_reason_code, ''), COALESCE(c.moderated_by_user_id, 0), COALESCE(c.moderated_at, ''),
+			COALESCE(c.publication_review_status, 'none'), COALESCE(c.publication_review_reason_code, ''),
+			COALESCE(c.publication_review_last_error, ''), COALESCE(c.publication_review_checked_at, ''),
+			COALESCE(c.publication_requested_at, ''), COALESCE(c.publication_review_attempts, 0),
+			COALESCE(c.publication_review_next_attempt_at, '')
+		FROM photo_captures c
+		JOIN users u ON c.user_id = u.id
+		WHERE c.id = ? AND c.status = 'published' AND COALESCE(c.moderator_hidden, 0) = 0 AND %s
+		LIMIT 1
+	`, publicUserNotBannedClause("u")), captureID, moderationNowRFC3339()))
 	if err != nil {
 		return 0, false, err
 	}
@@ -2096,14 +2334,33 @@ func (db *DB) CountViewedCapturesByUser(viewerUserID int64) (int, error) {
 	return total, err
 }
 
-func (db *DB) getCommentsForPost(postID string) ([]*models.Comment, error) {
-	rows, err := db.Query(`
-		SELECT pc.id, pc.post_id, pc.user_id, COALESCE(u.preferred_username, ''), COALESCE(u.picture, ''), pc.content, pc.created_at, pc.updated_at
+func (db *DB) getCommentsForPost(postID string, includeModerated bool) ([]*models.Comment, error) {
+	var (
+		query string
+		args  []interface{}
+	)
+	if includeModerated {
+		query = `
+		SELECT pc.id, pc.post_id, pc.user_id, COALESCE(u.preferred_username, ''), COALESCE(u.picture, ''), pc.content, pc.created_at, pc.updated_at,
+			COALESCE(pc.moderator_hidden, 0), COALESCE(pc.moderation_reason_code, ''), COALESCE(pc.moderated_by_user_id, 0), COALESCE(pc.moderated_at, '')
 		FROM post_comments pc
 		JOIN users u ON pc.user_id = u.id
 		WHERE pc.post_id = ?
 		ORDER BY pc.created_at ASC, pc.id ASC
-	`, postID)
+	`
+		args = []interface{}{postID}
+	} else {
+		query = fmt.Sprintf(`
+		SELECT pc.id, pc.post_id, pc.user_id, COALESCE(u.preferred_username, ''), COALESCE(u.picture, ''), pc.content, pc.created_at, pc.updated_at,
+			COALESCE(pc.moderator_hidden, 0), COALESCE(pc.moderation_reason_code, ''), COALESCE(pc.moderated_by_user_id, 0), COALESCE(pc.moderated_at, '')
+		FROM post_comments pc
+		JOIN users u ON pc.user_id = u.id
+		WHERE pc.post_id = ? AND COALESCE(pc.moderator_hidden, 0) = 0 AND %s
+		ORDER BY pc.created_at ASC, pc.id ASC
+	`, publicUserNotBannedClause("u"))
+		args = []interface{}{postID, moderationNowRFC3339()}
+	}
+	rows, err := db.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -2131,6 +2388,10 @@ func scanComment(row scanner) (*models.Comment, error) {
 	var comment models.Comment
 	var createdAt string
 	var updatedAt string
+	var moderatorHidden int
+	var moderationReasonCode string
+	var moderatedByUserID int64
+	var moderatedAt string
 	if err := row.Scan(
 		&comment.ID,
 		&comment.PostID,
@@ -2140,12 +2401,22 @@ func scanComment(row scanner) (*models.Comment, error) {
 		&comment.Content,
 		&createdAt,
 		&updatedAt,
+		&moderatorHidden,
+		&moderationReasonCode,
+		&moderatedByUserID,
+		&moderatedAt,
 	); err != nil {
 		return nil, err
 	}
 	comment.AuthorUserID = comment.UserID
 	comment.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
 	comment.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
+	comment.ModeratorHidden = moderatorHidden == 1
+	comment.ModerationReasonCode = moderationReasonCode
+	comment.ModeratedByUserID = moderatedByUserID
+	if moderatedAt != "" {
+		comment.ModeratedAt, _ = time.Parse(time.RFC3339, moderatedAt)
+	}
 	return &comment, nil
 }
 
@@ -2157,7 +2428,13 @@ func (db *DB) TogglePostLike(postID string, userID int64) (newLikesCount int, is
 	defer tx.Rollback()
 
 	var publishedPostID string
-	err = tx.QueryRow(`SELECT id FROM posts WHERE id = ? AND status = 'published' LIMIT 1`, postID).Scan(&publishedPostID)
+	err = tx.QueryRow(fmt.Sprintf(`
+		SELECT p.id
+		FROM posts p
+		JOIN users u ON p.user_id = u.id
+		WHERE p.id = ? AND p.status = 'published' AND COALESCE(p.moderator_hidden, 0) = 0 AND %s
+		LIMIT 1
+	`, publicUserNotBannedClause("u")), postID, moderationNowRFC3339()).Scan(&publishedPostID)
 	if err != nil {
 		return 0, false, err
 	}

@@ -389,14 +389,17 @@ func (db *DB) CountPublicMapCapturesWithFilters(filters PublicCaptureFilters, vi
 
 func buildPublicCaptureQuerySpec(filters PublicCaptureFilters, viewerUserID int64, requireVisibleCoordinates bool) publicCaptureQuerySpec {
 	filters = normalizePublicCaptureFilters(filters)
+	now := moderationNowRFC3339()
 
 	var (
 		whereClauses = []string{
 			"c.status = 'published'",
+			"COALESCE(c.moderator_hidden, 0) = 0",
 			"c.public_storage_key IS NOT NULL",
 			"c.public_storage_key != ''",
+			publicUserNotBannedClause("u"),
 		}
-		args []interface{}
+		args = []interface{}{now}
 	)
 
 	if requireVisibleCoordinates {

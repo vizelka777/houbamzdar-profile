@@ -285,6 +285,110 @@ func TestCreatePostCommentRequiresAuthAndAppearsInPublicFeed(t *testing.T) {
 	}
 }
 
+func TestModeratorCanHidePostViaEndpoint(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{
+		DBURL:             "file:" + filepath.Join(t.TempDir(), "test.db"),
+		FrontOrigin:       "https://houbamzdar.cz",
+		SessionCookieName: "hzd_session",
+	}
+
+	database, err := db.New(cfg)
+	if err != nil {
+		t.Fatalf("open test database: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = database.Close()
+	})
+
+	moderator, _, err := database.UpsertUser(&models.OIDCClaims{
+		Iss:               "https://ahoj420.eu",
+		Sub:               "moderation-endpoint-moderator",
+		PreferredUsername: "houbamzdar",
+		Email:             "houbamzdar@example.test",
+		EmailVerified:     true,
+	}, &oauth2.Token{
+		AccessToken:  "moderation-endpoint-moderator-access",
+		RefreshToken: "moderation-endpoint-moderator-refresh",
+		Expiry:       time.Now().Add(time.Hour).UTC(),
+	})
+	if err != nil {
+		t.Fatalf("create moderator: %v", err)
+	}
+
+	author, _, err := database.UpsertUser(&models.OIDCClaims{
+		Iss:               "https://ahoj420.eu",
+		Sub:               "moderation-endpoint-author",
+		PreferredUsername: "autor",
+		Email:             "autor@example.test",
+		EmailVerified:     true,
+	}, &oauth2.Token{
+		AccessToken:  "moderation-endpoint-author-access",
+		RefreshToken: "moderation-endpoint-author-refresh",
+		Expiry:       time.Now().Add(time.Hour).UTC(),
+	})
+	if err != nil {
+		t.Fatalf("create author: %v", err)
+	}
+
+	sessionID := "moderation-endpoint-session"
+	if err := database.CreateSession(&models.Session{
+		SessionID: sessionID,
+		UserID:    moderator.ID,
+		ExpiresAt: time.Now().Add(time.Hour),
+	}); err != nil {
+		t.Fatalf("create moderator session: %v", err)
+	}
+
+	post := &models.Post{
+		ID:        "moderation-endpoint-post",
+		UserID:    author.ID,
+		Content:   "Veřejný post k moderaci",
+		Status:    "published",
+		CreatedAt: time.Now().UTC().Add(-time.Minute),
+		UpdatedAt: time.Now().UTC().Add(-time.Minute),
+	}
+	if err := database.CreatePost(post); err != nil {
+		t.Fatalf("create post: %v", err)
+	}
+
+	srv := New(cfg, database, nil, nil)
+
+	hideReq := httptest.NewRequest(
+		http.MethodPost,
+		"/api/moderation/posts/"+post.ID+"/visibility",
+		strings.NewReader(`{"hidden":true,"reason_code":"manual_review","note":"hide post"}`),
+	)
+	hideReq.Header.Set("Content-Type", "application/json")
+	hideReq.AddCookie(&http.Cookie{Name: cfg.SessionCookieName, Value: sessionID})
+	hideRec := httptest.NewRecorder()
+	srv.Router.ServeHTTP(hideRec, hideReq)
+
+	if hideRec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", hideRec.Code, hideRec.Body.String())
+	}
+
+	publicReq := httptest.NewRequest(http.MethodGet, "/api/public/posts?limit=10&offset=0", nil)
+	publicRec := httptest.NewRecorder()
+	srv.Router.ServeHTTP(publicRec, publicReq)
+
+	if publicRec.Code != http.StatusOK {
+		t.Fatalf("expected public posts status 200, got %d: %s", publicRec.Code, publicRec.Body.String())
+	}
+
+	var payload struct {
+		OK    bool           `json:"ok"`
+		Posts []*models.Post `json:"posts"`
+	}
+	if err := json.NewDecoder(publicRec.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode public posts response: %v", err)
+	}
+	if len(payload.Posts) != 0 {
+		t.Fatalf("expected moderated post to disappear from public feed, got %+v", payload.Posts)
+	}
+}
+
 func TestUpdateAndDeletePostComment(t *testing.T) {
 	t.Parallel()
 

@@ -116,7 +116,7 @@ function updateGallerySummary() {
 }
 
 function canModeratorRecheck() {
-    return Boolean(state.me && state.me.is_moderator);
+    return userCanModerateClient(state.me);
 }
 
 function syncModeratorModelPanel() {
@@ -258,6 +258,45 @@ async function runModeratorRecheck(captureID, button) {
     }
 }
 
+async function hideGalleryCapture(captureID, button) {
+    if (!captureID || !canModeratorRecheck()) {
+        return;
+    }
+    if (!window.confirm("Opravdu chcete tuto fotografii skrýt z veřejné galerie?")) {
+        return;
+    }
+    const note = window.prompt("Poznámka k moderaci (volitelné):", "");
+    if (note === null) {
+        return;
+    }
+
+    if (button) {
+        button.disabled = true;
+    }
+
+    try {
+        const response = await apiJsonRequest(`/api/moderation/captures/${encodeURIComponent(captureID)}/visibility`, {
+            method: "POST",
+            body: {
+                hidden: true,
+                reason_code: "manual_moderation",
+                note
+            }
+        });
+        if (!response || !response.ok) {
+            throw new Error("Fotografii se nepodařilo skrýt.");
+        }
+        await loadGallery({ reset: true });
+    } catch (error) {
+        console.error("Failed to hide capture", error);
+        window.alert(error.message || "Fotografii se nepodařilo skrýt.");
+    } finally {
+        if (button) {
+            button.disabled = false;
+        }
+    }
+}
+
 function renderGallery(container) {
     if (!container) return;
 
@@ -283,6 +322,9 @@ function renderGallery(container) {
                 <div class="gallery-item-actions">
                     <button type="button" class="btn btn-secondary gallery-moderator-action" data-capture-id="${escapeHtml(capture.id)}">
                         AI recheck
+                    </button>
+                    <button type="button" class="btn btn-secondary gallery-moderator-hide-action" data-capture-id="${escapeHtml(capture.id)}">
+                        Skrýt foto
                     </button>
                 </div>
             `
@@ -327,6 +369,14 @@ function renderGallery(container) {
             event.preventDefault();
             event.stopPropagation();
             await runModeratorRecheck(button.dataset.captureId, button);
+        });
+    });
+
+    container.querySelectorAll(".gallery-moderator-hide-action").forEach((button) => {
+        button.addEventListener("click", async (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            await hideGalleryCapture(button.dataset.captureId, button);
         });
     });
 }
