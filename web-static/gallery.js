@@ -665,8 +665,11 @@ function renderGallery(container) {
         const authorName = capture.author_name || "Neznámý houbař";
         const accessBadge = buildCaptureAccessBadgeHtml(capture);
         const authorURL = buildPublicProfileURL(capture.author_user_id);
-        const species = buildCaptureSpeciesLabel(capture);
         const region = buildCaptureKrajLabel(capture);
+        const speciesTooltip = buildCaptureSpeciesTooltip(capture);
+        const speciesTitleAttr = speciesTooltip
+            ? ` title="${escapeHtml(speciesTooltip).replace(/\n/g, "&#10;")}"`
+            : "";
         const moderatorAction = canModeratorRecheck()
             ? `
                 <div class="gallery-item-actions">
@@ -694,12 +697,11 @@ function renderGallery(container) {
                         <span class="gallery-item-author">${escapeHtml(authorName)}</span>
                     </a>
                 </div>
-                <div class="gallery-item-image">
-                    <img src="${url}" loading="lazy" alt="Houbařský úlovek">
+                <div class="gallery-item-image"${speciesTitleAttr}>
+                    <img src="${url}" loading="lazy" alt="Houbařský úlovek"${speciesTitleAttr}>
                     ${accessBadge}
                 </div>
                 <div class="gallery-item-copy">
-                    ${species ? `<strong class="gallery-item-species">${escapeHtml(species)}</strong>` : ""}
                     ${region ? `<p>Kraj: ${escapeHtml(region)}</p>` : ""}
                     ${moderatorAction}
                     ${renderModeratorTaxonomyEditor(capture)}

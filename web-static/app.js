@@ -420,6 +420,44 @@ function formatCaptureProbability(probability) {
     return `${Math.round(numeric * 100)} %`;
 }
 
+function buildCaptureSpeciesEntries(capture) {
+    if (!capture) return [];
+
+    const species = Array.isArray(capture.mushroom_species) ? capture.mushroom_species.filter(Boolean) : [];
+    if (species.length > 0) {
+        return species.map((item) => {
+            const czechName = String(item.czech_official_name || "").trim();
+            const latinName = String(item.latin_name || "").trim();
+            const probability = formatCaptureProbability(item.probability);
+
+            let label = "";
+            if (czechName && latinName && czechName.toLowerCase() !== latinName.toLowerCase()) {
+                label = `${czechName} (${latinName})`;
+            } else {
+                label = czechName || latinName;
+            }
+            if (!label) {
+                return "";
+            }
+            if (!probability) {
+                return label;
+            }
+            return `${label} • ${probability}`;
+        }).filter(Boolean);
+    }
+
+    const fallback = buildCaptureSpeciesLabel(capture);
+    return fallback ? [fallback] : [];
+}
+
+function buildCaptureSpeciesTooltip(capture) {
+    const entries = buildCaptureSpeciesEntries(capture);
+    if (entries.length === 0) {
+        return "";
+    }
+    return entries.join("\n");
+}
+
 function buildCaptureSpeciesLabel(capture) {
     if (!capture) return "";
 

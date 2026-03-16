@@ -313,6 +313,130 @@ func TestCaptureCoordinateUnlockFlow(t *testing.T) {
 	}
 }
 
+func TestPublicCapturesIncludeAllDetectedMushroomSpecies(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{
+		DBURL:             "file:" + filepath.Join(t.TempDir(), "test.db"),
+		FrontOrigin:       "https://houbamzdar.cz",
+		SessionCookieName: "hzd_session",
+	}
+
+	database, err := db.New(cfg)
+	if err != nil {
+		t.Fatalf("open test database: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = database.Close()
+	})
+
+	author, _, err := database.UpsertUser(&models.OIDCClaims{
+		Iss:               "https://ahoj420.eu",
+		Sub:               "public-capture-multi-species-author",
+		PreferredUsername: "atlas",
+		Email:             "atlas@example.test",
+		EmailVerified:     true,
+	}, &oauth2.Token{
+		AccessToken:  "atlas-access",
+		RefreshToken: "atlas-refresh",
+		Expiry:       time.Now().Add(time.Hour).UTC(),
+	})
+	if err != nil {
+		t.Fatalf("create author: %v", err)
+	}
+
+	capturedAt := time.Date(2026, time.March, 16, 10, 0, 0, 0, time.UTC)
+	capture := &models.Capture{
+		ID:                "public-capture-multi-species",
+		UserID:            author.ID,
+		OriginalFileName:  "multi-species.jpg",
+		ContentType:       "image/jpeg",
+		SizeBytes:         4096,
+		Width:             1600,
+		Height:            1200,
+		CapturedAt:        capturedAt,
+		UploadedAt:        capturedAt.Add(30 * time.Second),
+		Status:            "private",
+		PrivateStorageKey: "captures/private/public-capture-multi-species.jpg",
+	}
+	if err := database.CreateCapture(capture); err != nil {
+		t.Fatalf("create capture: %v", err)
+	}
+
+	analysis := &models.CaptureMushroomAnalysis{
+		CaptureID:                capture.ID,
+		HasMushrooms:             true,
+		PrimaryLatinName:         "Boletus edulis",
+		PrimaryCzechOfficialName: "hřib smrkový",
+		PrimaryProbability:       0.97,
+		ModelCode:                "gemini-2.5-flash",
+		RawJSON:                  "{}",
+		AnalyzedAt:               capturedAt.Add(time.Minute),
+	}
+	species := []*models.CaptureMushroomSpecies{
+		{
+			CaptureID:         capture.ID,
+			LatinName:         "Boletus edulis",
+			CzechOfficialName: "hřib smrkový",
+			Probability:       0.97,
+		},
+		{
+			CaptureID:         capture.ID,
+			LatinName:         "Cantharellus cibarius",
+			CzechOfficialName: "liška obecná",
+			Probability:       0.81,
+		},
+	}
+	geo := &models.CaptureGeoIndex{
+		CaptureID:   capture.ID,
+		CountryCode: "CZ",
+		KrajName:    "Středočeský kraj",
+		RawJSON:     "{}",
+		ResolvedAt:  capturedAt.Add(2 * time.Minute),
+	}
+	if err := database.FinalizeCapturePublicationApproved(
+		capture.ID,
+		author.ID,
+		"captures/public/public-capture-multi-species.jpg",
+		analysis,
+		species,
+		geo,
+	); err != nil {
+		t.Fatalf("finalize capture: %v", err)
+	}
+
+	srv := New(cfg, database, nil, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/public/captures?limit=10&offset=0", nil)
+	rec := httptest.NewRecorder()
+	srv.Router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var payload struct {
+		OK       bool              `json:"ok"`
+		Captures []*models.Capture `json:"captures"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	if !payload.OK || len(payload.Captures) != 1 {
+		t.Fatalf("unexpected payload: %+v", payload)
+	}
+	if got := len(payload.Captures[0].MushroomSpecies); got != 2 {
+		t.Fatalf("expected 2 mushroom species in public payload, got %d", got)
+	}
+	if payload.Captures[0].MushroomSpecies[0].LatinName != "Boletus edulis" {
+		t.Fatalf("expected first species to stay ordered by probability, got %+v", payload.Captures[0].MushroomSpecies)
+	}
+	if payload.Captures[0].MushroomSpecies[1].LatinName != "Cantharellus cibarius" {
+		t.Fatalf("expected second species in payload, got %+v", payload.Captures[0].MushroomSpecies)
+	}
+}
+
 func TestAdminID20CanSeeAllMapMarkers(t *testing.T) {
 	t.Parallel()
 

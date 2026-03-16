@@ -485,6 +485,66 @@ func (db *DB) GetCaptureMushroomReview(captureID string) (*models.CaptureMushroo
 	return &analysis, species, nil
 }
 
+func (db *DB) attachCaptureMushroomSpecies(captures []*models.Capture) error {
+	if len(captures) == 0 {
+		return nil
+	}
+
+	ids := make([]string, 0, len(captures))
+	seen := make(map[string]struct{}, len(captures))
+	for _, capture := range captures {
+		if capture == nil || strings.TrimSpace(capture.ID) == "" {
+			continue
+		}
+		if _, ok := seen[capture.ID]; ok {
+			continue
+		}
+		seen[capture.ID] = struct{}{}
+		ids = append(ids, capture.ID)
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+
+	placeholders := make([]string, len(ids))
+	args := make([]interface{}, len(ids))
+	for idx, captureID := range ids {
+		placeholders[idx] = "?"
+		args[idx] = captureID
+	}
+
+	rows, err := db.Query(fmt.Sprintf(`
+		SELECT id, capture_id, latin_name, COALESCE(czech_official_name, ''), probability
+		FROM capture_mushroom_species
+		WHERE capture_id IN (%s)
+		ORDER BY capture_id ASC, probability DESC, id ASC
+	`, strings.Join(placeholders, ",")), args...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	speciesByCaptureID := make(map[string][]*models.CaptureMushroomSpecies, len(ids))
+	for rows.Next() {
+		item := &models.CaptureMushroomSpecies{}
+		if err := rows.Scan(&item.ID, &item.CaptureID, &item.LatinName, &item.CzechOfficialName, &item.Probability); err != nil {
+			return err
+		}
+		speciesByCaptureID[item.CaptureID] = append(speciesByCaptureID[item.CaptureID], item)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	for _, capture := range captures {
+		if capture == nil {
+			continue
+		}
+		capture.MushroomSpecies = speciesByCaptureID[capture.ID]
+	}
+	return nil
+}
+
 func (db *DB) GetCaptureGeoIndex(captureID string) (*models.CaptureGeoIndex, error) {
 	var (
 		geo         models.CaptureGeoIndex
@@ -771,6 +831,10 @@ func (db *DB) ListAdminAllMapCapturesWithFilters(filters PublicCaptureFilters) (
 		return nil, err
 	}
 
+	if err := db.attachCaptureMushroomSpecies(captures); err != nil {
+		return nil, err
+	}
+
 	return captures, nil
 }
 
@@ -974,6 +1038,10 @@ func (db *DB) listPublicCapturesWithFilters(filters PublicCaptureFilters, viewer
 		captures = append(captures, &c)
 	}
 	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	if err := db.attachCaptureMushroomSpecies(captures); err != nil {
 		return nil, err
 	}
 
