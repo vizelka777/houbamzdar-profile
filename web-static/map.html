@@ -54,8 +54,7 @@
             <p class="section-label">Mapa</p>
             <h1>Místa nálezů</h1>
             <p>
-                Prohlédněte si, kde rostou. Pokud autor sdílí přesné souřadnice zdarma, můžete hledat až na úroveň okresu nebo obce.
-                Když jsou souřadnice chráněné houbičkou, veřejné vyhledávání zůstává jen na úrovni kraje.
+                Prohlédněte si, kde rostou. Fotografie se zobrazují přímo přes body na mapě a druh houby můžete zúžit jediným filtrem.
             </p>
             <form id="global-map-filter-form" class="public-capture-filter-form">
                 <div class="public-capture-filter-grid">
@@ -63,41 +62,14 @@
                         <span>Druh houby</span>
                         <input id="global-filter-species" type="search" placeholder="např. hřib smrkový nebo boletus">
                     </label>
-                    <label class="public-capture-filter-field">
-                        <span>Kraj</span>
-                        <input id="global-filter-kraj" type="search" placeholder="např. Jihomoravský kraj">
-                    </label>
-                    <label class="public-capture-filter-field">
-                        <span>Okres</span>
-                        <input id="global-filter-okres" type="search" placeholder="jen pro sdílené souřadnice">
-                    </label>
-                    <label class="public-capture-filter-field">
-                        <span>Obec</span>
-                        <input id="global-filter-obec" type="search" placeholder="jen pro sdílené souřadnice">
-                    </label>
-                    <label class="public-capture-filter-field">
-                        <span>Řazení</span>
-                        <select id="global-filter-sort">
-                            <option value="published_desc">Nejnovější zveřejnění</option>
-                            <option value="captured_desc">Nejnovější nález</option>
-                            <option value="probability_desc">Nejvyšší pravděpodobnost</option>
-                            <option value="kraj_asc">Kraje A-Z</option>
-                            <option value="okres_asc">Okresy A-Z</option>
-                            <option value="obec_asc">Obce A-Z</option>
-                        </select>
-                    </label>
                 </div>
                 <div class="action-row">
                     <button type="submit" class="btn btn-primary">Použít filtry</button>
                     <button id="global-map-filter-reset" type="button" class="btn btn-secondary">Vymazat</button>
                 </div>
-                <p class="muted-copy" style="margin-top: 0.75rem;">
-                    `Okres` a `obec` fungují jen u fotografií, kde autor zveřejnil souřadnice zdarma.
-                </p>
             </form>
             <p id="global-map-summary" class="muted-copy">Načítám veřejná místa...</p>
             <div id="global-map"></div>
-            <div id="global-map-results" class="public-capture-results-grid"></div>
             <div class="action-row">
                 <button id="global-map-load-more-btn" class="btn btn-secondary" style="display: none;">Načíst další body</button>
             </div>

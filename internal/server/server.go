@@ -61,6 +61,7 @@ func (s *Server) setupRoutes() {
 	s.Router.Get("/api/public/users/{userID}/captures", s.handleListPublicUserCaptures)
 	s.Router.Get("/api/public/posts", s.handleListPublicPosts)
 	s.Router.Get("/api/public/captures", s.handleListPublicCaptures)
+	s.Router.Get("/api/public/map-captures", s.handleListPublicMapCaptures)
 
 	s.Router.Group(func(r chi.Router) {
 		r.Use(s.authMiddleware)

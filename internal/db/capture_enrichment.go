@@ -366,6 +366,14 @@ func (db *DB) ApplyCaptureModeratorReview(
 }
 
 func (db *DB) ListPublicCapturesWithFilters(filters PublicCaptureFilters, viewerUserID int64) ([]*models.Capture, error) {
+	return db.listPublicCapturesWithFilters(filters, viewerUserID, false)
+}
+
+func (db *DB) ListPublicMapCapturesWithFilters(filters PublicCaptureFilters, viewerUserID int64) ([]*models.Capture, error) {
+	return db.listPublicCapturesWithFilters(filters, viewerUserID, true)
+}
+
+func (db *DB) listPublicCapturesWithFilters(filters PublicCaptureFilters, viewerUserID int64, requireVisibleCoordinates bool) ([]*models.Capture, error) {
 	filters = normalizePublicCaptureFilters(filters)
 
 	var (
@@ -376,6 +384,26 @@ func (db *DB) ListPublicCapturesWithFilters(filters PublicCaptureFilters, viewer
 		}
 		args []interface{}
 	)
+
+	if requireVisibleCoordinates {
+		whereClauses = append(whereClauses, "c.latitude IS NOT NULL", "c.longitude IS NOT NULL")
+		if viewerUserID > 0 {
+			whereClauses = append(whereClauses, `
+				(
+					c.user_id = ?
+					OR COALESCE(c.coordinates_free, 0) = 1
+					OR EXISTS (
+						SELECT 1
+						FROM capture_coordinate_unlocks cu
+						WHERE cu.capture_id = c.id AND cu.viewer_user_id = ?
+					)
+				)
+			`)
+			args = append(args, viewerUserID, viewerUserID)
+		} else {
+			whereClauses = append(whereClauses, "COALESCE(c.coordinates_free, 0) = 1")
+		}
+	}
 
 	if filters.HasMushrooms != nil {
 		whereClauses = append(whereClauses, "COALESCE(ma.has_mushrooms, 0) = ?")
@@ -505,6 +533,16 @@ func (db *DB) ListPublicCapturesWithFilters(filters PublicCaptureFilters, viewer
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
+	}
+
+	if requireVisibleCoordinates {
+		for _, capture := range captures {
+			if capture == nil {
+				continue
+			}
+			capture.CoordinatesLocked = false
+		}
+		return captures, nil
 	}
 
 	if err := db.maskCaptureCoordinatesForViewer(viewerUserID, captures); err != nil {

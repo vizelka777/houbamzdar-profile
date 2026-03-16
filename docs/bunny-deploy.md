@@ -12,6 +12,32 @@
 - Backend API: Bunny Magic Containers, образ `houbamzdar/bff:vNN`
 - Статика: Bunny Storage + CDN для `houbamzdar.cz`
 - Публичные фото: Bunny Storage / CDN для `foto.houbamzdar.cz`
+- AI validator: Bunny Edge Script `houbamzdar-ai-analyze-api`
+
+## Edge Script env
+
+У validator script сейчас важны эти переменные в Bunny:
+
+- `GEMINI_API_KEY`
+- `CAPTURE_AI_VALIDATOR_TOKEN`
+- `BUNNY_PRIVATE_STORAGE_KEY`
+- `PUBLISH_GEMINI_MODEL`
+  Обычная publish validation. Обязательная переменная.
+- `MODERATOR_DEFAULT_GEMINI_MODEL`
+  Default для moderatorského recheck. Обязательная переменная.
+
+Если нужно экспериментировать с model selection без правки кода, менять надо именно `PUBLISH_GEMINI_MODEL` и `MODERATOR_DEFAULT_GEMINI_MODEL` в Bunny Edge Script env, потом перепубликовать script.
+В коде fallback больше нет: если одна из этих переменных пуста, `/config` и рабочие endpoint validator вернут явную ошибку конфигурации.
+
+Полезные read-only endpoint у validator:
+
+- `/health`
+- `/config`
+  Возвращает текущие configured defaults:
+  - `publish_default_model`
+  - `moderator_default_model`
+- `/models`
+  Возвращает moderator model catalog и `default_model`, но требует `Authorization: Bearer <CAPTURE_AI_VALIDATOR_TOKEN>`, если token включён.
 
 ## Перед деплоем
 

@@ -7,11 +7,7 @@ const globalMapState = {
     isLoading: false,
     results: [],
     filters: {
-        species: "",
-        kraj: "",
-        okres: "",
-        obec: "",
-        sort: "published_desc"
+        species: ""
     },
     map: null,
     markerLayer: null,
@@ -39,10 +35,6 @@ function ensureGlobalMap() {
 function readGlobalMapFiltersFromQuery() {
     const query = new URLSearchParams(window.location.search);
     globalMapState.filters.species = (query.get("species") || "").trim();
-    globalMapState.filters.kraj = (query.get("kraj") || "").trim();
-    globalMapState.filters.okres = (query.get("okres") || "").trim();
-    globalMapState.filters.obec = (query.get("obec") || "").trim();
-    globalMapState.filters.sort = (query.get("sort") || "published_desc").trim() || "published_desc";
 }
 
 function syncGlobalMapFilterInputs() {
@@ -54,21 +46,11 @@ function syncGlobalMapFilterInputs() {
     };
 
     setValue("global-filter-species", globalMapState.filters.species);
-    setValue("global-filter-kraj", globalMapState.filters.kraj);
-    setValue("global-filter-okres", globalMapState.filters.okres);
-    setValue("global-filter-obec", globalMapState.filters.obec);
-    setValue("global-filter-sort", globalMapState.filters.sort);
 }
 
 function syncGlobalMapQueryString() {
     const params = new URLSearchParams();
     if (globalMapState.filters.species) params.set("species", globalMapState.filters.species);
-    if (globalMapState.filters.kraj) params.set("kraj", globalMapState.filters.kraj);
-    if (globalMapState.filters.okres) params.set("okres", globalMapState.filters.okres);
-    if (globalMapState.filters.obec) params.set("obec", globalMapState.filters.obec);
-    if (globalMapState.filters.sort && globalMapState.filters.sort !== "published_desc") {
-        params.set("sort", globalMapState.filters.sort);
-    }
 
     const query = params.toString();
     const nextURL = query ? `${window.location.pathname}?${query}` : window.location.pathname;
@@ -80,10 +62,6 @@ function buildGlobalMapQuery() {
     params.set("limit", String(globalMapState.pageSize));
     params.set("offset", String(globalMapState.offset));
     if (globalMapState.filters.species) params.set("species", globalMapState.filters.species);
-    if (globalMapState.filters.kraj) params.set("kraj", globalMapState.filters.kraj);
-    if (globalMapState.filters.okres) params.set("okres", globalMapState.filters.okres);
-    if (globalMapState.filters.obec) params.set("obec", globalMapState.filters.obec);
-    if (globalMapState.filters.sort) params.set("sort", globalMapState.filters.sort);
     return params.toString();
 }
 
@@ -92,11 +70,11 @@ function updateGlobalMapSummary() {
     const loadMoreButton = document.getElementById("global-map-load-more-btn");
     if (summary) {
         if (globalMapState.isLoading && globalMapState.loaded === 0) {
-            summary.textContent = "Načítám veřejné fotografie...";
+            summary.textContent = "Načítám body na mapě...";
         } else if (globalMapState.loaded === 0) {
-            summary.textContent = "Pro tento filtr zatím není žádná veřejná fotografie.";
+            summary.textContent = "Pro tento filtr zatím není žádný bod na mapě.";
         } else {
-            summary.textContent = `Načteno ${globalMapState.loaded} veřejných fotografií, na mapě ${globalMapState.mapped} s dostupnou polohou.`;
+            summary.textContent = `Načteno ${globalMapState.loaded} bodů na mapě.`;
         }
     }
     if (loadMoreButton) {
@@ -185,51 +163,6 @@ function renderGlobalMapMarkers() {
     }
 }
 
-function buildGlobalMapResultCard(capture) {
-    const authorName = escapeHtml(capture.author_name || "Neznámý houbař");
-    const authorURL = escapeHtml(buildPublicProfileURL(capture.author_user_id));
-    const previewURL = escapeHtml(buildCaptureImageURL(capture, "thumb"));
-    const fullURL = escapeHtml(buildCaptureImageURL(capture, "original"));
-    const date = escapeHtml(formatDateTime(capture.captured_at));
-    const species = buildCaptureSpeciesLabel(capture);
-    const region = buildCaptureRegionLabel(capture);
-    const regionNote = buildCaptureRegionSearchNote(capture);
-    const exactLocationNote = captureHasCoordinates(capture)
-        ? "Poloha je dostupná i na mapě."
-        : "Přesná poloha zůstává skrytá, veřejně je vidět jen oblast.";
-
-    return `
-        <article class="public-capture-result-card">
-            <a href="${fullURL}" target="_blank" rel="noreferrer" class="public-capture-result-thumb-link">
-                <img src="${previewURL}" alt="${authorName}" class="public-capture-result-thumb" loading="lazy">
-                ${buildCaptureAccessBadgeHtml(capture)}
-            </a>
-            <div class="public-capture-result-body">
-                <div class="public-capture-result-topline">
-                    <a href="${authorURL}" class="author-link public-capture-result-author">${authorName}</a>
-                    <span class="public-capture-result-date">${date}</span>
-                </div>
-                ${species ? `<strong class="public-capture-result-species">${escapeHtml(species)}</strong>` : ""}
-                ${region ? `<p class="public-capture-result-copy">${escapeHtml(region)}</p>` : ""}
-                ${regionNote ? `<p class="public-capture-result-copy">${escapeHtml(regionNote)}</p>` : ""}
-                <p class="public-capture-result-copy">${escapeHtml(exactLocationNote)}</p>
-            </div>
-        </article>
-    `;
-}
-
-function renderGlobalMapResults() {
-    const resultsNode = document.getElementById("global-map-results");
-    if (!resultsNode) return;
-
-    if (!globalMapState.results.length) {
-        resultsNode.innerHTML = "";
-        return;
-    }
-
-    resultsNode.innerHTML = globalMapState.results.map(buildGlobalMapResultCard).join("");
-}
-
 async function loadGlobalMapBatch({ reset = false } = {}) {
     const map = ensureGlobalMap();
     if (!map || globalMapState.isLoading || (!reset && !globalMapState.hasMore)) {
@@ -243,14 +176,13 @@ async function loadGlobalMapBatch({ reset = false } = {}) {
         globalMapState.loaded = 0;
         globalMapState.mapped = 0;
         globalMapState.results = [];
-        renderGlobalMapResults();
         updateGlobalMapSummary();
     }
 
     try {
-        const result = await apiGet(`/api/public/captures?${buildGlobalMapQuery()}`);
+        const result = await apiGet(`/api/public/map-captures?${buildGlobalMapQuery()}`);
         if (!result || !result.ok || !Array.isArray(result.captures)) {
-            throw new Error("Nepodařilo se načíst veřejné fotografie.");
+            throw new Error("Nepodařilo se načíst body na mapě.");
         }
 
         globalMapState.results = reset
@@ -261,7 +193,6 @@ async function loadGlobalMapBatch({ reset = false } = {}) {
         globalMapState.hasMore = result.captures.length === globalMapState.pageSize;
 
         renderGlobalMapMarkers();
-        renderGlobalMapResults();
     } catch (error) {
         console.error("Failed to load global map batch", error);
         const summary = document.getElementById("global-map-summary");
@@ -278,19 +209,11 @@ function readGlobalMapFiltersFromForm() {
     const readValue = (id) => (document.getElementById(id)?.value || "").trim();
 
     globalMapState.filters.species = readValue("global-filter-species");
-    globalMapState.filters.kraj = readValue("global-filter-kraj");
-    globalMapState.filters.okres = readValue("global-filter-okres");
-    globalMapState.filters.obec = readValue("global-filter-obec");
-    globalMapState.filters.sort = readValue("global-filter-sort") || "published_desc";
 }
 
 function resetGlobalMapFilters() {
     globalMapState.filters = {
-        species: "",
-        kraj: "",
-        okres: "",
-        obec: "",
-        sort: "published_desc"
+        species: ""
     };
     syncGlobalMapFilterInputs();
     syncGlobalMapQueryString();

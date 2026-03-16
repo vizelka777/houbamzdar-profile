@@ -3,8 +3,8 @@ import process from "node:process";
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
 const VALIDATOR_TOKEN = process.env.CAPTURE_AI_VALIDATOR_TOKEN || "";
-const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash";
-const MODERATOR_GEMINI_MODEL = "gemini-2.5-pro";
+const DEFAULT_PUBLISH_GEMINI_MODEL = stripModelPrefix(process.env.PUBLISH_GEMINI_MODEL);
+const DEFAULT_MODERATOR_GEMINI_MODEL = stripModelPrefix(process.env.MODERATOR_DEFAULT_GEMINI_MODEL);
 const BUNNY_STORAGE_HOST = "storage.bunnycdn.com";
 const BUNNY_PRIVATE_STORAGE_ZONE = "houbamzdarprivateedge";
 const BUNNY_PRIVATE_STORAGE_KEY = process.env.BUNNY_PRIVATE_STORAGE_KEY || "";
@@ -20,6 +20,31 @@ let modelCatalogCache = {
     fetchedAt: 0,
     catalog: null
 };
+
+function requireConfiguredModel(value, envName) {
+    const code = stripModelPrefix(value);
+    if (!code) {
+        throw new Error(`Missing required Bunny environment variable ${envName}`);
+    }
+    return code;
+}
+
+function currentDefaultPublishModel() {
+    return requireConfiguredModel(DEFAULT_PUBLISH_GEMINI_MODEL, "PUBLISH_GEMINI_MODEL");
+}
+
+function currentDefaultModeratorModel() {
+    return requireConfiguredModel(DEFAULT_MODERATOR_GEMINI_MODEL, "MODERATOR_DEFAULT_GEMINI_MODEL");
+}
+
+function buildPublicConfig() {
+    return {
+        ok: true,
+        script: "houbamzdar-ai-analyze-api",
+        publish_default_model: currentDefaultPublishModel(),
+        moderator_default_model: currentDefaultModeratorModel()
+    };
+}
 
 function json(data, status = 200) {
     return new Response(JSON.stringify(data), {
@@ -161,14 +186,16 @@ async function fetchModeratorModelCatalog(forceRefresh = false) {
             })
         : [];
 
-    const defaultModel = models.find((item) => item.code === "gemini-3.1-pro-preview")
-        || models.find((item) => item.code === MODERATOR_GEMINI_MODEL)
-        || models[0]
-        || null;
+    const configuredModeratorModel = currentDefaultModeratorModel();
+    const defaultModel = models.find((item) => item.code === configuredModeratorModel) || null;
+    if (!defaultModel) {
+        throw new Error(`Configured moderator model "${configuredModeratorModel}" is not available in the current Gemini catalog`);
+    }
 
     const catalog = {
         ok: true,
-        default_model: defaultModel ? defaultModel.code : stripModelPrefix(MODERATOR_GEMINI_MODEL),
+        default_model: defaultModel.code,
+        publish_default_model: currentDefaultPublishModel(),
         models
     };
     modelCatalogCache = {
@@ -180,7 +207,7 @@ async function fetchModeratorModelCatalog(forceRefresh = false) {
 
 async function pickGeminiModel(reviewMode, requestedModel = "") {
     if (reviewMode !== REVIEW_MODE_MODERATOR_RECHECK) {
-        return DEFAULT_GEMINI_MODEL;
+        return currentDefaultPublishModel();
     }
 
     const catalog = await fetchModeratorModelCatalog();
@@ -188,7 +215,7 @@ async function pickGeminiModel(reviewMode, requestedModel = "") {
     if (requestedCode && catalog.models.some((item) => item.code === requestedCode)) {
         return requestedCode;
     }
-    return catalog.default_model || MODERATOR_GEMINI_MODEL;
+    return catalog.default_model || currentDefaultModeratorModel();
 }
 
 function buildPrompt(reviewMode) {
@@ -279,6 +306,14 @@ BunnySDK.net.http.serve(async (request) => {
 
     if (url.pathname === "/health") {
         return json({ ok: true, script: "houbamzdar-ai-analyze-api" });
+    }
+
+    if (url.pathname === "/config") {
+        try {
+            return json(buildPublicConfig());
+        } catch (error) {
+            return json({ ok: false, error: error instanceof Error ? error.message : "invalid validator config" }, 500);
+        }
     }
 
     if (url.pathname === "/models") {

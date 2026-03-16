@@ -1379,4 +1379,33 @@ func TestListPublicCapturesWithFiltersRespectsGeoPrivacyAndSpeciesSearch(t *test
 	if sortedByProbability[0].ID != paidMoravia.ID || sortedByProbability[1].ID != freeMoravia.ID || sortedByProbability[2].ID != freePraha.ID {
 		t.Fatalf("unexpected probability ordering: %+v", []string{sortedByProbability[0].ID, sortedByProbability[1].ID, sortedByProbability[2].ID})
 	}
+
+	mapMatches, err := database.ListPublicMapCapturesWithFilters(PublicCaptureFilters{
+		Limit: 10,
+	}, 0)
+	if err != nil {
+		t.Fatalf("list public map captures: %v", err)
+	}
+	if len(mapMatches) != 2 {
+		t.Fatalf("expected 2 visible map captures for guest, got %d", len(mapMatches))
+	}
+	if mapMatches[0].ID != freePraha.ID || mapMatches[1].ID != freeMoravia.ID {
+		t.Fatalf("unexpected guest map captures ordering: %+v", []string{mapMatches[0].ID, mapMatches[1].ID})
+	}
+	for _, capture := range mapMatches {
+		if capture.Latitude == nil || capture.Longitude == nil || capture.CoordinatesLocked {
+			t.Fatalf("expected visible coordinates in map captures, got %+v", capture)
+		}
+	}
+
+	mapSpeciesMatches, err := database.ListPublicMapCapturesWithFilters(PublicCaptureFilters{
+		Limit:        10,
+		SpeciesQuery: "hrib",
+	}, 0)
+	if err != nil {
+		t.Fatalf("list public map captures by species: %v", err)
+	}
+	if len(mapSpeciesMatches) != 1 || mapSpeciesMatches[0].ID != freeMoravia.ID {
+		t.Fatalf("expected only free moravia capture on guest map species search, got %+v", mapSpeciesMatches)
+	}
 }

@@ -68,6 +68,28 @@ func (s *Server) handleListPublicCaptures(w http.ResponseWriter, r *http.Request
 	})
 }
 
+func (s *Server) handleListPublicMapCaptures(w http.ResponseWriter, r *http.Request) {
+	currentUserID := s.currentUserIDFromOptionalSession(r)
+	filters := parsePublicCaptureFilters(r)
+	captures, err := s.DB.ListPublicMapCapturesWithFilters(filters, currentUserID)
+	if err != nil {
+		http.Error(w, "failed to list public map captures", http.StatusInternalServerError)
+		return
+	}
+
+	if captures == nil {
+		captures = []*models.Capture{}
+	} else {
+		attachPublicURLs(captures, s.Media)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"ok":       true,
+		"captures": captures,
+	})
+}
+
 func (s *Server) handleCreateCapture(w http.ResponseWriter, r *http.Request) {
 	user := r.Context().Value("user").(*models.User)
 

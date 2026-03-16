@@ -132,6 +132,27 @@ func TestCaptureCoordinateUnlockFlow(t *testing.T) {
 		t.Fatalf("expected free capture to stay unlocked for guest")
 	}
 
+	guestMapReq := httptest.NewRequest(http.MethodGet, "/api/public/map-captures?limit=10&offset=0", nil)
+	guestMapRec := httptest.NewRecorder()
+	srv.Router.ServeHTTP(guestMapRec, guestMapReq)
+	if guestMapRec.Code != http.StatusOK {
+		t.Fatalf("expected status 200 for guest public map captures, got %d: %s", guestMapRec.Code, guestMapRec.Body.String())
+	}
+
+	var guestMapPayload struct {
+		OK       bool              `json:"ok"`
+		Captures []*models.Capture `json:"captures"`
+	}
+	if err := json.NewDecoder(guestMapRec.Body).Decode(&guestMapPayload); err != nil {
+		t.Fatalf("decode guest public map captures: %v", err)
+	}
+	if len(guestMapPayload.Captures) != 1 || guestMapPayload.Captures[0].ID != freeCapture.ID {
+		t.Fatalf("expected only free capture on guest map, got %+v", guestMapPayload.Captures)
+	}
+	if guestMapPayload.Captures[0].Latitude == nil || guestMapPayload.Captures[0].Longitude == nil || guestMapPayload.Captures[0].CoordinatesLocked {
+		t.Fatalf("expected free guest map capture to expose coordinates, got %+v", guestMapPayload.Captures[0])
+	}
+
 	guestUnlockReq := httptest.NewRequest(http.MethodPost, "/api/captures/"+paidCapture.ID+"/unlock-coordinates", nil)
 	guestUnlockRec := httptest.NewRecorder()
 	srv.Router.ServeHTTP(guestUnlockRec, guestUnlockReq)
@@ -206,6 +227,32 @@ func TestCaptureCoordinateUnlockFlow(t *testing.T) {
 	}
 	if captureByID[paidCapture.ID].Latitude == nil || captureByID[paidCapture.ID].Longitude == nil {
 		t.Fatalf("expected unlocked coordinates in authenticated public list")
+	}
+
+	authMapReq := httptest.NewRequest(http.MethodGet, "/api/public/map-captures?limit=10&offset=0", nil)
+	authMapReq.AddCookie(&http.Cookie{Name: cfg.SessionCookieName, Value: sessionID})
+	authMapRec := httptest.NewRecorder()
+	srv.Router.ServeHTTP(authMapRec, authMapReq)
+	if authMapRec.Code != http.StatusOK {
+		t.Fatalf("expected status 200 for authenticated public map captures, got %d: %s", authMapRec.Code, authMapRec.Body.String())
+	}
+
+	var authMapPayload struct {
+		OK       bool              `json:"ok"`
+		Captures []*models.Capture `json:"captures"`
+	}
+	if err := json.NewDecoder(authMapRec.Body).Decode(&authMapPayload); err != nil {
+		t.Fatalf("decode authenticated public map captures: %v", err)
+	}
+	if len(authMapPayload.Captures) != 2 {
+		t.Fatalf("expected both captures on unlocked viewer map, got %+v", authMapPayload.Captures)
+	}
+	captureByID = make(map[string]*models.Capture, len(authMapPayload.Captures))
+	for _, capture := range authMapPayload.Captures {
+		captureByID[capture.ID] = capture
+	}
+	if captureByID[paidCapture.ID] == nil || captureByID[paidCapture.ID].Latitude == nil || captureByID[paidCapture.ID].Longitude == nil || captureByID[paidCapture.ID].CoordinatesLocked {
+		t.Fatalf("expected paid capture to appear on unlocked viewer map, got %+v", captureByID[paidCapture.ID])
 	}
 
 	viewedReq := httptest.NewRequest(http.MethodGet, "/api/me/viewed-captures?limit=10&offset=0", nil)
