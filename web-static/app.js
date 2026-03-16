@@ -920,6 +920,40 @@ function fromDatetimeLocalValue(raw) {
     return parsed.toISOString();
 }
 
+function formatModerationActionTitle(action) {
+    switch (action?.action_kind) {
+        case "user_restrictions_updated":
+            return "Upravena omezení účtu";
+        case "user_roles_updated":
+            return "Upraveny role účtu";
+        case "capture_visibility_updated":
+            return "Upravena viditelnost fotografie";
+        case "post_visibility_updated":
+            return "Upravena viditelnost publikace";
+        case "comment_visibility_updated":
+            return "Upravena viditelnost komentáře";
+        default:
+            return "Moderátorský zásah";
+    }
+}
+
+function formatModerationActionDetails(action) {
+    const bits = [];
+    if (action?.reason_code) {
+        bits.push(`Důvod: ${action.reason_code}`);
+    }
+    if (action?.target_capture_id) {
+        bits.push("Cíl: fotografie");
+    } else if (action?.target_post_id) {
+        bits.push("Cíl: publikace");
+    } else if (action?.target_comment_id) {
+        bits.push("Cíl: komentář");
+    } else if (action?.target_user_id) {
+        bits.push("Cíl: účet");
+    }
+    return bits.join(" · ");
+}
+
 function renderPublicModeratorPanel(visible, allowRoleEditing) {
     const slot = document.getElementById("public-moderator-panel-slot");
     if (!slot) {
@@ -983,6 +1017,22 @@ function renderPublicModeratorPanel(visible, allowRoleEditing) {
                     <button id="moderation-save-roles-btn" type="button" class="btn btn-secondary">Uložit role</button>
                 </div>
             </div>
+
+            <div class="moderation-history-panel">
+                <div class="about-head">
+                    <div>
+                        <p class="section-label">Historie zásahů</p>
+                        <h3>Audit log</h3>
+                    </div>
+                </div>
+                <p id="moderation-actions-summary" class="muted-copy">Načítám historii moderace...</p>
+                <div id="moderation-actions-list" class="moderation-actions-list">
+                    <p class="muted-copy">Načítám historii moderace...</p>
+                </div>
+                <div class="action-row">
+                    <button id="moderation-actions-load-more-btn" type="button" class="btn btn-secondary" style="display: none;">Načíst další zásahy</button>
+                </div>
+            </div>
         </section>
     `;
 }
@@ -1020,9 +1070,80 @@ function syncPublicModeratorPanel() {
     }
 }
 
+function renderPublicModerationActions() {
+    const summaryNode = document.getElementById("moderation-actions-summary");
+    const listNode = document.getElementById("moderation-actions-list");
+    const loadMoreBtn = document.getElementById("moderation-actions-load-more-btn");
+    if (!summaryNode || !listNode) {
+        return;
+    }
+
+    const actions = publicProfileState.moderationActions || [];
+    const total = Number(publicProfileState.moderationActionsTotal || 0);
+
+    summaryNode.textContent = total > 0
+        ? `Načteno ${actions.length} z ${total} zásahů.`
+        : "Zatím bez zaznamenaných zásahů.";
+
+    if (!actions.length) {
+        listNode.innerHTML = '<p class="muted-copy">Zatím bez zaznamenaných zásahů.</p>';
+    } else {
+        listNode.innerHTML = actions.map((action) => {
+            const actorLabel = action.actor_name
+                ? `Moderoval ${escapeHtml(action.actor_name)}`
+                : `Moderoval uživatel #${escapeHtml(String(action.actor_user_id || ""))}`;
+            const details = formatModerationActionDetails(action);
+            return `
+                <article class="moderation-action-card">
+                    <div class="moderation-action-head">
+                        <strong>${escapeHtml(formatModerationActionTitle(action))}</strong>
+                        <span class="muted-copy">${escapeHtml(formatDateTime(action.created_at))}</span>
+                    </div>
+                    <p class="muted-copy">${actorLabel}</p>
+                    ${details ? `<p class="muted-copy">${escapeHtml(details)}</p>` : ""}
+                    ${action.note ? `<p>${escapeHtml(action.note)}</p>` : ""}
+                </article>
+            `;
+        }).join("");
+    }
+
+    if (loadMoreBtn) {
+        loadMoreBtn.style.display = publicProfileState.moderationActionsHasMore ? "inline-flex" : "none";
+    }
+}
+
+async function loadPublicModerationActions(append = false) {
+    if (!userCanModerateClient(window.appMe) || publicProfileState.isOwner || !publicProfileState.requestedUserID) {
+        publicProfileState.moderationActions = [];
+        publicProfileState.moderationActionsOffset = 0;
+        publicProfileState.moderationActionsTotal = 0;
+        publicProfileState.moderationActionsHasMore = false;
+        return;
+    }
+
+    if (!append) {
+        publicProfileState.moderationActions = [];
+        publicProfileState.moderationActionsOffset = 0;
+        publicProfileState.moderationActionsTotal = 0;
+        publicProfileState.moderationActionsHasMore = false;
+        renderPublicModerationActions();
+    }
+
+    const result = await apiJsonRequest(
+        `/api/moderation/users/${encodeURIComponent(publicProfileState.requestedUserID)}/actions?limit=${publicProfileState.moderationActionsLimit}&offset=${publicProfileState.moderationActionsOffset}`
+    );
+    const actions = Array.isArray(result?.actions) ? result.actions : [];
+    publicProfileState.moderationActions = publicProfileState.moderationActions.concat(actions);
+    publicProfileState.moderationActionsOffset += actions.length;
+    publicProfileState.moderationActionsTotal = Number(result?.total || 0);
+    publicProfileState.moderationActionsHasMore = Boolean(result?.has_more);
+    renderPublicModerationActions();
+}
+
 async function loadPublicModerationUser() {
     if (!userCanModerateClient(window.appMe) || publicProfileState.isOwner || !publicProfileState.requestedUserID) {
         publicProfileState.moderationUser = null;
+        publicProfileState.moderationActions = [];
         renderPublicModeratorPanel(false, false);
         return;
     }
@@ -1037,6 +1158,7 @@ async function loadPublicModerationUser() {
         publicProfileState.moderationUser = result.user;
         syncPublicModeratorPanel();
         attachPublicModeratorPanelHandlers();
+        await loadPublicModerationActions(false);
     } catch (error) {
         console.error("Failed to load moderation user", error);
         const status = document.getElementById("moderation-status");
@@ -1047,6 +1169,7 @@ async function loadPublicModerationUser() {
 function attachPublicModeratorPanelHandlers() {
     const restrictionsBtn = document.getElementById("moderation-save-restrictions-btn");
     const rolesBtn = document.getElementById("moderation-save-roles-btn");
+    const actionsLoadMoreBtn = document.getElementById("moderation-actions-load-more-btn");
     const status = document.getElementById("moderation-status");
 
     if (restrictionsBtn && !restrictionsBtn.dataset.bound) {
@@ -1071,6 +1194,7 @@ function attachPublicModeratorPanelHandlers() {
                 );
                 publicProfileState.moderationUser = payload.user || null;
                 syncPublicModeratorPanel();
+                await loadPublicModerationActions(false);
                 setStatusMessage(status, "Omezení uložena.", "success");
             } catch (error) {
                 console.error("Failed to save user restrictions", error);
@@ -1101,12 +1225,28 @@ function attachPublicModeratorPanelHandlers() {
                 );
                 publicProfileState.moderationUser = payload.user || null;
                 syncPublicModeratorPanel();
+                await loadPublicModerationActions(false);
                 setStatusMessage(status, "Role uloženy.", "success");
             } catch (error) {
                 console.error("Failed to save user roles", error);
                 setStatusMessage(status, error.message || "Role se nepodařilo uložit.", "error");
             } finally {
                 rolesBtn.disabled = false;
+            }
+        });
+    }
+
+    if (actionsLoadMoreBtn && !actionsLoadMoreBtn.dataset.bound) {
+        actionsLoadMoreBtn.dataset.bound = "1";
+        actionsLoadMoreBtn.addEventListener("click", async () => {
+            try {
+                actionsLoadMoreBtn.disabled = true;
+                await loadPublicModerationActions(true);
+            } catch (error) {
+                console.error("Failed to load more moderation actions", error);
+                setStatusMessage(status, error.message || "Nepodařilo se načíst další zásahy.", "error");
+            } finally {
+                actionsLoadMoreBtn.disabled = false;
             }
         });
     }
@@ -1117,6 +1257,11 @@ const publicProfileState = {
     isOwner: false,
     user: null,
     moderationUser: null,
+    moderationActions: [],
+    moderationActionsLimit: 8,
+    moderationActionsOffset: 0,
+    moderationActionsTotal: 0,
+    moderationActionsHasMore: false,
     posts: [],
     captures: [],
     postsLimit: 6,
@@ -1355,6 +1500,10 @@ async function initPublicProfilePage() {
     publicProfileState.user = null;
     publicProfileState.isOwner = false;
     publicProfileState.moderationUser = null;
+    publicProfileState.moderationActions = [];
+    publicProfileState.moderationActionsOffset = 0;
+    publicProfileState.moderationActionsTotal = 0;
+    publicProfileState.moderationActionsHasMore = false;
     renderPublicModeratorPanel(false, false);
     renderPublicOwnerPanel(false);
 

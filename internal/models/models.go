@@ -218,6 +218,7 @@ type PublicUserProfile struct {
 type ModerationAction struct {
 	ID              string    `json:"id"`
 	ActorUserID     int64     `json:"actor_user_id"`
+	ActorName       string    `json:"actor_name,omitempty"`
 	TargetUserID    int64     `json:"target_user_id,omitempty"`
 	TargetCaptureID string    `json:"target_capture_id,omitempty"`
 	TargetPostID    string    `json:"target_post_id,omitempty"`

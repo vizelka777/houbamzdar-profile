@@ -1518,6 +1518,39 @@ img {
     border-top: 1px solid rgba(19, 38, 29, 0.08);
 }
 
+.moderation-history-panel {
+    display: grid;
+    gap: 0.85rem;
+    padding-top: 0.9rem;
+    border-top: 1px solid rgba(19, 38, 29, 0.08);
+}
+
+.moderation-actions-list {
+    display: grid;
+    gap: 0.75rem;
+}
+
+.moderation-action-card {
+    display: grid;
+    gap: 0.35rem;
+    padding: 0.9rem 1rem;
+    border: 1px solid rgba(19, 38, 29, 0.08);
+    border-radius: 1rem;
+    background: rgba(255, 255, 255, 0.68);
+}
+
+.moderation-action-card p {
+    margin: 0;
+}
+
+.moderation-action-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    align-items: baseline;
+    flex-wrap: wrap;
+}
+
 .moderation-checkbox {
     display: inline-flex;
     align-items: center;

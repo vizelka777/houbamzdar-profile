@@ -72,6 +72,26 @@ func buildModerationUserPayload(user *models.User) map[string]interface{} {
 	}
 }
 
+func buildModerationActionPayload(action *models.ModerationAction) map[string]interface{} {
+	if action == nil {
+		return map[string]interface{}{}
+	}
+	return map[string]interface{}{
+		"id":                action.ID,
+		"actor_user_id":     action.ActorUserID,
+		"actor_name":        action.ActorName,
+		"target_user_id":    action.TargetUserID,
+		"target_capture_id": action.TargetCaptureID,
+		"target_post_id":    action.TargetPostID,
+		"target_comment_id": action.TargetCommentID,
+		"action_kind":       action.ActionKind,
+		"reason_code":       action.ReasonCode,
+		"note":              action.Note,
+		"meta_json":         action.MetaJSON,
+		"created_at":        formatOptionalRFC3339(action.CreatedAt),
+	}
+}
+
 func (s *Server) ensureNotBanned(w http.ResponseWriter, user *models.User) bool {
 	if !userIsActivelyBanned(user) {
 		return true
@@ -204,6 +224,60 @@ func (s *Server) handleSetModerationUserRestrictions(w http.ResponseWriter, r *h
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"ok":   true,
 		"user": buildModerationUserPayload(targetUser),
+	})
+}
+
+func (s *Server) handleListModerationUserActions(w http.ResponseWriter, r *http.Request) {
+	actor := r.Context().Value("user").(*models.User)
+	if !userCanModerate(actor) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	userID, err := parseURLInt64Param(r, "userID")
+	if err != nil || userID <= 0 {
+		http.Error(w, "invalid user id", http.StatusBadRequest)
+		return
+	}
+
+	if _, err := s.DB.GetUser(userID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.Error(w, "user not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "failed to load user", http.StatusInternalServerError)
+		return
+	}
+
+	limit, offset := parseLimitOffset(r, 10)
+	actions, err := s.DB.ListModerationActionsByTargetUser(userID, limit, offset)
+	if err != nil {
+		http.Error(w, "failed to list moderation actions", http.StatusInternalServerError)
+		return
+	}
+	if actions == nil {
+		actions = []*models.ModerationAction{}
+	}
+
+	total, err := s.DB.CountModerationActionsByTargetUser(userID)
+	if err != nil {
+		http.Error(w, "failed to count moderation actions", http.StatusInternalServerError)
+		return
+	}
+
+	payload := make([]map[string]interface{}, 0, len(actions))
+	for _, action := range actions {
+		payload = append(payload, buildModerationActionPayload(action))
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"ok":       true,
+		"actions":  payload,
+		"total":    total,
+		"limit":    limit,
+		"offset":   offset,
+		"has_more": offset+len(actions) < total,
 	})
 }
 

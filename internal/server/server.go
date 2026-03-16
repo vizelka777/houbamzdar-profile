@@ -70,6 +70,7 @@ func (s *Server) setupRoutes() {
 		r.Post("/api/me/about", s.handlePostMeAbout)
 		r.Get("/api/moderation/ai-models", s.handleListModeratorAIModels)
 		r.Get("/api/moderation/users/{userID}", s.handleGetModerationUser)
+		r.Get("/api/moderation/users/{userID}/actions", s.handleListModerationUserActions)
 		r.Post("/api/moderation/users/{userID}/restrictions", s.handleSetModerationUserRestrictions)
 		r.Post("/api/moderation/users/{userID}/roles", s.handleSetModerationUserRoles)
 		r.Post("/api/moderation/captures/{captureID}/visibility", s.handleSetModerationCaptureVisibility)

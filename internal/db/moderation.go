@@ -63,6 +63,101 @@ func recordModerationActionTx(tx *sql.Tx, action *models.ModerationAction) error
 	return err
 }
 
+func listModerationActionsQuery(limitClause string) string {
+	return `
+		SELECT
+			a.id,
+			a.actor_user_id,
+			COALESCE(actor.preferred_username, '') AS actor_name,
+			COALESCE(a.target_user_id, 0),
+			COALESCE(a.target_capture_id, ''),
+			COALESCE(a.target_post_id, ''),
+			COALESCE(a.target_comment_id, ''),
+			a.action_kind,
+			COALESCE(a.reason_code, ''),
+			COALESCE(a.note, ''),
+			COALESCE(a.meta_json, ''),
+			a.created_at
+		FROM moderation_actions a
+		LEFT JOIN users actor ON actor.id = a.actor_user_id
+		WHERE a.target_user_id = ?
+		ORDER BY a.created_at DESC
+	` + limitClause
+}
+
+func scanModerationAction(rows scanner) (*models.ModerationAction, error) {
+	var (
+		action       models.ModerationAction
+		targetUserID sql.NullInt64
+		createdAtRaw string
+	)
+	if err := rows.Scan(
+		&action.ID,
+		&action.ActorUserID,
+		&action.ActorName,
+		&targetUserID,
+		&action.TargetCaptureID,
+		&action.TargetPostID,
+		&action.TargetCommentID,
+		&action.ActionKind,
+		&action.ReasonCode,
+		&action.Note,
+		&action.MetaJSON,
+		&createdAtRaw,
+	); err != nil {
+		return nil, err
+	}
+	if targetUserID.Valid {
+		action.TargetUserID = targetUserID.Int64
+	}
+	if createdAtRaw != "" {
+		parsed, err := time.Parse(time.RFC3339, createdAtRaw)
+		if err != nil {
+			return nil, err
+		}
+		action.CreatedAt = parsed.UTC()
+	}
+	return &action, nil
+}
+
+func (db *DB) ListModerationActionsByTargetUser(targetUserID int64, limit int, offset int) ([]*models.ModerationAction, error) {
+	rows, err := db.Query(listModerationActionsQuery(` LIMIT ? OFFSET ?`), targetUserID, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var actions []*models.ModerationAction
+	for rows.Next() {
+		action, err := scanModerationAction(rows)
+		if err != nil {
+			return nil, err
+		}
+		actions = append(actions, action)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return actions, nil
+}
+
+func (db *DB) CountModerationActionsByTargetUser(targetUserID int64) (int, error) {
+	var total int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM moderation_actions WHERE target_user_id = ?`, targetUserID).Scan(&total); err != nil {
+		return 0, err
+	}
+	return total, nil
+}
+
+func loadTargetUserIDForContentTx(tx *sql.Tx, tableName string, idColumn string, targetID string) (int64, error) {
+	var targetUserID int64
+	query := fmt.Sprintf(`SELECT user_id FROM %s WHERE %s = ?`, tableName, idColumn)
+	if err := tx.QueryRow(query, targetID).Scan(&targetUserID); err != nil {
+		return 0, err
+	}
+	return targetUserID, nil
+}
+
 func (db *DB) SetUserRestrictions(
 	targetUserID int64,
 	actorUserID int64,
@@ -254,6 +349,14 @@ func (db *DB) setContentModeratorHidden(
 	}
 	defer tx.Rollback()
 
+	targetUserID, err := loadTargetUserIDForContentTx(tx, tableName, idColumn, targetID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return sql.ErrNoRows
+		}
+		return err
+	}
+
 	now := time.Now().UTC()
 	query := fmt.Sprintf(`
 		UPDATE %s
@@ -283,10 +386,11 @@ func (db *DB) setContentModeratorHidden(
 	}
 
 	action := &models.ModerationAction{
-		ActorUserID: actorUserID,
-		ActionKind:  actionKind,
-		ReasonCode:  reasonCode,
-		Note:        note,
+		ActorUserID:  actorUserID,
+		TargetUserID: targetUserID,
+		ActionKind:   actionKind,
+		ReasonCode:   reasonCode,
+		Note:         note,
 		MetaJSON: moderationMetaJSON(map[string]interface{}{
 			"hidden": hidden,
 		}),
