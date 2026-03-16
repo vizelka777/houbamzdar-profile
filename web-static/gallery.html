@@ -70,10 +70,10 @@
         }
         .gallery-overview-summary {
             display: flex;
-            align-items: flex-start;
+            align-items: center;
             justify-content: space-between;
             gap: 1rem;
-            padding: 1.35rem 1.4rem;
+            padding: 1.1rem 1.4rem;
             cursor: pointer;
             list-style: none;
         }
@@ -91,19 +91,11 @@
         .gallery-overview[open] .gallery-overview-summary::after {
             transform: rotate(0deg);
         }
-        .gallery-overview-summary h1 {
-            margin-bottom: 0.3rem;
-        }
-        .gallery-overview-subtitle,
-        .gallery-overview-trigger {
+        .gallery-overview-title {
             margin: 0;
-            color: var(--muted);
-        }
-        .gallery-overview-trigger {
-            font-size: 0.92rem;
-            font-weight: 600;
-            white-space: nowrap;
-            padding-top: 0.3rem;
+            color: var(--forest-950);
+            font-size: 1rem;
+            font-weight: 700;
         }
         .gallery-overview-body {
             padding: 0 1.4rem 1.4rem;
@@ -122,6 +114,9 @@
             color: var(--muted);
             font-weight: 700;
             user-select: none;
+        }
+        .moderator-panel[hidden] {
+            display: none !important;
         }
 
         /* Lightbox modal */
@@ -151,18 +146,9 @@
     <main class="content-main content-main-narrow">
         <details id="gallery-overview" class="gallery-overview card">
             <summary class="gallery-overview-summary">
-                <div>
-                    <p class="section-label">Galerie</p>
-                    <h1>Všechny sdílené úlovky</h1>
-                    <p class="gallery-overview-subtitle">Filtry, řazení a moderátorské nástroje jsou schované tady.</p>
-                </div>
-                <p class="gallery-overview-trigger">Otevřít panel</p>
+                <p class="gallery-overview-title">Kritéria hledání</p>
             </summary>
             <div class="gallery-overview-body">
-                <p>
-                    Prohlédněte si všechny fotografie, které naši houbaři přidali na veřejnou zeď. Veřejné hledání podle okresu a obce
-                    funguje jen u snímků, kde autor zpřístupnil souřadnice zdarma.
-                </p>
                 <form id="gallery-filter-form" class="public-capture-filter-form">
                     <div class="public-capture-filter-grid">
                         <label class="public-capture-filter-field">
