@@ -8,6 +8,7 @@ const adminPageState = {
     page: 1,
     pageSize: 12,
     loadingUsers: false,
+    deletingUserID: 0,
     backups: {
         items: [],
         total: 0,
@@ -201,6 +202,8 @@ function renderAdminUsers() {
         const profileURL = buildPublicProfileURL(user.id);
         const restrictionBadges = adminRestrictionBadges(user);
         const lastModeration = user.moderated_at ? `Poslední interní zásah: ${formatOptionalDateTime(user.moderated_at)}` : "Bez interní poznámky";
+        const canDelete = userCanAdminClient(adminPageState.me) && !user.is_admin && Number(user.id) !== 20 && Number(user.id) !== Number(adminPageState.me?.id || 0);
+        const deleteButtonLabel = adminPageState.deletingUserID === Number(user.id) ? "Mažu účet..." : "Smazat účet";
 
         return `
             <article class="admin-user-card">
@@ -214,6 +217,17 @@ function renderAdminUsers() {
                     </div>
                     <div class="admin-user-actions">
                         <a href="${escapeHtml(profileURL)}" class="btn btn-secondary">Profil</a>
+                        ${canDelete ? `
+                            <button
+                                type="button"
+                                class="btn btn-danger"
+                                data-admin-delete-user="${escapeHtml(String(user.id))}"
+                                data-admin-delete-username="${escapeHtml(user.preferred_username || "")}"
+                                ${adminPageState.deletingUserID === Number(user.id) ? "disabled" : ""}
+                            >
+                                ${escapeHtml(deleteButtonLabel)}
+                            </button>
+                        ` : ""}
                     </div>
                 </div>
 
@@ -239,6 +253,51 @@ function renderAdminUsers() {
     }).join("");
 
     renderAdminUsersSummary();
+}
+
+async function deleteAdminUser(userID, username) {
+    const statusNode = document.getElementById("admin-users-status");
+    const numericUserID = Number(userID || 0);
+    if (!numericUserID || adminPageState.deletingUserID) {
+        return;
+    }
+
+    const expectedUsername = String(username || "").trim();
+    const promptLabel = expectedUsername || `ID ${numericUserID}`;
+    const typedConfirmation = window.prompt(`Smazání je trvalé a odstraní i fotky ze storage. Pro potvrzení napište přesně: ${promptLabel}`);
+    if (typedConfirmation === null) {
+        return;
+    }
+    if (typedConfirmation.trim() !== promptLabel) {
+        setStatusMessage(statusNode, "Potvrzení nesouhlasí. Účet zůstal beze změny.", "error");
+        return;
+    }
+    if (!window.confirm(`Opravdu smazat účet ${promptLabel}? Tato operace nejde vrátit.`)) {
+        return;
+    }
+
+    adminPageState.deletingUserID = numericUserID;
+    renderAdminUsers();
+    setStatusMessage(statusNode, `Mažu účet ${promptLabel}...`);
+
+    try {
+        const payload = await apiJsonRequest(`/api/admin/users/${numericUserID}`, { method: "DELETE" });
+        setStatusMessage(
+            statusNode,
+            `Účet ${payload?.deleted_username || promptLabel} byl smazán.`,
+            "success"
+        );
+        if (adminPageState.users.length === 1 && adminPageState.page > 1) {
+            adminPageState.page -= 1;
+        }
+        await Promise.all([loadAdminUsers(), loadAdminOverview()]);
+    } catch (error) {
+        console.error("Failed to delete user", error);
+        setStatusMessage(statusNode, error.message || "Účet se nepodařilo smazat.", "error");
+    } finally {
+        adminPageState.deletingUserID = 0;
+        renderAdminUsers();
+    }
 }
 
 function formatBackupSize(sizeBytes) {
@@ -499,6 +558,7 @@ function attachAdminPageEvents() {
     const runBackupButton = document.getElementById("admin-run-backup");
     const pruneBackupsButton = document.getElementById("admin-prune-backups");
     const loadMoreBackupsButton = document.getElementById("admin-backups-load-more");
+    const usersList = document.getElementById("admin-users-list");
 
     if (filtersForm) {
         filtersForm.addEventListener("submit", async (event) => {
@@ -556,6 +616,16 @@ function attachAdminPageEvents() {
 
     if (loadMoreBackupsButton) {
         loadMoreBackupsButton.addEventListener("click", () => loadAdminBackups({ append: true }));
+    }
+
+    if (usersList) {
+        usersList.addEventListener("click", (event) => {
+            const button = event.target instanceof Element ? event.target.closest("[data-admin-delete-user]") : null;
+            if (!button) {
+                return;
+            }
+            deleteAdminUser(button.getAttribute("data-admin-delete-user"), button.getAttribute("data-admin-delete-username"));
+        });
     }
 }
 

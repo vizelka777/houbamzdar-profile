@@ -258,6 +258,170 @@ func (db *DB) CountAdminUsers(filters models.AdminUserListFilters) (int, error) 
 	return total, nil
 }
 
+func (db *DB) ListUserCaptureStorageRefs(userID int64) ([]*models.Capture, error) {
+	rows, err := db.Query(`
+		SELECT id, COALESCE(private_storage_key, ''), COALESCE(public_storage_key, '')
+		FROM photo_captures
+		WHERE user_id = ?
+	`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	refs := make([]*models.Capture, 0, 16)
+	for rows.Next() {
+		ref := &models.Capture{}
+		if err := rows.Scan(&ref.ID, &ref.PrivateStorageKey, &ref.PublicStorageKey); err != nil {
+			return nil, err
+		}
+		refs = append(refs, ref)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return refs, nil
+}
+
+func (db *DB) DeleteUserByAdmin(userID int64) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	statements := []struct {
+		query string
+		args  []interface{}
+	}{
+		{
+			query: `UPDATE admin_backups SET initiated_by_user_id = NULL WHERE initiated_by_user_id = ?`,
+			args:  []interface{}{userID},
+		},
+		{
+			query: `UPDATE houbicka_operations SET actor_user_id = NULL WHERE actor_user_id = ?`,
+			args:  []interface{}{userID},
+		},
+		{
+			query: `UPDATE houbicka_operations SET target_user_id = NULL WHERE target_user_id = ?`,
+			args:  []interface{}{userID},
+		},
+		{
+			query: `UPDATE houbicka_operations
+				SET capture_id = NULL
+				WHERE capture_id IN (SELECT id FROM photo_captures WHERE user_id = ?)`,
+			args: []interface{}{userID},
+		},
+		{
+			query: `UPDATE users SET moderated_by_user_id = NULL WHERE moderated_by_user_id = ?`,
+			args:  []interface{}{userID},
+		},
+		{
+			query: `UPDATE posts SET moderated_by_user_id = NULL WHERE moderated_by_user_id = ?`,
+			args:  []interface{}{userID},
+		},
+		{
+			query: `UPDATE post_comments SET moderated_by_user_id = NULL WHERE moderated_by_user_id = ?`,
+			args:  []interface{}{userID},
+		},
+		{
+			query: `UPDATE photo_captures SET moderated_by_user_id = NULL WHERE moderated_by_user_id = ?`,
+			args:  []interface{}{userID},
+		},
+		{
+			query: `UPDATE capture_mushroom_analysis SET reviewed_by_user_id = NULL WHERE reviewed_by_user_id = ?`,
+			args:  []interface{}{userID},
+		},
+		{
+			query: `DELETE FROM sessions WHERE user_id = ?`,
+			args:  []interface{}{userID},
+		},
+		{
+			query: `DELETE FROM moderation_actions
+				WHERE actor_user_id = ?
+					OR target_user_id = ?
+					OR target_capture_id IN (SELECT id FROM photo_captures WHERE user_id = ?)
+					OR target_post_id IN (SELECT id FROM posts WHERE user_id = ?)
+					OR target_comment_id IN (SELECT id FROM post_comments WHERE user_id = ?)`,
+			args: []interface{}{userID, userID, userID, userID, userID},
+		},
+		{
+			query: `DELETE FROM post_likes
+				WHERE user_id = ?
+					OR post_id IN (SELECT id FROM posts WHERE user_id = ?)`,
+			args: []interface{}{userID, userID},
+		},
+		{
+			query: `DELETE FROM post_comments
+				WHERE user_id = ?
+					OR post_id IN (SELECT id FROM posts WHERE user_id = ?)`,
+			args: []interface{}{userID, userID},
+		},
+		{
+			query: `DELETE FROM post_captures
+				WHERE post_id IN (SELECT id FROM posts WHERE user_id = ?)
+					OR capture_id IN (SELECT id FROM photo_captures WHERE user_id = ?)`,
+			args: []interface{}{userID, userID},
+		},
+		{
+			query: `DELETE FROM capture_coordinate_unlocks
+				WHERE viewer_user_id = ?
+					OR capture_id IN (SELECT id FROM photo_captures WHERE user_id = ?)`,
+			args: []interface{}{userID, userID},
+		},
+		{
+			query: `DELETE FROM capture_mushroom_species
+				WHERE capture_id IN (SELECT id FROM photo_captures WHERE user_id = ?)`,
+			args: []interface{}{userID},
+		},
+		{
+			query: `DELETE FROM capture_mushroom_analysis
+				WHERE capture_id IN (SELECT id FROM photo_captures WHERE user_id = ?)`,
+			args: []interface{}{userID},
+		},
+		{
+			query: `DELETE FROM capture_geo_index
+				WHERE capture_id IN (SELECT id FROM photo_captures WHERE user_id = ?)`,
+			args: []interface{}{userID},
+		},
+		{
+			query: `DELETE FROM houbicka_entries WHERE user_id = ?`,
+			args:  []interface{}{userID},
+		},
+		{
+			query: `DELETE FROM houbicka_wallets WHERE user_id = ?`,
+			args:  []interface{}{userID},
+		},
+		{
+			query: `DELETE FROM posts WHERE user_id = ?`,
+			args:  []interface{}{userID},
+		},
+		{
+			query: `DELETE FROM photo_captures WHERE user_id = ?`,
+			args:  []interface{}{userID},
+		},
+	}
+
+	for _, statement := range statements {
+		if _, err := tx.Exec(statement.query, statement.args...); err != nil {
+			return err
+		}
+	}
+
+	result, err := tx.Exec(`DELETE FROM users WHERE id = ?`, userID)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	return tx.Commit()
+}
+
 func (db *DB) BootstrapAdminRole(targetUserID int64, alsoModerator bool) error {
 	result, err := db.Exec(`
 		UPDATE users

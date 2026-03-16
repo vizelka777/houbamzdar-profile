@@ -313,6 +313,166 @@ func TestCaptureCoordinateUnlockFlow(t *testing.T) {
 	}
 }
 
+func TestAdminID20CanSeeAllMapMarkers(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{
+		DBURL:             "file:" + filepath.Join(t.TempDir(), "admin-map.db"),
+		FrontOrigin:       "https://houbamzdar.cz",
+		SessionCookieName: "hzd_session",
+	}
+
+	database, err := db.New(cfg)
+	if err != nil {
+		t.Fatalf("open test database: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = database.Close()
+	})
+
+	author, _, err := database.UpsertUser(&models.OIDCClaims{
+		Iss:               "https://ahoj420.eu",
+		Sub:               "admin-map-author",
+		PreferredUsername: "autor-mapy",
+		Email:             "admin-map-author@example.test",
+		EmailVerified:     true,
+	}, &oauth2.Token{
+		AccessToken:  "author-access",
+		RefreshToken: "author-refresh",
+		Expiry:       time.Now().Add(time.Hour).UTC(),
+	})
+	if err != nil {
+		t.Fatalf("create author: %v", err)
+	}
+
+	now := time.Now().UTC()
+	if _, err := database.Exec(`
+		INSERT INTO users (
+			id, idp_issuer, idp_sub, preferred_username, is_moderator, is_admin, email, email_verified, created_at, updated_at, last_idp_sync_at
+		) VALUES (?, ?, ?, ?, 1, 1, ?, 1, ?, ?, ?)
+	`, int64(20), "https://ahoj420.eu", "admin-map-special", "Houbamzdar", "admin-map@example.test", now.Format(time.RFC3339), now.Format(time.RFC3339), now.Format(time.RFC3339)); err != nil {
+		t.Fatalf("insert admin id 20: %v", err)
+	}
+
+	makeCapture := func(id string, status string, publicKey string, free bool, hidden bool, lat, lon float64) *models.Capture {
+		capture := &models.Capture{
+			ID:                id,
+			UserID:            author.ID,
+			OriginalFileName:  id + ".jpg",
+			ContentType:       "image/jpeg",
+			SizeBytes:         4096,
+			Width:             1200,
+			Height:            900,
+			CapturedAt:        now,
+			UploadedAt:        now,
+			Latitude:          &lat,
+			Longitude:         &lon,
+			Status:            "private",
+			PrivateStorageKey: "captures/private/" + id + ".jpg",
+			CoordinatesFree:   free,
+		}
+		if err := database.CreateCapture(capture); err != nil {
+			t.Fatalf("create capture %s: %v", id, err)
+		}
+		if status == "published" {
+			if err := database.PublishCapture(capture.ID, author.ID, publicKey); err != nil {
+				t.Fatalf("publish capture %s: %v", id, err)
+			}
+		}
+		if hidden {
+			if _, err := database.Exec(`UPDATE photo_captures SET moderator_hidden = 1 WHERE id = ?`, capture.ID); err != nil {
+				t.Fatalf("hide capture %s: %v", id, err)
+			}
+		}
+		reloaded, err := database.GetCaptureByID(capture.ID)
+		if err != nil {
+			t.Fatalf("reload capture %s: %v", id, err)
+		}
+		return reloaded
+	}
+
+	freePublished := makeCapture("admin-map-free", "published", "captures/published/free.jpg", true, false, 50.08, 14.43)
+	lockedPublished := makeCapture("admin-map-locked", "published", "captures/published/locked.jpg", false, false, 49.20, 16.61)
+	hiddenPublished := makeCapture("admin-map-hidden", "published", "captures/published/hidden.jpg", false, true, 49.75, 13.38)
+	privateCapture := makeCapture("admin-map-private", "private", "", false, false, 49.59, 17.25)
+
+	srv := New(cfg, database, nil, nil)
+
+	guestReq := httptest.NewRequest(http.MethodGet, "/api/public/map-captures?limit=10&offset=0", nil)
+	guestRec := httptest.NewRecorder()
+	srv.Router.ServeHTTP(guestRec, guestReq)
+	if guestRec.Code != http.StatusOK {
+		t.Fatalf("expected guest status 200, got %d: %s", guestRec.Code, guestRec.Body.String())
+	}
+
+	var guestPayload struct {
+		OK                bool              `json:"ok"`
+		InternalAdminView bool              `json:"internal_admin_view"`
+		Captures          []*models.Capture `json:"captures"`
+	}
+	if err := json.NewDecoder(guestRec.Body).Decode(&guestPayload); err != nil {
+		t.Fatalf("decode guest map payload: %v", err)
+	}
+	if guestPayload.InternalAdminView {
+		t.Fatalf("guest must not get internal admin map mode")
+	}
+	if len(guestPayload.Captures) != 1 || guestPayload.Captures[0].ID != freePublished.ID {
+		t.Fatalf("expected only free published capture for guest, got %+v", guestPayload.Captures)
+	}
+
+	if err := database.CreateSession(&models.Session{
+		SessionID: "admin-map-session",
+		UserID:    20,
+		CreatedAt: now,
+		ExpiresAt: now.Add(24 * time.Hour),
+	}); err != nil {
+		t.Fatalf("create admin session: %v", err)
+	}
+
+	adminReq := httptest.NewRequest(http.MethodGet, "/api/public/map-captures?limit=10&offset=0", nil)
+	adminReq.AddCookie(&http.Cookie{Name: cfg.SessionCookieName, Value: "admin-map-session"})
+	adminRec := httptest.NewRecorder()
+	srv.Router.ServeHTTP(adminRec, adminReq)
+	if adminRec.Code != http.StatusOK {
+		t.Fatalf("expected admin status 200, got %d: %s", adminRec.Code, adminRec.Body.String())
+	}
+
+	var adminPayload struct {
+		OK                bool              `json:"ok"`
+		InternalAdminView bool              `json:"internal_admin_view"`
+		Captures          []*models.Capture `json:"captures"`
+	}
+	if err := json.NewDecoder(adminRec.Body).Decode(&adminPayload); err != nil {
+		t.Fatalf("decode admin map payload: %v", err)
+	}
+	if !adminPayload.InternalAdminView {
+		t.Fatalf("expected internal admin map mode for admin id 20")
+	}
+	if len(adminPayload.Captures) != 4 {
+		t.Fatalf("expected 4 captures for internal admin map, got %d", len(adminPayload.Captures))
+	}
+
+	capturesByID := make(map[string]*models.Capture, len(adminPayload.Captures))
+	for _, capture := range adminPayload.Captures {
+		capturesByID[capture.ID] = capture
+	}
+	for _, captureID := range []string{freePublished.ID, lockedPublished.ID, hiddenPublished.ID, privateCapture.ID} {
+		capture := capturesByID[captureID]
+		if capture == nil {
+			t.Fatalf("expected capture %s in internal admin map", captureID)
+		}
+		if capture.Latitude == nil || capture.Longitude == nil || capture.CoordinatesLocked {
+			t.Fatalf("expected visible coordinates for internal admin map capture %s: %+v", captureID, capture)
+		}
+	}
+	if !capturesByID[hiddenPublished.ID].ModeratorHidden {
+		t.Fatalf("expected hidden published capture to stay marked as hidden in internal admin map")
+	}
+	if capturesByID[privateCapture.ID].Status != "private" {
+		t.Fatalf("expected private capture to stay private in internal admin map payload, got %q", capturesByID[privateCapture.ID].Status)
+	}
+}
+
 func TestHandlePublishCaptureQueuesValidation(t *testing.T) {
 	t.Parallel()
 

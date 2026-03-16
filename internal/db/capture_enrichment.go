@@ -633,6 +633,147 @@ func (db *DB) ListPublicMapCapturesWithFilters(filters PublicCaptureFilters, vie
 	return db.listPublicCapturesWithFilters(filters, viewerUserID, true)
 }
 
+func (db *DB) ListAdminAllMapCapturesWithFilters(filters PublicCaptureFilters) ([]*models.Capture, error) {
+	filters = normalizePublicCaptureFilters(filters)
+
+	whereClauses := []string{
+		"c.latitude IS NOT NULL",
+		"c.longitude IS NOT NULL",
+	}
+	args := make([]interface{}, 0, 8)
+
+	if filters.HasMushrooms != nil {
+		whereClauses = append(whereClauses, "COALESCE(ma.has_mushrooms, 0) = ?")
+		if *filters.HasMushrooms {
+			args = append(args, 1)
+		} else {
+			args = append(args, 0)
+		}
+	}
+
+	if filters.SpeciesQuery != "" {
+		like := "%" + filters.SpeciesQuery + "%"
+		whereClauses = append(whereClauses, `
+			EXISTS (
+				SELECT 1
+				FROM capture_mushroom_species cms
+				WHERE cms.capture_id = c.id
+					AND (
+						cms.latin_name_norm LIKE ?
+						OR COALESCE(cms.czech_official_name_norm, '') LIKE ?
+					)
+			)
+		`)
+		args = append(args, like, like)
+	}
+
+	if filters.KrajQuery != "" {
+		args = append(args, "%"+filters.KrajQuery+"%")
+		whereClauses = append(whereClauses, "COALESCE(gi.kraj_name_norm, '') LIKE ?")
+	}
+
+	if filters.OkresQuery != "" {
+		args = append(args, "%"+filters.OkresQuery+"%")
+		whereClauses = append(whereClauses, "COALESCE(gi.okres_name_norm, '') LIKE ?")
+	}
+
+	if filters.ObecQuery != "" {
+		args = append(args, "%"+filters.ObecQuery+"%")
+		whereClauses = append(whereClauses, "COALESCE(gi.obec_name_norm, '') LIKE ?")
+	}
+
+	orderBy := "COALESCE(c.published_at, c.uploaded_at) DESC, c.captured_at DESC"
+	switch filters.Sort {
+	case "captured_desc":
+		orderBy = "c.captured_at DESC, COALESCE(c.published_at, c.uploaded_at) DESC"
+	case "probability_desc":
+		orderBy = "COALESCE(ma.primary_probability, 0) DESC, COALESCE(c.published_at, c.uploaded_at) DESC"
+	case "kraj_asc":
+		orderBy = "COALESCE(gi.kraj_name_norm, ''), COALESCE(c.published_at, c.uploaded_at) DESC"
+	case "okres_asc":
+		orderBy = "COALESCE(gi.okres_name_norm, ''), COALESCE(c.published_at, c.uploaded_at) DESC"
+	case "obec_asc":
+		orderBy = "COALESCE(gi.obec_name_norm, ''), COALESCE(c.published_at, c.uploaded_at) DESC"
+	}
+
+	query := fmt.Sprintf(`
+		SELECT c.id, c.user_id, u.preferred_username, COALESCE(u.picture, ''), COALESCE(c.client_local_id, ''), c.original_file_name, c.content_type, c.size_bytes, c.width, c.height,
+			c.captured_at, c.uploaded_at, c.latitude, c.longitude, c.accuracy_meters, c.status, c.private_storage_key,
+			COALESCE(c.public_storage_key, ''), COALESCE(c.published_at, ''), COALESCE(c.coordinates_free, 0),
+			COALESCE(gi.country_code, ''), COALESCE(gi.kraj_name, ''), COALESCE(gi.okres_name, ''), COALESCE(gi.obec_name, ''),
+			COALESCE(ma.has_mushrooms, 0), COALESCE(ma.primary_latin_name, ''), COALESCE(ma.primary_czech_name, ''),
+			COALESCE(ma.primary_probability, 0), COALESCE(ma.analyzed_at, ''), COALESCE(c.moderator_hidden, 0)
+		FROM photo_captures c
+		JOIN users u ON c.user_id = u.id
+		LEFT JOIN capture_geo_index gi ON gi.capture_id = c.id
+		LEFT JOIN capture_mushroom_analysis ma ON ma.capture_id = c.id
+		WHERE %s
+		ORDER BY %s
+		LIMIT ? OFFSET ?
+	`, strings.Join(whereClauses, " AND "), orderBy)
+
+	queryArgs := append(append([]interface{}{}, args...), filters.Limit, filters.Offset)
+	rows, err := db.Query(query, queryArgs...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	captures := make([]*models.Capture, 0, filters.Limit)
+	for rows.Next() {
+		var (
+			c                models.Capture
+			capturedAt       string
+			uploadedAt       string
+			publishedAt      string
+			countryCode      string
+			krajName         string
+			okresName        string
+			obecName         string
+			hasMushrooms     int
+			primaryLatinName string
+			primaryCzechName string
+			analysisAt       string
+			coordinatesFree  int
+			moderatorHidden  int
+		)
+		if err := rows.Scan(
+			&c.ID, &c.UserID, &c.AuthorName, &c.AuthorAvatar, &c.ClientLocalID, &c.OriginalFileName, &c.ContentType, &c.SizeBytes, &c.Width, &c.Height,
+			&capturedAt, &uploadedAt, &c.Latitude, &c.Longitude, &c.AccuracyMeters, &c.Status, &c.PrivateStorageKey,
+			&c.PublicStorageKey, &publishedAt, &coordinatesFree,
+			&countryCode, &krajName, &okresName, &obecName,
+			&hasMushrooms, &primaryLatinName, &primaryCzechName, &c.MushroomPrimaryProbability, &analysisAt, &moderatorHidden,
+		); err != nil {
+			return nil, err
+		}
+		c.AuthorUserID = c.UserID
+		c.CoordinatesFree = coordinatesFree == 1
+		c.ModeratorHidden = moderatorHidden == 1
+		c.CapturedAt, _ = time.Parse(time.RFC3339, capturedAt)
+		c.UploadedAt, _ = time.Parse(time.RFC3339, uploadedAt)
+		if publishedAt != "" {
+			c.PublishedAt, _ = time.Parse(time.RFC3339, publishedAt)
+		}
+		if analysisAt != "" {
+			c.MushroomAnalysisAt, _ = time.Parse(time.RFC3339, analysisAt)
+		}
+		c.CountryCode = strings.ToUpper(countryCode)
+		c.KrajName = krajName
+		c.OkresName = okresName
+		c.ObecName = obecName
+		c.HasMushrooms = hasMushrooms == 1
+		c.MushroomPrimaryLatinName = primaryLatinName
+		c.MushroomPrimaryCzechName = primaryCzechName
+		c.CoordinatesLocked = false
+		captures = append(captures, &c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return captures, nil
+}
+
 func (db *DB) CountPublicCapturesWithFilters(filters PublicCaptureFilters, viewerUserID int64) (int, error) {
 	return db.countPublicCapturesWithFilters(filters, viewerUserID, false)
 }

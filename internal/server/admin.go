@@ -4,8 +4,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/go-chi/chi/v5"
 
 	"github.com/houbamzdar/bff/internal/models"
 )
@@ -234,6 +237,85 @@ func (s *Server) handleListAdminUsers(w http.ResponseWriter, r *http.Request) {
 			"role":   filters.Role,
 			"status": filters.Status,
 		},
+	})
+}
+
+func isMissingStorageObjectError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "status 404")
+}
+
+func (s *Server) handleDeleteAdminUser(w http.ResponseWriter, r *http.Request) {
+	actor := r.Context().Value("user").(*models.User)
+	if !userCanAdmin(actor) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	if s.Media == nil || !s.Media.Enabled() {
+		http.Error(w, "capture storage is not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	userID, err := strconv.ParseInt(chi.URLParam(r, "userID"), 10, 64)
+	if err != nil || userID <= 0 {
+		http.Error(w, "invalid user id", http.StatusBadRequest)
+		return
+	}
+	if userID == actor.ID {
+		http.Error(w, "cannot delete your own account", http.StatusForbidden)
+		return
+	}
+	if userID == 20 {
+		http.Error(w, "cannot delete the primary admin account", http.StatusForbidden)
+		return
+	}
+
+	targetUser, err := s.DB.GetUser(userID)
+	if err != nil {
+		http.Error(w, "user not found", http.StatusNotFound)
+		return
+	}
+	if targetUser.IsAdmin {
+		http.Error(w, "cannot delete an admin account", http.StatusForbidden)
+		return
+	}
+
+	captureRefs, err := s.DB.ListUserCaptureStorageRefs(userID)
+	if err != nil {
+		http.Error(w, "failed to list user captures", http.StatusInternalServerError)
+		return
+	}
+	for _, captureRef := range captureRefs {
+		if captureRef == nil {
+			continue
+		}
+		if captureRef.PublicStorageKey != "" {
+			if err := s.Media.DeletePublic(r.Context(), captureRef.PublicStorageKey); err != nil && !isMissingStorageObjectError(err) {
+				http.Error(w, "failed to delete public capture files", http.StatusBadGateway)
+				return
+			}
+		}
+		if captureRef.PrivateStorageKey != "" {
+			if err := s.Media.DeletePrivate(r.Context(), captureRef.PrivateStorageKey); err != nil && !isMissingStorageObjectError(err) {
+				http.Error(w, "failed to delete private capture files", http.StatusBadGateway)
+				return
+			}
+		}
+	}
+
+	if err := s.DB.DeleteUserByAdmin(userID); err != nil {
+		http.Error(w, "failed to delete user", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"ok":                    true,
+		"deleted_user_id":       userID,
+		"deleted_username":      targetUser.PreferredUsername,
+		"deleted_capture_count": len(captureRefs),
 	})
 }
 

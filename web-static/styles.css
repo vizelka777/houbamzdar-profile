@@ -267,6 +267,12 @@ img {
     color: var(--forest-950);
 }
 
+.btn-danger {
+    background: linear-gradient(135deg, #8f2b2b, #6d1e1e);
+    color: #fff7f2;
+    box-shadow: 0 14px 28px rgba(110, 27, 27, 0.18);
+}
+
 .btn-large {
     min-height: 3.5rem;
     font-size: 1rem;

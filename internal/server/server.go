@@ -12,6 +12,7 @@ import (
 	"github.com/houbamzdar/bff/internal/config"
 	"github.com/houbamzdar/bff/internal/db"
 	"github.com/houbamzdar/bff/internal/media"
+	"github.com/houbamzdar/bff/internal/models"
 )
 
 type Server struct {
@@ -79,6 +80,7 @@ func (s *Server) setupRoutes() {
 		r.Get("/api/moderation/hidden-comments", s.handleListModerationHiddenComments)
 		r.Get("/api/admin/overview", s.handleGetAdminOverview)
 		r.Get("/api/admin/users", s.handleListAdminUsers)
+		r.Delete("/api/admin/users/{userID}", s.handleDeleteAdminUser)
 		r.Get("/api/admin/backups", s.handleListAdminBackups)
 		r.Post("/api/admin/backups/run", s.handleRunAdminBackup)
 		r.Post("/api/admin/backups/prune", s.handlePruneAdminBackups)
@@ -113,17 +115,30 @@ func (s *Server) setupRoutes() {
 }
 
 func (s *Server) currentUserIDFromOptionalSession(r *http.Request) int64 {
+	user := s.currentUserFromOptionalSession(r)
+	if user == nil {
+		return 0
+	}
+	return user.ID
+}
+
+func (s *Server) currentUserFromOptionalSession(r *http.Request) *models.User {
 	cookie, err := r.Cookie(s.Config.SessionCookieName)
 	if err != nil {
-		return 0
+		return nil
 	}
 
 	session, err := s.DB.GetSession(cookie.Value)
 	if err != nil {
-		return 0
+		return nil
 	}
 
-	return session.UserID
+	user, err := s.DB.GetUser(session.UserID)
+	if err != nil {
+		return nil
+	}
+
+	return user
 }
 
 func (s *Server) authMiddleware(next http.Handler) http.Handler {

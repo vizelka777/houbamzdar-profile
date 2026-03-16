@@ -4,6 +4,7 @@ const globalMapState = {
     hasMore: true,
     loaded: 0,
     mapped: 0,
+    internalAdminView: false,
     isLoading: false,
     results: [],
     filters: {
@@ -73,6 +74,8 @@ function updateGlobalMapSummary() {
             summary.textContent = "Načítám body na mapě...";
         } else if (globalMapState.loaded === 0) {
             summary.textContent = "Pro tento filtr zatím není žádný bod na mapě.";
+        } else if (globalMapState.internalAdminView) {
+            summary.textContent = `Načteno ${globalMapState.loaded} bodů v interním admin režimu.`;
         } else {
             summary.textContent = `Načteno ${globalMapState.loaded} bodů na mapě.`;
         }
@@ -175,6 +178,7 @@ async function loadGlobalMapBatch({ reset = false } = {}) {
         globalMapState.hasMore = true;
         globalMapState.loaded = 0;
         globalMapState.mapped = 0;
+        globalMapState.internalAdminView = false;
         globalMapState.results = [];
         updateGlobalMapSummary();
     }
@@ -191,6 +195,7 @@ async function loadGlobalMapBatch({ reset = false } = {}) {
         globalMapState.loaded = globalMapState.results.length;
         globalMapState.offset += result.captures.length;
         globalMapState.hasMore = result.captures.length === globalMapState.pageSize;
+        globalMapState.internalAdminView = Boolean(result.internal_admin_view);
 
         renderGlobalMapMarkers();
     } catch (error) {

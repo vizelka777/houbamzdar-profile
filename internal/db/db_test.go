@@ -570,6 +570,123 @@ func TestListCapturesPageSupportsStatusDateAndPagination(t *testing.T) {
 	}
 }
 
+func TestDeleteUserByAdminRemovesUserSessionsPostsAndCaptureRefs(t *testing.T) {
+	t.Parallel()
+
+	rawDB := openTestDB(t)
+	if err := migrate(rawDB); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	database := &DB{rawDB}
+	user, _, err := database.UpsertUser(&models.OIDCClaims{
+		Iss:               "https://ahoj420.eu",
+		Sub:               "delete-user-admin-target",
+		PreferredUsername: "delete-target",
+		Email:             "delete-target@example.test",
+		EmailVerified:     true,
+	}, &oauth2.Token{
+		AccessToken:  "delete-target-access",
+		RefreshToken: "delete-target-refresh",
+		Expiry:       time.Now().Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	if err := database.CreateSession(&models.Session{
+		SessionID: "delete-target-session",
+		UserID:    user.ID,
+		CreatedAt: time.Now().UTC(),
+		ExpiresAt: time.Now().UTC().Add(24 * time.Hour),
+	}); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	privateCapture := &models.Capture{
+		ID:                "delete-target-private",
+		UserID:            user.ID,
+		OriginalFileName:  "private.jpg",
+		ContentType:       "image/jpeg",
+		SizeBytes:         1024,
+		Width:             800,
+		Height:            600,
+		CapturedAt:        time.Now().UTC(),
+		UploadedAt:        time.Now().UTC(),
+		Status:            "private",
+		PrivateStorageKey: "captures/private/delete-target-private.jpg",
+	}
+	if err := database.CreateCapture(privateCapture); err != nil {
+		t.Fatalf("create private capture: %v", err)
+	}
+
+	publishedCapture := &models.Capture{
+		ID:                "delete-target-published",
+		UserID:            user.ID,
+		OriginalFileName:  "published.jpg",
+		ContentType:       "image/jpeg",
+		SizeBytes:         2048,
+		Width:             1200,
+		Height:            900,
+		CapturedAt:        time.Now().UTC(),
+		UploadedAt:        time.Now().UTC(),
+		Status:            "private",
+		PrivateStorageKey: "captures/private/delete-target-published.jpg",
+	}
+	if err := database.CreateCapture(publishedCapture); err != nil {
+		t.Fatalf("create published capture: %v", err)
+	}
+	if err := database.PublishCapture(publishedCapture.ID, user.ID, "captures/published/delete-target-published.jpg"); err != nil {
+		t.Fatalf("publish capture: %v", err)
+	}
+
+	post := &models.Post{
+		ID:        "delete-target-post",
+		UserID:    user.ID,
+		Content:   "to be deleted",
+		Status:    "published",
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+		Captures:  []*models.Capture{{ID: publishedCapture.ID}},
+	}
+	if err := database.CreatePost(post); err != nil {
+		t.Fatalf("create post: %v", err)
+	}
+
+	refs, err := database.ListUserCaptureStorageRefs(user.ID)
+	if err != nil {
+		t.Fatalf("list capture refs: %v", err)
+	}
+	if len(refs) != 2 {
+		t.Fatalf("expected 2 capture refs, got %d", len(refs))
+	}
+
+	if err := database.DeleteUserByAdmin(user.ID); err != nil {
+		t.Fatalf("delete user by admin: %v", err)
+	}
+
+	if _, err := database.GetUser(user.ID); err != sql.ErrNoRows {
+		t.Fatalf("expected sql.ErrNoRows for user, got %v", err)
+	}
+	if _, err := database.GetSession("delete-target-session"); err != sql.ErrNoRows {
+		t.Fatalf("expected session to be deleted, got %v", err)
+	}
+	if _, err := database.GetCaptureForUser(privateCapture.ID, user.ID); err != sql.ErrNoRows {
+		t.Fatalf("expected private capture to be deleted, got %v", err)
+	}
+	if _, err := database.GetCaptureForUser(publishedCapture.ID, user.ID); err != sql.ErrNoRows {
+		t.Fatalf("expected published capture to be deleted, got %v", err)
+	}
+
+	var postCount int
+	if err := database.QueryRow(`SELECT COUNT(*) FROM posts WHERE id = ?`, post.ID).Scan(&postCount); err != nil {
+		t.Fatalf("count posts: %v", err)
+	}
+	if postCount != 0 {
+		t.Fatalf("expected posts to cascade delete, got %d", postCount)
+	}
+}
+
 func TestPostsSupportComments(t *testing.T) {
 	t.Parallel()
 

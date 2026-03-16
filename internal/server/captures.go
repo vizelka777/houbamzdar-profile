@@ -168,9 +168,21 @@ func (s *Server) handleListPublicCaptures(w http.ResponseWriter, r *http.Request
 }
 
 func (s *Server) handleListPublicMapCaptures(w http.ResponseWriter, r *http.Request) {
-	currentUserID := s.currentUserIDFromOptionalSession(r)
+	currentUser := s.currentUserFromOptionalSession(r)
+	currentUserID := int64(0)
+	adminAllMarkers := false
+	if currentUser != nil {
+		currentUserID = currentUser.ID
+		adminAllMarkers = userCanViewAllMapMarkers(currentUser)
+	}
 	filters := parsePublicCaptureFilters(r)
-	captures, err := s.DB.ListPublicMapCapturesWithFilters(filters, currentUserID)
+	var captures []*models.Capture
+	var err error
+	if adminAllMarkers {
+		captures, err = s.DB.ListAdminAllMapCapturesWithFilters(filters)
+	} else {
+		captures, err = s.DB.ListPublicMapCapturesWithFilters(filters, currentUserID)
+	}
 	if err != nil {
 		http.Error(w, "failed to list public map captures", http.StatusInternalServerError)
 		return
@@ -184,8 +196,9 @@ func (s *Server) handleListPublicMapCaptures(w http.ResponseWriter, r *http.Requ
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
-		"ok":       true,
-		"captures": captures,
+		"ok":                  true,
+		"captures":            captures,
+		"internal_admin_view": adminAllMarkers,
 	})
 }
 

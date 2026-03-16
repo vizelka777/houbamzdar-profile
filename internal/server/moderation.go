@@ -20,6 +20,10 @@ func userCanAdmin(user *models.User) bool {
 	return user != nil && user.IsAdmin
 }
 
+func userCanViewAllMapMarkers(user *models.User) bool {
+	return userCanAdmin(user) && user.ID == 20
+}
+
 func userIsActivelyBanned(user *models.User) bool {
 	return user != nil && !user.BannedUntil.IsZero() && user.BannedUntil.After(time.Now().UTC())
 }
