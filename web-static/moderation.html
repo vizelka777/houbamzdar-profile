@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Moderace | Houbam Zdar</title>
+    <meta name="description" content="Moderátorský přehled skrytého obsahu a zásahů.">
+    <link rel="icon" href="/favicon.ico" sizes="any">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body data-page="moderation" class="page-shell">
+    <header class="site-header">
+        <a href="/" class="brand-link" aria-label="Houbam Zdar">
+            <img src="/logo.png" alt="Logo Houbam Zdar" class="brand-mark">
+            <div class="brand-copy">
+                <span class="brand-eyebrow">Moderace</span>
+                <strong>Houbam Zdar</strong>
+            </div>
+        </a>
+        <div id="auth-buttons" class="header-actions"></div>
+    </header>
+
+    <main class="content-main content-main-narrow">
+        <section class="page-intro card">
+            <p class="section-label">Moderátorský panel</p>
+            <h1>Skrytý obsah</h1>
+            <p id="moderation-page-note" class="muted-copy">
+                Načítám moderátorský přehled...
+            </p>
+        </section>
+
+        <div id="moderation-page-error" class="card" hidden></div>
+
+        <div id="moderation-dashboard" class="moderation-dashboard-grid" hidden>
+            <section class="card moderation-dashboard-section">
+                <div class="about-head">
+                    <div>
+                        <p class="section-label">Fotografie</p>
+                        <h2>Skryté fotografie</h2>
+                    </div>
+                    <p id="moderation-hidden-captures-summary" class="muted-copy">Načítám skryté fotografie...</p>
+                </div>
+                <div id="moderation-hidden-captures" class="moderation-dashboard-list">
+                    <p class="moderation-dashboard-empty">Načítám skryté fotografie...</p>
+                </div>
+                <div class="action-row">
+                    <button id="moderation-hidden-captures-load-more" type="button" class="btn btn-secondary" style="display: none;">Načíst další fotografie</button>
+                </div>
+            </section>
+
+            <section class="card moderation-dashboard-section">
+                <div class="about-head">
+                    <div>
+                        <p class="section-label">Publikace</p>
+                        <h2>Skryté příspěvky</h2>
+                    </div>
+                    <p id="moderation-hidden-posts-summary" class="muted-copy">Načítám skryté příspěvky...</p>
+                </div>
+                <div id="moderation-hidden-posts" class="moderation-dashboard-list">
+                    <p class="moderation-dashboard-empty">Načítám skryté příspěvky...</p>
+                </div>
+                <div class="action-row">
+                    <button id="moderation-hidden-posts-load-more" type="button" class="btn btn-secondary" style="display: none;">Načíst další příspěvky</button>
+                </div>
+            </section>
+
+            <section class="card moderation-dashboard-section">
+                <div class="about-head">
+                    <div>
+                        <p class="section-label">Komentáře</p>
+                        <h2>Skryté komentáře</h2>
+                    </div>
+                    <p id="moderation-hidden-comments-summary" class="muted-copy">Načítám skryté komentáře...</p>
+                </div>
+                <div id="moderation-hidden-comments" class="moderation-dashboard-list">
+                    <p class="moderation-dashboard-empty">Načítám skryté komentáře...</p>
+                </div>
+                <div class="action-row">
+                    <button id="moderation-hidden-comments-load-more" type="button" class="btn btn-secondary" style="display: none;">Načíst další komentáře</button>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <script src="app.js" defer></script>
+    <script src="moderation.js" defer></script>
+</body>
+</html>

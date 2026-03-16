@@ -281,6 +281,114 @@ func (s *Server) handleListModerationUserActions(w http.ResponseWriter, r *http.
 	})
 }
 
+func (s *Server) handleListModerationHiddenCaptures(w http.ResponseWriter, r *http.Request) {
+	actor := r.Context().Value("user").(*models.User)
+	if !userCanModerate(actor) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	limit, offset := parseLimitOffset(r, 12)
+	captures, err := s.DB.ListModerationHiddenCaptures(limit, offset)
+	if err != nil {
+		http.Error(w, "failed to list hidden captures", http.StatusInternalServerError)
+		return
+	}
+	if captures == nil {
+		captures = []*models.Capture{}
+	} else {
+		attachPublicURLs(captures, s.Media)
+	}
+
+	total, err := s.DB.CountModerationHiddenCaptures()
+	if err != nil {
+		http.Error(w, "failed to count hidden captures", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"ok":       true,
+		"captures": captures,
+		"total":    total,
+		"limit":    limit,
+		"offset":   offset,
+		"has_more": offset+len(captures) < total,
+	})
+}
+
+func (s *Server) handleListModerationHiddenPosts(w http.ResponseWriter, r *http.Request) {
+	actor := r.Context().Value("user").(*models.User)
+	if !userCanModerate(actor) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	limit, offset := parseLimitOffset(r, 8)
+	posts, err := s.DB.ListModerationHiddenPosts(limit, offset, actor.ID)
+	if err != nil {
+		http.Error(w, "failed to list hidden posts", http.StatusInternalServerError)
+		return
+	}
+	if posts == nil {
+		posts = []*models.Post{}
+	} else {
+		for _, post := range posts {
+			attachPublicURLs(post.Captures, s.Media)
+		}
+	}
+
+	total, err := s.DB.CountModerationHiddenPosts()
+	if err != nil {
+		http.Error(w, "failed to count hidden posts", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"ok":       true,
+		"posts":    posts,
+		"total":    total,
+		"limit":    limit,
+		"offset":   offset,
+		"has_more": offset+len(posts) < total,
+	})
+}
+
+func (s *Server) handleListModerationHiddenComments(w http.ResponseWriter, r *http.Request) {
+	actor := r.Context().Value("user").(*models.User)
+	if !userCanModerate(actor) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	limit, offset := parseLimitOffset(r, 12)
+	comments, err := s.DB.ListModerationHiddenComments(limit, offset)
+	if err != nil {
+		http.Error(w, "failed to list hidden comments", http.StatusInternalServerError)
+		return
+	}
+	if comments == nil {
+		comments = []*models.ModerationHiddenComment{}
+	}
+
+	total, err := s.DB.CountModerationHiddenComments()
+	if err != nil {
+		http.Error(w, "failed to count hidden comments", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"ok":       true,
+		"comments": comments,
+		"total":    total,
+		"limit":    limit,
+		"offset":   offset,
+		"has_more": offset+len(comments) < total,
+	})
+}
+
 func (s *Server) handleSetModerationUserRoles(w http.ResponseWriter, r *http.Request) {
 	actor := r.Context().Value("user").(*models.User)
 	if !userCanAdmin(actor) {

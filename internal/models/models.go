@@ -76,6 +76,7 @@ type Capture struct {
 	ModeratorHidden                bool                      `json:"moderator_hidden,omitempty"`
 	ModerationReasonCode           string                    `json:"moderation_reason_code,omitempty"`
 	ModeratedByUserID              int64                     `json:"moderated_by_user_id,omitempty"`
+	ModeratedByName                string                    `json:"moderated_by_name,omitempty"`
 	ModeratedAt                    time.Time                 `json:"moderated_at,omitempty"`
 }
 
@@ -126,6 +127,7 @@ type Post struct {
 	ModeratorHidden      bool       `json:"moderator_hidden,omitempty"`
 	ModerationReasonCode string     `json:"moderation_reason_code,omitempty"`
 	ModeratedByUserID    int64      `json:"moderated_by_user_id,omitempty"`
+	ModeratedByName      string     `json:"moderated_by_name,omitempty"`
 	ModeratedAt          time.Time  `json:"moderated_at,omitempty"`
 	Captures             []*Capture `json:"captures,omitempty"`
 	Comments             []*Comment `json:"comments,omitempty"`
@@ -149,6 +151,25 @@ type Comment struct {
 	ModeratorHidden      bool      `json:"moderator_hidden,omitempty"`
 	ModerationReasonCode string    `json:"moderation_reason_code,omitempty"`
 	ModeratedByUserID    int64     `json:"moderated_by_user_id,omitempty"`
+	ModeratedByName      string    `json:"moderated_by_name,omitempty"`
+	ModeratedAt          time.Time `json:"moderated_at,omitempty"`
+}
+
+type ModerationHiddenComment struct {
+	ID                   string    `json:"id"`
+	PostID               string    `json:"post_id"`
+	PostContent          string    `json:"post_content,omitempty"`
+	PostAuthorUserID     int64     `json:"post_author_user_id,omitempty"`
+	PostAuthorName       string    `json:"post_author_name,omitempty"`
+	AuthorUserID         int64     `json:"author_user_id,omitempty"`
+	AuthorName           string    `json:"author_name,omitempty"`
+	AuthorAvatar         string    `json:"author_avatar,omitempty"`
+	Content              string    `json:"content"`
+	CreatedAt            time.Time `json:"created_at"`
+	UpdatedAt            time.Time `json:"updated_at"`
+	ModerationReasonCode string    `json:"moderation_reason_code,omitempty"`
+	ModeratedByUserID    int64     `json:"moderated_by_user_id,omitempty"`
+	ModeratedByName      string    `json:"moderated_by_name,omitempty"`
 	ModeratedAt          time.Time `json:"moderated_at,omitempty"`
 }
 

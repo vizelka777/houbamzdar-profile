@@ -149,6 +149,293 @@ func (db *DB) CountModerationActionsByTargetUser(targetUserID int64) (int, error
 	return total, nil
 }
 
+func parseRFC3339Value(raw string) time.Time {
+	if strings.TrimSpace(raw) == "" {
+		return time.Time{}
+	}
+	parsed, _ := time.Parse(time.RFC3339, raw)
+	return parsed.UTC()
+}
+
+func (db *DB) ListModerationHiddenCaptures(limit int, offset int) ([]*models.Capture, error) {
+	rows, err := db.Query(`
+		SELECT
+			c.id,
+			c.user_id,
+			COALESCE(u.preferred_username, ''),
+			COALESCE(u.picture, ''),
+			COALESCE(c.client_local_id, ''),
+			c.original_file_name,
+			c.content_type,
+			c.size_bytes,
+			c.width,
+			c.height,
+			c.captured_at,
+			c.uploaded_at,
+			c.status,
+			COALESCE(c.public_storage_key, ''),
+			COALESCE(c.published_at, ''),
+			COALESCE(c.coordinates_free, 0),
+			COALESCE(gi.kraj_name, ''),
+			COALESCE(ma.primary_latin_name, ''),
+			COALESCE(ma.primary_czech_name, ''),
+			COALESCE(ma.primary_probability, 0),
+			COALESCE(c.moderation_reason_code, ''),
+			COALESCE(c.moderated_by_user_id, 0),
+			COALESCE(mod.preferred_username, ''),
+			COALESCE(c.moderated_at, '')
+		FROM photo_captures c
+		JOIN users u ON u.id = c.user_id
+		LEFT JOIN users mod ON mod.id = c.moderated_by_user_id
+		LEFT JOIN capture_geo_index gi ON gi.capture_id = c.id
+		LEFT JOIN capture_mushroom_analysis ma ON ma.capture_id = c.id
+		WHERE c.status = 'published'
+			AND c.public_storage_key IS NOT NULL
+			AND c.public_storage_key != ''
+			AND COALESCE(c.moderator_hidden, 0) = 1
+		ORDER BY COALESCE(c.moderated_at, c.published_at, c.uploaded_at) DESC
+		LIMIT ? OFFSET ?
+	`, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var captures []*models.Capture
+	for rows.Next() {
+		var (
+			c               models.Capture
+			capturedAtRaw   string
+			uploadedAtRaw   string
+			publishedAtRaw  string
+			coordinatesFree int
+			moderatedAtRaw  string
+		)
+		if err := rows.Scan(
+			&c.ID,
+			&c.UserID,
+			&c.AuthorName,
+			&c.AuthorAvatar,
+			&c.ClientLocalID,
+			&c.OriginalFileName,
+			&c.ContentType,
+			&c.SizeBytes,
+			&c.Width,
+			&c.Height,
+			&capturedAtRaw,
+			&uploadedAtRaw,
+			&c.Status,
+			&c.PublicStorageKey,
+			&publishedAtRaw,
+			&coordinatesFree,
+			&c.KrajName,
+			&c.MushroomPrimaryLatinName,
+			&c.MushroomPrimaryCzechName,
+			&c.MushroomPrimaryProbability,
+			&c.ModerationReasonCode,
+			&c.ModeratedByUserID,
+			&c.ModeratedByName,
+			&moderatedAtRaw,
+		); err != nil {
+			return nil, err
+		}
+		c.AuthorUserID = c.UserID
+		c.CoordinatesFree = coordinatesFree == 1
+		c.CapturedAt = parseRFC3339Value(capturedAtRaw)
+		c.UploadedAt = parseRFC3339Value(uploadedAtRaw)
+		c.PublishedAt = parseRFC3339Value(publishedAtRaw)
+		c.ModeratedAt = parseRFC3339Value(moderatedAtRaw)
+		captures = append(captures, &c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return captures, nil
+}
+
+func (db *DB) CountModerationHiddenCaptures() (int, error) {
+	var total int
+	if err := db.QueryRow(`
+		SELECT COUNT(*)
+		FROM photo_captures
+		WHERE status = 'published'
+			AND public_storage_key IS NOT NULL
+			AND public_storage_key != ''
+			AND COALESCE(moderator_hidden, 0) = 1
+	`).Scan(&total); err != nil {
+		return 0, err
+	}
+	return total, nil
+}
+
+func (db *DB) ListModerationHiddenPosts(limit int, offset int, viewerUserID int64) ([]*models.Post, error) {
+	rows, err := db.Query(`
+		SELECT
+			p.id,
+			p.user_id,
+			COALESCE(u.preferred_username, ''),
+			COALESCE(u.picture, ''),
+			p.content,
+			p.status,
+			p.created_at,
+			p.updated_at,
+			COALESCE(p.moderation_reason_code, ''),
+			COALESCE(p.moderated_by_user_id, 0),
+			COALESCE(mod.preferred_username, ''),
+			COALESCE(p.moderated_at, '')
+		FROM posts p
+		JOIN users u ON u.id = p.user_id
+		LEFT JOIN users mod ON mod.id = p.moderated_by_user_id
+		WHERE p.status = 'published'
+			AND COALESCE(p.moderator_hidden, 0) = 1
+		ORDER BY COALESCE(p.moderated_at, p.updated_at, p.created_at) DESC
+		LIMIT ? OFFSET ?
+	`, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var posts []*models.Post
+	for rows.Next() {
+		var (
+			post           models.Post
+			createdAtRaw   string
+			updatedAtRaw   string
+			moderatedAtRaw string
+		)
+		if err := rows.Scan(
+			&post.ID,
+			&post.UserID,
+			&post.AuthorName,
+			&post.AuthorAvatar,
+			&post.Content,
+			&post.Status,
+			&createdAtRaw,
+			&updatedAtRaw,
+			&post.ModerationReasonCode,
+			&post.ModeratedByUserID,
+			&post.ModeratedByName,
+			&moderatedAtRaw,
+		); err != nil {
+			return nil, err
+		}
+		post.AuthorUserID = post.UserID
+		post.CreatedAt = parseRFC3339Value(createdAtRaw)
+		post.UpdatedAt = parseRFC3339Value(updatedAtRaw)
+		post.ModeratedAt = parseRFC3339Value(moderatedAtRaw)
+		posts = append(posts, &post)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	for _, post := range posts {
+		captures, err := db.getCapturesForPost(post.ID, viewerUserID, true)
+		if err != nil {
+			return nil, err
+		}
+		post.Captures = captures
+	}
+
+	return posts, nil
+}
+
+func (db *DB) CountModerationHiddenPosts() (int, error) {
+	var total int
+	if err := db.QueryRow(`
+		SELECT COUNT(*)
+		FROM posts
+		WHERE status = 'published'
+			AND COALESCE(moderator_hidden, 0) = 1
+	`).Scan(&total); err != nil {
+		return 0, err
+	}
+	return total, nil
+}
+
+func (db *DB) ListModerationHiddenComments(limit int, offset int) ([]*models.ModerationHiddenComment, error) {
+	rows, err := db.Query(`
+		SELECT
+			pc.id,
+			pc.post_id,
+			COALESCE(p.content, ''),
+			COALESCE(p.user_id, 0),
+			COALESCE(post_author.preferred_username, ''),
+			pc.user_id,
+			COALESCE(comment_author.preferred_username, ''),
+			COALESCE(comment_author.picture, ''),
+			pc.content,
+			pc.created_at,
+			pc.updated_at,
+			COALESCE(pc.moderation_reason_code, ''),
+			COALESCE(pc.moderated_by_user_id, 0),
+			COALESCE(mod.preferred_username, ''),
+			COALESCE(pc.moderated_at, '')
+		FROM post_comments pc
+		JOIN users comment_author ON comment_author.id = pc.user_id
+		JOIN posts p ON p.id = pc.post_id
+		JOIN users post_author ON post_author.id = p.user_id
+		LEFT JOIN users mod ON mod.id = pc.moderated_by_user_id
+		WHERE COALESCE(pc.moderator_hidden, 0) = 1
+		ORDER BY COALESCE(pc.moderated_at, pc.updated_at, pc.created_at) DESC
+		LIMIT ? OFFSET ?
+	`, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var comments []*models.ModerationHiddenComment
+	for rows.Next() {
+		var (
+			comment        models.ModerationHiddenComment
+			createdAtRaw   string
+			updatedAtRaw   string
+			moderatedAtRaw string
+		)
+		if err := rows.Scan(
+			&comment.ID,
+			&comment.PostID,
+			&comment.PostContent,
+			&comment.PostAuthorUserID,
+			&comment.PostAuthorName,
+			&comment.AuthorUserID,
+			&comment.AuthorName,
+			&comment.AuthorAvatar,
+			&comment.Content,
+			&createdAtRaw,
+			&updatedAtRaw,
+			&comment.ModerationReasonCode,
+			&comment.ModeratedByUserID,
+			&comment.ModeratedByName,
+			&moderatedAtRaw,
+		); err != nil {
+			return nil, err
+		}
+		comment.CreatedAt = parseRFC3339Value(createdAtRaw)
+		comment.UpdatedAt = parseRFC3339Value(updatedAtRaw)
+		comment.ModeratedAt = parseRFC3339Value(moderatedAtRaw)
+		comments = append(comments, &comment)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return comments, nil
+}
+
+func (db *DB) CountModerationHiddenComments() (int, error) {
+	var total int
+	if err := db.QueryRow(`
+		SELECT COUNT(*)
+		FROM post_comments
+		WHERE COALESCE(moderator_hidden, 0) = 1
+	`).Scan(&total); err != nil {
+		return 0, err
+	}
+	return total, nil
+}
+
 func loadTargetUserIDForContentTx(tx *sql.Tx, tableName string, idColumn string, targetID string) (int64, error) {
 	var targetUserID int64
 	query := fmt.Sprintf(`SELECT user_id FROM %s WHERE %s = ?`, tableName, idColumn)

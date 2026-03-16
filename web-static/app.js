@@ -635,6 +635,7 @@ function renderHeader(session, profile = null) {
     if (!authButtons) return;
 
     authButtons.innerHTML = "";
+    const identity = profile || session?.user || null;
 
     if (session && session.logged_in) {
         const greeting = document.createElement("span");
@@ -676,6 +677,9 @@ function renderHeader(session, profile = null) {
         authButtons.appendChild(createLinkButton("Zeď úlovků", "/feed.html", "btn-secondary"));
         authButtons.appendChild(createLinkButton("Galerie", "/gallery.html", "btn-secondary"));
         authButtons.appendChild(createLinkButton("Mapa", "/map.html", "btn-secondary"));
+        if (userCanModerateClient(identity)) {
+            authButtons.appendChild(createLinkButton("Moderace", "/moderation.html", "btn-secondary"));
+        }
 
         authButtons.appendChild(createLinkButton("Můj profil", "/me.html", "btn-primary"));
         authButtons.appendChild(createActionButton("Odhlásit", "btn-secondary", logoutFlow));
