@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -723,5 +724,196 @@ func TestHandleModeratorRecheckCaptureUpdatesPublishedAnalysis(t *testing.T) {
 	}
 	if reviewedByUserID != moderator.ID {
 		t.Fatalf("expected reviewed_by_user_id %d, got %d", moderator.ID, reviewedByUserID)
+	}
+
+	var (
+		actionKind       string
+		actionTargetUser int64
+	)
+	if err := database.QueryRow(`
+		SELECT action_kind, COALESCE(target_user_id, 0)
+		FROM moderation_actions
+		WHERE target_capture_id = ?
+		ORDER BY created_at DESC
+		LIMIT 1
+	`, capture.ID).Scan(&actionKind, &actionTargetUser); err != nil {
+		t.Fatalf("load moderation action: %v", err)
+	}
+	if actionKind != "capture_ai_review_updated" {
+		t.Fatalf("expected capture_ai_review_updated action, got %q", actionKind)
+	}
+	if actionTargetUser != owner.ID {
+		t.Fatalf("expected target_user_id %d, got %d", owner.ID, actionTargetUser)
+	}
+}
+
+func TestModeratorCanOverrideCaptureTaxonomy(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{
+		DBURL:             "file:" + filepath.Join(t.TempDir(), "test.db"),
+		FrontOrigin:       "https://houbamzdar.cz",
+		SessionCookieName: "hzd_session",
+	}
+
+	database, err := db.New(cfg)
+	if err != nil {
+		t.Fatalf("open test database: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = database.Close()
+	})
+
+	owner, _, err := database.UpsertUser(&models.OIDCClaims{
+		Iss:               "https://ahoj420.eu",
+		Sub:               "moderator-taxonomy-owner",
+		PreferredUsername: "atlas",
+		Email:             "atlas@example.test",
+	}, &oauth2.Token{
+		AccessToken:  "owner-access",
+		RefreshToken: "owner-refresh",
+		Expiry:       time.Now().Add(time.Hour).UTC(),
+	})
+	if err != nil {
+		t.Fatalf("create owner: %v", err)
+	}
+
+	moderator, _, err := database.UpsertUser(&models.OIDCClaims{
+		Iss:               "https://ahoj420.eu",
+		Sub:               "moderator-taxonomy-moderator",
+		PreferredUsername: "houbamzdar",
+		Email:             "moderator-taxonomy@example.test",
+	}, &oauth2.Token{
+		AccessToken:  "moderator-access",
+		RefreshToken: "moderator-refresh",
+		Expiry:       time.Now().Add(time.Hour).UTC(),
+	})
+	if err != nil {
+		t.Fatalf("create moderator: %v", err)
+	}
+
+	sessionID := "moderator-taxonomy-session"
+	if err := database.CreateSession(&models.Session{
+		SessionID: sessionID,
+		UserID:    moderator.ID,
+		ExpiresAt: time.Now().Add(time.Hour).UTC(),
+	}); err != nil {
+		t.Fatalf("create moderator session: %v", err)
+	}
+
+	lat := 49.1951
+	lon := 16.6068
+	capture := &models.Capture{
+		ID:                "moderator-taxonomy-capture",
+		UserID:            owner.ID,
+		OriginalFileName:  "taxonomy.jpg",
+		ContentType:       "image/jpeg",
+		SizeBytes:         4096,
+		Width:             1280,
+		Height:            960,
+		CapturedAt:        time.Date(2026, time.March, 16, 12, 0, 0, 0, time.UTC),
+		UploadedAt:        time.Date(2026, time.March, 16, 12, 0, 0, 0, time.UTC),
+		Latitude:          &lat,
+		Longitude:         &lon,
+		Status:            "published",
+		PrivateStorageKey: "captures/private/moderator-taxonomy-capture.jpg",
+		PublicStorageKey:  "captures/published/owner/moderator-taxonomy-capture.jpg",
+		PublishedAt:       time.Date(2026, time.March, 16, 12, 5, 0, 0, time.UTC),
+	}
+	if err := database.CreateCapture(capture); err != nil {
+		t.Fatalf("create capture: %v", err)
+	}
+
+	srv := New(cfg, database, nil, &media.BunnyStorage{})
+
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/moderation/captures/"+capture.ID+"/taxonomy",
+		strings.NewReader(`{"species":[{"latin_name":"Amanita muscaria","czech_official_name":"muchomůrka červená","probability":0.97},{"latin_name":"Amanita sp.","czech_official_name":"muchomůrka","probability":82}],"note":"manual correction"}`),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(&http.Cookie{Name: cfg.SessionCookieName, Value: sessionID})
+	rec := httptest.NewRecorder()
+	srv.Router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var payload struct {
+		OK       bool                             `json:"ok"`
+		Analysis *models.CaptureMushroomAnalysis  `json:"analysis"`
+		Species  []*models.CaptureMushroomSpecies `json:"species"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !payload.OK || payload.Analysis == nil {
+		t.Fatalf("unexpected response payload: %+v", payload)
+	}
+	if payload.Analysis.ModelCode != "manual_override" {
+		t.Fatalf("expected manual_override model code, got %q", payload.Analysis.ModelCode)
+	}
+	if payload.Analysis.ReviewSource != db.CaptureAnalysisSourceModeratorManualOverride {
+		t.Fatalf("expected manual override review source, got %q", payload.Analysis.ReviewSource)
+	}
+	if len(payload.Species) != 2 {
+		t.Fatalf("expected 2 species rows in response, got %d", len(payload.Species))
+	}
+
+	var (
+		primaryLatin     string
+		primaryProb      float64
+		reviewSource     string
+		reviewedByUser   int64
+		modelCode        string
+		storedSpecies    int
+		actionKind       string
+		actionTargetUser int64
+	)
+	if err := database.QueryRow(`
+		SELECT primary_latin_name, primary_probability, review_source, COALESCE(reviewed_by_user_id, 0), COALESCE(model_code, '')
+		FROM capture_mushroom_analysis
+		WHERE capture_id = ?
+	`, capture.ID).Scan(&primaryLatin, &primaryProb, &reviewSource, &reviewedByUser, &modelCode); err != nil {
+		t.Fatalf("load stored manual analysis: %v", err)
+	}
+	if primaryLatin != "Amanita muscaria" {
+		t.Fatalf("expected manual primary latin name, got %q", primaryLatin)
+	}
+	if reviewSource != db.CaptureAnalysisSourceModeratorManualOverride {
+		t.Fatalf("expected manual review source, got %q", reviewSource)
+	}
+	if reviewedByUser != moderator.ID {
+		t.Fatalf("expected reviewed_by_user_id %d, got %d", moderator.ID, reviewedByUser)
+	}
+	if modelCode != "manual_override" {
+		t.Fatalf("expected model_code manual_override, got %q", modelCode)
+	}
+	if primaryProb < 0.96 || primaryProb > 0.98 {
+		t.Fatalf("expected primary probability around 0.97, got %f", primaryProb)
+	}
+
+	if err := database.QueryRow(`SELECT COUNT(*) FROM capture_mushroom_species WHERE capture_id = ?`, capture.ID).Scan(&storedSpecies); err != nil {
+		t.Fatalf("count stored species: %v", err)
+	}
+	if storedSpecies != 2 {
+		t.Fatalf("expected 2 stored species rows, got %d", storedSpecies)
+	}
+
+	if err := database.QueryRow(`
+		SELECT action_kind, COALESCE(target_user_id, 0)
+		FROM moderation_actions
+		WHERE target_capture_id = ?
+		ORDER BY created_at DESC
+		LIMIT 1
+	`, capture.ID).Scan(&actionKind, &actionTargetUser); err != nil {
+		t.Fatalf("load moderation action: %v", err)
+	}
+	if actionKind != "capture_taxonomy_updated" {
+		t.Fatalf("expected capture_taxonomy_updated action, got %q", actionKind)
+	}
+	if actionTargetUser != owner.ID {
+		t.Fatalf("expected target_user_id %d, got %d", owner.ID, actionTargetUser)
 	}
 }

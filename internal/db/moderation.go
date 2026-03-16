@@ -158,6 +158,79 @@ func loadTargetUserIDForContentTx(tx *sql.Tx, tableName string, idColumn string,
 	return targetUserID, nil
 }
 
+func (db *DB) ApplyCaptureManualModeratorTaxonomy(
+	captureID string,
+	moderatorUserID int64,
+	species []*models.CaptureMushroomSpecies,
+	note string,
+) (*models.CaptureMushroomAnalysis, error) {
+	if len(species) == 0 {
+		return nil, fmt.Errorf("at least one species is required")
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	targetUserID, err := loadTargetUserIDForContentTx(tx, "photo_captures", "id", captureID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, sql.ErrNoRows
+		}
+		return nil, err
+	}
+
+	now := time.Now().UTC()
+	first := species[0]
+	rawJSON := moderationMetaJSON(map[string]interface{}{
+		"species": species,
+		"source":  CaptureAnalysisSourceModeratorManualOverride,
+	})
+	analysis := &models.CaptureMushroomAnalysis{
+		CaptureID:                captureID,
+		HasMushrooms:             true,
+		PrimaryLatinName:         strings.TrimSpace(first.LatinName),
+		PrimaryCzechOfficialName: strings.TrimSpace(first.CzechOfficialName),
+		PrimaryProbability:       first.Probability,
+		ModelCode:                "manual_override",
+		ReviewSource:             CaptureAnalysisSourceModeratorManualOverride,
+		ReviewedByUserID:         moderatorUserID,
+		ReviewedAt:               now,
+		RawJSON:                  rawJSON,
+		AnalyzedAt:               now,
+	}
+
+	if err := upsertCaptureMushroomAnalysisTx(tx, analysis); err != nil {
+		return nil, err
+	}
+	if err := replaceCaptureMushroomSpeciesTx(tx, captureID, species); err != nil {
+		return nil, err
+	}
+	if err := recordModerationActionTx(tx, &models.ModerationAction{
+		ActorUserID:     moderatorUserID,
+		TargetUserID:    targetUserID,
+		TargetCaptureID: captureID,
+		ActionKind:      "capture_taxonomy_updated",
+		ReasonCode:      "manual_taxonomy_override",
+		Note:            strings.TrimSpace(note),
+		MetaJSON: moderationMetaJSON(map[string]interface{}{
+			"species_count": len(species),
+			"model_code":    analysis.ModelCode,
+			"review_source": analysis.ReviewSource,
+		}),
+		CreatedAt: now,
+	}); err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return analysis, nil
+}
+
 func (db *DB) SetUserRestrictions(
 	targetUserID int64,
 	actorUserID int64,

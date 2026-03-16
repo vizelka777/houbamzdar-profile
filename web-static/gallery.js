@@ -19,7 +19,12 @@ const state = {
         defaultModel: "",
         selectedModel: "",
         loading: false,
-        loadError: ""
+        loadError: "",
+        editorCaptureId: "",
+        editorLoading: false,
+        editorLoadError: "",
+        editorText: "",
+        editorNote: ""
     }
 };
 
@@ -117,6 +122,73 @@ function updateGallerySummary() {
 
 function canModeratorRecheck() {
     return userCanModerateClient(state.me);
+}
+
+function buildModeratorTaxonomyLines(species, analysis) {
+    const items = Array.isArray(species) ? species.filter(Boolean) : [];
+    if (items.length > 0) {
+        return items.map((item) => [
+            String(item.latin_name || "").trim(),
+            String(item.czech_official_name || "").trim(),
+            String(item.probability ?? "").trim()
+        ].join(" | ")).join("\n");
+    }
+
+    const latinName = String(analysis?.primary_latin_name || "").trim();
+    const czechName = String(analysis?.primary_czech_official_name || "").trim();
+    const probability = Number(analysis?.primary_probability);
+    if (!latinName) {
+        return "";
+    }
+    return `${latinName} | ${czechName} | ${Number.isFinite(probability) && probability > 0 ? probability : 0.9}`;
+}
+
+function parseModeratorTaxonomyLines(rawText) {
+    const lines = String(rawText || "")
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean);
+    if (lines.length === 0) {
+        throw new Error("Vyplňte alespoň jeden taxon.");
+    }
+
+    return lines.map((line, index) => {
+        const parts = line.split("|").map((part) => part.trim());
+        const latinName = parts[0] || "";
+        const czechName = parts[1] || "";
+        const rawProbability = (parts[2] || "").replace("%", "").trim();
+        if (!latinName) {
+            throw new Error(`Řádek ${index + 1}: latin_name je povinný.`);
+        }
+        if (!rawProbability) {
+            throw new Error(`Řádek ${index + 1}: probability je povinná.`);
+        }
+
+        let probability = Number(rawProbability.replace(",", "."));
+        if (!Number.isFinite(probability)) {
+            throw new Error(`Řádek ${index + 1}: probability musí být číslo.`);
+        }
+        if (probability > 1 && probability <= 100) {
+            probability = probability / 100;
+        }
+        if (probability <= 0 || probability > 1) {
+            throw new Error(`Řádek ${index + 1}: probability musí být mezi 0 a 1 nebo 0 a 100.`);
+        }
+
+        return {
+            latin_name: latinName,
+            czech_official_name: czechName,
+            probability
+        };
+    });
+}
+
+function closeModeratorTaxonomyEditor() {
+    state.moderation.editorCaptureId = "";
+    state.moderation.editorLoading = false;
+    state.moderation.editorLoadError = "";
+    state.moderation.editorText = "";
+    state.moderation.editorNote = "";
 }
 
 function syncModeratorModelPanel() {
@@ -247,6 +319,7 @@ async function runModeratorRecheck(captureID, button) {
             ? payload.species[0].latin_name || "aktualizovaný taxon"
             : "aktualizovaný taxon";
         window.alert(`Moderatorská kontrola je hotová. Hlavní taxon: ${firstSpecies}.`);
+        closeModeratorTaxonomyEditor();
         await loadGallery({ reset: true });
     } catch (error) {
         console.error("Moderator recheck failed", error);
@@ -256,6 +329,118 @@ async function runModeratorRecheck(captureID, button) {
             button.disabled = false;
         }
     }
+}
+
+async function openModeratorTaxonomyEditor(captureID) {
+    if (!captureID || !canModeratorRecheck()) {
+        return;
+    }
+    if (state.moderation.editorCaptureId === captureID) {
+        closeModeratorTaxonomyEditor();
+        renderGallery(document.getElementById("gallery-container"));
+        return;
+    }
+
+    state.moderation.editorCaptureId = captureID;
+    state.moderation.editorLoading = true;
+    state.moderation.editorLoadError = "";
+    state.moderation.editorText = "";
+    state.moderation.editorNote = "";
+    renderGallery(document.getElementById("gallery-container"));
+
+    try {
+        const response = await apiJsonRequest(`/api/moderation/captures/${encodeURIComponent(captureID)}/taxonomy`);
+        if (!response || !response.ok) {
+            throw new Error("Nepodařilo se načíst současné taxony.");
+        }
+        state.moderation.editorText = buildModeratorTaxonomyLines(response.species, response.analysis);
+    } catch (error) {
+        console.error("Failed to load capture taxonomy", error);
+        state.moderation.editorLoadError = error.message || "Nepodařilo se načíst současné taxony.";
+    } finally {
+        state.moderation.editorLoading = false;
+        renderGallery(document.getElementById("gallery-container"));
+    }
+}
+
+async function saveModeratorTaxonomy(captureID, button) {
+    if (!captureID || !canModeratorRecheck()) {
+        return;
+    }
+
+    const textarea = document.getElementById(`gallery-taxonomy-editor-${captureID}`);
+    const noteInput = document.getElementById(`gallery-taxonomy-note-${captureID}`);
+    let species;
+    try {
+        species = parseModeratorTaxonomyLines(textarea?.value || "");
+    } catch (error) {
+        window.alert(error.message || "Taxony se nepodařilo zpracovat.");
+        return;
+    }
+
+    if (button) {
+        button.disabled = true;
+    }
+
+    try {
+        const response = await apiJsonRequest(`/api/moderation/captures/${encodeURIComponent(captureID)}/taxonomy`, {
+            method: "POST",
+            body: {
+                species,
+                note: noteInput?.value || ""
+            }
+        });
+        if (!response || !response.ok) {
+            throw new Error("Taxony se nepodařilo uložit.");
+        }
+        window.alert("Ruční úprava taxonů byla uložena.");
+        closeModeratorTaxonomyEditor();
+        await loadGallery({ reset: true });
+    } catch (error) {
+        console.error("Failed to save capture taxonomy", error);
+        window.alert(error.message || "Taxony se nepodařilo uložit.");
+    } finally {
+        if (button) {
+            button.disabled = false;
+        }
+    }
+}
+
+function renderModeratorTaxonomyEditor(capture) {
+    if (!canModeratorRecheck() || state.moderation.editorCaptureId !== capture.id) {
+        return "";
+    }
+
+    if (state.moderation.editorLoading) {
+        return `
+            <div class="gallery-moderator-editor" data-capture-id="${escapeHtml(capture.id)}">
+                <p class="muted-copy">Načítám uložené taxony...</p>
+            </div>
+        `;
+    }
+
+    return `
+        <div class="gallery-moderator-editor" data-capture-id="${escapeHtml(capture.id)}">
+            <label class="field-block">
+                <span>Taxony</span>
+                <textarea id="gallery-taxonomy-editor-${escapeHtml(capture.id)}" rows="5" placeholder="Boletus edulis | hřib smrkový | 0.96">${escapeHtml(state.moderation.editorText)}</textarea>
+            </label>
+            <p class="muted-copy">Jeden řádek = <code>latin_name | czech_official_name | probability</code>. Probability může být 0.93 nebo 93.</p>
+            ${state.moderation.editorLoadError ? `<p class="status-message is-error">${escapeHtml(state.moderation.editorLoadError)}</p>` : ""}
+            <label class="field-block">
+                <span>Poznámka moderátora</span>
+                <input id="gallery-taxonomy-note-${escapeHtml(capture.id)}" type="text" maxlength="500" value="${escapeHtml(state.moderation.editorNote)}" placeholder="Proč byl taxon upraven">
+            </label>
+            <div class="gallery-item-actions">
+                <button type="button" class="btn btn-secondary gallery-moderator-save-taxonomy-action" data-capture-id="${escapeHtml(capture.id)}">
+                    Uložit taxony
+                </button>
+                <button type="button" class="btn btn-secondary gallery-moderator-cancel-taxonomy-action" data-capture-id="${escapeHtml(capture.id)}">
+                    Zavřít editor
+                </button>
+            </div>
+        </div>
+    `;
 }
 
 async function hideGalleryCapture(captureID, button) {
@@ -286,6 +471,7 @@ async function hideGalleryCapture(captureID, button) {
         if (!response || !response.ok) {
             throw new Error("Fotografii se nepodařilo skrýt.");
         }
+        closeModeratorTaxonomyEditor();
         await loadGallery({ reset: true });
     } catch (error) {
         console.error("Failed to hide capture", error);
@@ -323,6 +509,9 @@ function renderGallery(container) {
                     <button type="button" class="btn btn-secondary gallery-moderator-action" data-capture-id="${escapeHtml(capture.id)}">
                         AI recheck
                     </button>
+                    <button type="button" class="btn btn-secondary gallery-moderator-edit-action" data-capture-id="${escapeHtml(capture.id)}">
+                        Upravit taxony
+                    </button>
                     <button type="button" class="btn btn-secondary gallery-moderator-hide-action" data-capture-id="${escapeHtml(capture.id)}">
                         Skrýt foto
                     </button>
@@ -346,6 +535,7 @@ function renderGallery(container) {
                     ${species ? `<strong class="gallery-item-species">${escapeHtml(species)}</strong>` : ""}
                     ${region ? `<p>Kraj: ${escapeHtml(region)}</p>` : ""}
                     ${moderatorAction}
+                    ${renderModeratorTaxonomyEditor(capture)}
                 </div>
             </div>
         `;
@@ -372,11 +562,42 @@ function renderGallery(container) {
         });
     });
 
+    container.querySelectorAll(".gallery-moderator-edit-action").forEach((button) => {
+        button.addEventListener("click", async (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            await openModeratorTaxonomyEditor(button.dataset.captureId);
+        });
+    });
+
     container.querySelectorAll(".gallery-moderator-hide-action").forEach((button) => {
         button.addEventListener("click", async (event) => {
             event.preventDefault();
             event.stopPropagation();
             await hideGalleryCapture(button.dataset.captureId, button);
+        });
+    });
+
+    container.querySelectorAll(".gallery-moderator-save-taxonomy-action").forEach((button) => {
+        button.addEventListener("click", async (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            await saveModeratorTaxonomy(button.dataset.captureId, button);
+        });
+    });
+
+    container.querySelectorAll(".gallery-moderator-cancel-taxonomy-action").forEach((button) => {
+        button.addEventListener("click", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            closeModeratorTaxonomyEditor();
+            renderGallery(container);
+        });
+    });
+
+    container.querySelectorAll(".gallery-moderator-editor").forEach((panel) => {
+        panel.addEventListener("click", (event) => {
+            event.stopPropagation();
         });
     });
 }

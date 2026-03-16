@@ -23,6 +23,38 @@ import (
 
 const maxCaptureUploadSize = 20 << 20
 
+func normalizeModeratorSpeciesInput(species []*models.CaptureMushroomSpecies) ([]*models.CaptureMushroomSpecies, error) {
+	normalized := make([]*models.CaptureMushroomSpecies, 0, len(species))
+	for _, item := range species {
+		if item == nil {
+			continue
+		}
+		latinName := strings.TrimSpace(item.LatinName)
+		czechName := strings.TrimSpace(item.CzechOfficialName)
+		if latinName == "" {
+			return nil, fmt.Errorf("latin_name is required for every species")
+		}
+
+		probability := item.Probability
+		if probability > 1 && probability <= 100 {
+			probability = probability / 100
+		}
+		if probability <= 0 || probability > 1 {
+			return nil, fmt.Errorf("probability must be between 0 and 1 (or 0 and 100)")
+		}
+
+		normalized = append(normalized, &models.CaptureMushroomSpecies{
+			LatinName:         latinName,
+			CzechOfficialName: czechName,
+			Probability:       probability,
+		})
+	}
+	if len(normalized) == 0 {
+		return nil, fmt.Errorf("at least one species is required")
+	}
+	return normalized, nil
+}
+
 func (s *Server) handleListCaptures(w http.ResponseWriter, r *http.Request) {
 	user := r.Context().Value("user").(*models.User)
 
@@ -341,8 +373,98 @@ func (s *Server) handleModeratorRecheckCapture(w http.ResponseWriter, r *http.Re
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"ok":         true,
 		"capture_id": capture.ID,
+		"analysis":   analysis,
 		"model_code": analysis.ModelCode,
 		"species":    species,
+	})
+}
+
+func (s *Server) handleGetModerationCaptureTaxonomy(w http.ResponseWriter, r *http.Request) {
+	user := r.Context().Value("user").(*models.User)
+	if !userCanModerate(user) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	captureID := chi.URLParam(r, "captureID")
+	capture, err := s.DB.GetCaptureByID(captureID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.Error(w, "capture not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "failed to load capture", http.StatusInternalServerError)
+		return
+	}
+
+	analysis, species, err := s.DB.GetCaptureMushroomReview(captureID)
+	if err != nil {
+		http.Error(w, "failed to load capture taxonomy", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"ok":       true,
+		"capture":  capture,
+		"analysis": analysis,
+		"species":  species,
+	})
+}
+
+func (s *Server) handleSetModerationCaptureTaxonomy(w http.ResponseWriter, r *http.Request) {
+	user := r.Context().Value("user").(*models.User)
+	if !userCanModerate(user) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	captureID := chi.URLParam(r, "captureID")
+	capture, err := s.DB.GetCaptureByID(captureID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.Error(w, "capture not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "failed to load capture", http.StatusInternalServerError)
+		return
+	}
+	if capture.Status != "published" || strings.TrimSpace(capture.PublicStorageKey) == "" {
+		http.Error(w, "capture is not publicly shared", http.StatusUnprocessableEntity)
+		return
+	}
+
+	var req struct {
+		Species []*models.CaptureMushroomSpecies `json:"species"`
+		Note    string                           `json:"note"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	species, err := normalizeModeratorSpeciesInput(req.Species)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+		return
+	}
+
+	analysis, err := s.DB.ApplyCaptureManualModeratorTaxonomy(captureID, user.ID, species, req.Note)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.Error(w, "capture not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "failed to save capture taxonomy", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"ok":       true,
+		"capture":  capture,
+		"analysis": analysis,
+		"species":  species,
 	})
 }
 

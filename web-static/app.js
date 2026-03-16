@@ -926,6 +926,10 @@ function formatModerationActionTitle(action) {
             return "Upravena omezení účtu";
         case "user_roles_updated":
             return "Upraveny role účtu";
+        case "capture_ai_review_updated":
+            return "Aktualizováno AI rozpoznání fotografie";
+        case "capture_taxonomy_updated":
+            return "Ručně upraveny taxony fotografie";
         case "capture_visibility_updated":
             return "Upravena viditelnost fotografie";
         case "post_visibility_updated":

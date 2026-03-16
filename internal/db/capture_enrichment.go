@@ -26,6 +26,7 @@ const (
 const (
 	CaptureAnalysisSourceAutomaticPublishValidation = "automatic_publish_validation"
 	CaptureAnalysisSourceModeratorRecheck           = "moderator_recheck"
+	CaptureAnalysisSourceModeratorManualOverride    = "moderator_manual_override"
 )
 
 type PublicCaptureFilters struct {
@@ -357,6 +358,14 @@ func (db *DB) ApplyCaptureModeratorReview(
 	}
 	defer tx.Rollback()
 
+	targetUserID, err := loadTargetUserIDForContentTx(tx, "photo_captures", "id", captureID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return sql.ErrNoRows
+		}
+		return err
+	}
+
 	analysis.ReviewSource = CaptureAnalysisSourceModeratorRecheck
 	analysis.ReviewedByUserID = moderatorUserID
 	analysis.ReviewedAt = time.Now().UTC()
@@ -368,7 +377,112 @@ func (db *DB) ApplyCaptureModeratorReview(
 		return err
 	}
 
+	if err := recordModerationActionTx(tx, &models.ModerationAction{
+		ActorUserID:     moderatorUserID,
+		TargetUserID:    targetUserID,
+		TargetCaptureID: captureID,
+		ActionKind:      "capture_ai_review_updated",
+		ReasonCode:      "moderator_recheck",
+		Note:            strings.TrimSpace(analysis.ModelCode),
+		MetaJSON: moderationMetaJSON(map[string]interface{}{
+			"model_code":    analysis.ModelCode,
+			"species_count": len(species),
+			"review_source": analysis.ReviewSource,
+		}),
+		CreatedAt: time.Now().UTC(),
+	}); err != nil {
+		return err
+	}
+
 	return tx.Commit()
+}
+
+func (db *DB) GetCaptureMushroomReview(captureID string) (*models.CaptureMushroomAnalysis, []*models.CaptureMushroomSpecies, error) {
+	var (
+		analysis       models.CaptureMushroomAnalysis
+		primaryLatin   sql.NullString
+		primaryCzech   sql.NullString
+		modelCode      sql.NullString
+		reviewSource   sql.NullString
+		reviewedByUser sql.NullInt64
+		reviewedAtRaw  sql.NullString
+		rawJSON        sql.NullString
+		analyzedAtRaw  sql.NullString
+	)
+
+	analysisErr := db.QueryRow(`
+		SELECT
+			capture_id,
+			has_mushrooms,
+			COALESCE(primary_latin_name, ''),
+			COALESCE(primary_czech_name, ''),
+			COALESCE(primary_probability, 0),
+			COALESCE(model_code, ''),
+			COALESCE(review_source, ''),
+			COALESCE(reviewed_by_user_id, 0),
+			COALESCE(reviewed_at, ''),
+			COALESCE(raw_json, ''),
+			COALESCE(analyzed_at, '')
+		FROM capture_mushroom_analysis
+		WHERE capture_id = ?
+	`, captureID).Scan(
+		&analysis.CaptureID,
+		&analysis.HasMushrooms,
+		&primaryLatin,
+		&primaryCzech,
+		&analysis.PrimaryProbability,
+		&modelCode,
+		&reviewSource,
+		&reviewedByUser,
+		&reviewedAtRaw,
+		&rawJSON,
+		&analyzedAtRaw,
+	)
+	if analysisErr != nil && analysisErr != sql.ErrNoRows {
+		return nil, nil, analysisErr
+	}
+	if analysisErr == nil {
+		analysis.PrimaryLatinName = primaryLatin.String
+		analysis.PrimaryCzechOfficialName = primaryCzech.String
+		analysis.ModelCode = modelCode.String
+		analysis.ReviewSource = reviewSource.String
+		analysis.ReviewedByUserID = reviewedByUser.Int64
+		analysis.RawJSON = rawJSON.String
+		if reviewedAtRaw.Valid && reviewedAtRaw.String != "" {
+			analysis.ReviewedAt, _ = time.Parse(time.RFC3339, reviewedAtRaw.String)
+		}
+		if analyzedAtRaw.Valid && analyzedAtRaw.String != "" {
+			analysis.AnalyzedAt, _ = time.Parse(time.RFC3339, analyzedAtRaw.String)
+		}
+	}
+
+	rows, err := db.Query(`
+		SELECT id, capture_id, latin_name, COALESCE(czech_official_name, ''), probability
+		FROM capture_mushroom_species
+		WHERE capture_id = ?
+		ORDER BY probability DESC, id ASC
+	`, captureID)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+
+	var species []*models.CaptureMushroomSpecies
+	for rows.Next() {
+		item := &models.CaptureMushroomSpecies{}
+		if err := rows.Scan(&item.ID, &item.CaptureID, &item.LatinName, &item.CzechOfficialName, &item.Probability); err != nil {
+			return nil, nil, err
+		}
+		species = append(species, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+
+	if analysisErr == sql.ErrNoRows {
+		return nil, species, nil
+	}
+	return &analysis, species, nil
 }
 
 func (db *DB) ListPublicCapturesWithFilters(filters PublicCaptureFilters, viewerUserID int64) ([]*models.Capture, error) {
