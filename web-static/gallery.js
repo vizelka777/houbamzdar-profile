@@ -714,7 +714,7 @@ function renderGallery(container) {
     if (!container) return;
 
     if (state.captures.length === 0) {
-        container.innerHTML = '<p class="muted-copy" style="grid-column: 1 / -1; text-align: center;">Zatím nejsou sdíleny žádné fotografie pro tento filtr.</p>';
+        container.innerHTML = '<p class="muted-copy gallery-grid-status">Zatím nejsou sdíleny žádné fotografie pro tento filtr.</p>';
         return;
     }
 
@@ -967,7 +967,7 @@ async function loadGallery({ reset = false } = {}) {
         state.total = 0;
         state.totalPages = 0;
         state.captures = [];
-        container.innerHTML = '<p class="muted-copy" style="grid-column: 1 / -1; text-align: center;">Načítám fotografie...</p>';
+        container.innerHTML = '<p class="muted-copy gallery-grid-status">Načítám fotografie...</p>';
         updateGallerySummary();
     }
 
@@ -996,7 +996,7 @@ async function loadGallery({ reset = false } = {}) {
         state.total = 0;
         state.totalPages = 0;
         renderGalleryPagination();
-        container.innerHTML = `<p class="muted-copy" style="grid-column: 1 / -1; text-align: center;">${escapeHtml(error.message || "Chyba při načítání galerie.")}</p>`;
+        container.innerHTML = `<p class="muted-copy gallery-grid-status">${escapeHtml(error.message || "Chyba při načítání galerie.")}</p>`;
     } finally {
         state.isLoading = false;
         updateGallerySummary();

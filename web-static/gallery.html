@@ -9,127 +9,6 @@
     <link rel="apple-touch-icon" href="/apple-touch-icon.png">
     <link rel="stylesheet" href="styles.css">
     <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
-    <style>
-        .gallery-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-            gap: 1rem;
-            margin-top: 1.5rem;
-        }
-        .gallery-item {
-            display: flex;
-            flex-direction: column;
-            border-radius: var(--radius-sm);
-            overflow: hidden;
-            cursor: pointer;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-            background: var(--surface-color);
-            transition: transform 0.2s ease;
-        }
-        .gallery-item:hover {
-            transform: translateY(-4px);
-        }
-        .gallery-item-header {
-            padding: 0.6rem;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            background: var(--surface-hover);
-            border-bottom: 1px solid var(--border-color);
-        }
-        .gallery-item-avatar {
-            width: 24px;
-            height: 24px;
-            border-radius: 50%;
-            object-fit: cover;
-            flex-shrink: 0;
-        }
-        .gallery-item-author {
-            font-size: 0.85rem;
-            font-weight: 500;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            color: var(--text-color);
-        }
-        .gallery-item-image {
-            position: relative;
-            aspect-ratio: 1;
-            width: 100%;
-            overflow: hidden;
-        }
-        .gallery-item-image img {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-        }
-        .gallery-overview {
-            margin-bottom: 1.75rem;
-            padding: 0;
-            overflow: hidden;
-        }
-        .gallery-overview-summary {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 1rem;
-            padding: 1.1rem 1.4rem;
-            cursor: pointer;
-            list-style: none;
-        }
-        .gallery-overview-summary::-webkit-details-marker {
-            display: none;
-        }
-        .gallery-overview-summary::after {
-            content: "▾";
-            font-size: 1.1rem;
-            color: var(--muted);
-            transition: transform 0.2s ease;
-            transform: rotate(-90deg);
-            margin-top: 0.2rem;
-        }
-        .gallery-overview[open] .gallery-overview-summary::after {
-            transform: rotate(0deg);
-        }
-        .gallery-overview-title {
-            margin: 0;
-            color: var(--forest-950);
-            font-size: 1rem;
-            font-weight: 700;
-        }
-        .gallery-overview-body {
-            padding: 0 1.4rem 1.4rem;
-            border-top: 1px solid var(--border-color);
-        }
-        .gallery-pagination {
-            justify-content: center;
-            gap: 0.55rem;
-            margin: 2rem 0;
-        }
-        .gallery-pagination .btn {
-            min-width: 2.9rem;
-            justify-content: center;
-        }
-        .gallery-pagination-gap {
-            color: var(--muted);
-            font-weight: 700;
-            user-select: none;
-        }
-        .moderator-panel[hidden] {
-            display: none !important;
-        }
-
-        /* Lightbox modal */
-        .lightbox { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.9); align-items: center; justify-content: center; flex-direction: column;}
-        .lightbox.active { display: flex; }
-        .lightbox-close { position: absolute; top: 20px; right: 20px; color: white; font-size: 2rem; cursor: pointer; user-select: none; z-index: 1001; }
-        .lightbox-content { max-width: 90%; max-height: 80%; object-fit: contain; }
-        .lightbox-nav { position: absolute; top: 50%; transform: translateY(-50%); color: white; font-size: 3rem; cursor: pointer; user-select: none; padding: 1rem; z-index: 1001;}
-        .lightbox-prev { left: 10px; }
-        .lightbox-next { right: 10px; }
-        .lightbox-map-container { width: 90%; height: 200px; max-width: 600px; margin-top: 10px; display: none; border-radius: 8px; z-index: 1001;}
-        .lightbox-map-btn { margin-top: 10px; z-index: 1001; }
-    </style>
 </head>
 <body data-page="gallery" class="page-shell">
     <header class="site-header">
@@ -198,7 +77,7 @@
         </details>
 
         <div id="gallery-container" class="gallery-grid">
-            <p class="muted-copy" style="grid-column: 1 / -1; text-align: center;">Načítám fotografie...</p>
+            <p class="muted-copy gallery-grid-status">Načítám fotografie...</p>
         </div>
 
         <nav id="gallery-pagination" class="server-pagination gallery-pagination" aria-label="Stránkování galerie" hidden></nav>

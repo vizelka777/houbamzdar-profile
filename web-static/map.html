@@ -10,32 +10,6 @@
     <link rel="stylesheet" href="styles.css">
     <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
     <link rel="stylesheet" href="vendor/leaflet-markercluster/MarkerCluster.css" />
-    <style>
-        #global-map {
-            width: 100%;
-            height: 600px;
-            border-radius: var(--radius-md);
-            z-index: 1;
-        }
-        .map-popup-content {
-            text-align: center;
-        }
-        .map-popup-content img {
-            max-width: 150px;
-            max-height: 150px;
-            border-radius: var(--radius-sm);
-            margin-bottom: 0.5rem;
-        }
-        .map-popup-content h4 {
-            margin: 0 0 0.2rem;
-            font-size: 1rem;
-        }
-        .map-popup-content p {
-            margin: 0;
-            font-size: 0.8rem;
-            color: var(--text-muted);
-        }
-    </style>
 </head>
 <body data-page="map" class="page-shell">
     <header class="site-header">
@@ -50,7 +24,7 @@
     </header>
 
     <main class="content-main content-main-narrow">
-        <section class="page-intro card" style="margin-bottom: 2rem;">
+        <section class="page-intro card page-intro-spaced">
             <p class="section-label">Mapa</p>
             <h1>Místa nálezů</h1>
             <p>

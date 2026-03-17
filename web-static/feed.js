@@ -719,7 +719,7 @@ async function loadFeed(append = false) {
     const loadMoreBtn = document.getElementById("load-more-feed-btn");
 
     if (!append) {
-        container.innerHTML = '<p class="muted-copy" style="text-align: center;">Načítám příspěvky...</p>';
+        container.innerHTML = '<p class="muted-copy feed-list-status">Načítám příspěvky...</p>';
     }
 
     try {
@@ -741,7 +741,7 @@ async function loadFeed(append = false) {
         }
 
         if (state.posts.length === 0) {
-            container.innerHTML = '<p class="muted-copy" style="text-align: center;">Zatím nejsou žádné příspěvky k zobrazení.</p>';
+            container.innerHTML = '<p class="muted-copy feed-list-status">Zatím nejsou žádné příspěvky k zobrazení.</p>';
             if (loadMoreBtn) loadMoreBtn.style.display = "none";
             return;
         }
@@ -754,7 +754,7 @@ async function loadFeed(append = false) {
     } catch (error) {
         console.error("Failed to load feed", error);
         if (!append) {
-            container.innerHTML = '<p class="muted-copy" style="text-align: center;">Chyba při načítání zdi.</p>';
+            container.innerHTML = '<p class="muted-copy feed-list-status">Chyba při načítání zdi.</p>';
         }
     }
 }

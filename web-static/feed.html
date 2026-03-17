@@ -8,107 +8,53 @@
     <link rel="icon" href="/favicon.ico" sizes="any">
     <link rel="apple-touch-icon" href="/apple-touch-icon.png">
     <link rel="stylesheet" href="styles.css">
-    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
-    <link rel="stylesheet" href="vendor/leaflet-markercluster/MarkerCluster.css" />
-    <style>
-        .feed-card { margin-bottom: 2rem; padding: 1.5rem; }
-        .feed-header { display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem; }
-        .feed-avatar { width: 48px; height: 48px; border-radius: 50%; object-fit: cover; background-color: var(--surface-hover); }
-        .feed-meta { display: flex; flex-direction: column; }
-        .feed-author { font-weight: bold; font-size: 1.1rem; }
-        .feed-date { font-size: 0.85rem; color: var(--text-muted); }
-        .feed-content { margin-bottom: 1rem; line-height: 1.5; }
-        .feed-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 0.5rem; }
-        .feed-photo { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: var(--radius-sm); cursor: pointer; }
-        
-        .feed-actions { margin-top: 1rem; display: flex; align-items: center; gap: 1rem; border-top: 1px solid var(--border-color); padding-top: 1rem; }
-        .like-btn { display: flex; align-items: center; gap: 0.5rem; background: none; border: none; cursor: pointer; color: var(--text-muted); font-size: 1rem; }
-        .like-btn:hover { color: var(--primary-color); }
-        .like-btn svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; }
-        .comments-panel { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border-color); }
-        .comments-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 0.85rem; }
-        .comments-count { font-size: 0.9rem; color: var(--text-muted); }
-        .comments-list { display: flex; flex-direction: column; gap: 0.85rem; }
-        .comment-item { display: flex; align-items: flex-start; gap: 0.75rem; }
-        .comment-avatar { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; background-color: var(--surface-hover); flex: 0 0 auto; }
-        .comment-body { flex: 1; min-width: 0; padding: 0.75rem 0.9rem; border: 1px solid var(--border-color); border-radius: var(--radius-sm); background: var(--surface-hover); }
-        .comment-meta { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 0.35rem; }
-        .comment-author { font-weight: 600; font-size: 0.95rem; }
-        .comment-date { font-size: 0.8rem; color: var(--text-muted); }
-        .comment-text { line-height: 1.45; word-break: break-word; }
-        .comment-empty { margin: 0; color: var(--text-muted); }
-        .comment-form { display: flex; flex-direction: column; gap: 0.75rem; margin-top: 1rem; }
-        .comment-input { width: 100%; min-height: 88px; padding: 0.85rem 0.95rem; border: 1px solid var(--border-color); border-radius: var(--radius-sm); font-family: inherit; resize: vertical; }
-        .comment-form-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
-        .comment-help, .comment-login-note { margin: 0; font-size: 0.9rem; color: var(--text-muted); }
-        .comment-login-note a { color: var(--primary-color); }
-        
-        /* Lightbox modal */
-        .lightbox { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.9); align-items: center; justify-content: center; flex-direction: column; }
-        .lightbox.active { display: flex; }
-        .lightbox-close { position: absolute; top: 20px; right: 20px; color: white; font-size: 2rem; cursor: pointer; user-select: none; z-index: 1001; }
-        .lightbox-content { max-width: 90%; max-height: 80%; object-fit: contain; }
-        .lightbox-nav { position: absolute; top: 50%; transform: translateY(-50%); color: white; font-size: 3rem; cursor: pointer; user-select: none; padding: 1rem; z-index: 1001;}
-        .lightbox-prev { left: 10px; }
-        .lightbox-next { right: 10px; }
-        .lightbox-map-container { width: 90%; height: 200px; max-width: 600px; margin-top: 10px; display: none; border-radius: 8px; z-index: 1001;}
-        .lightbox-map-btn { margin-top: 10px; z-index: 1001; }
-
-        .feed-map-container {
-            width: 100%;
-            height: 200px;
-            margin-top: 1rem;
-            border-radius: var(--radius-sm);
-            z-index: 1;
-            display: none;
-        }
-    </style>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css">
+    <link rel="stylesheet" href="vendor/leaflet-markercluster/MarkerCluster.css">
 </head>
-        <body data-page="feed" class="page-shell">
-        <header class="site-header">
-            <a href="/" class="brand-link" aria-label="Houbam Zdar">
-                <img src="/logo.png" alt="Logo Houbam Zdar" class="brand-mark">
-                <div class="brand-copy">
-                    <span class="brand-eyebrow">Komunita</span>
-                    <strong>Houbam Zdar</strong>
-                </div>
-            </a>
-            <div id="auth-buttons" class="header-actions"></div>
-        </header>
-
-        <main class="content-main content-main-narrow">
-            <section class="page-intro card" style="margin-bottom: 2rem;">
-                <p class="section-label">Veřejná zeď</p>
-                <h1>Co se našlo v lese</h1>
-                <p>
-                    Prohlížejte si nejnovější úlovky a příspěvky od ostatních houbařů.
-                </p>
-            </section>
-
-            <div id="feed-container" style="display: flex; flex-direction: column; gap: 1.5rem;">
-                <p class="muted-copy" style="text-align: center;">Načítám zeď...</p>
+<body data-page="feed" class="page-shell">
+    <header class="site-header">
+        <a href="/" class="brand-link" aria-label="Houbam Zdar">
+            <img src="/logo.png" alt="Logo Houbam Zdar" class="brand-mark">
+            <div class="brand-copy">
+                <span class="brand-eyebrow">Komunita</span>
+                <strong>Houbam Zdar</strong>
             </div>
+        </a>
+        <div id="auth-buttons" class="header-actions"></div>
+    </header>
 
-            <div style="text-align: center; margin-top: 2rem; margin-bottom: 2rem;">
-                <button id="load-more-feed-btn" class="btn btn-secondary" style="display: none;">Načíst další příspěvky</button>
-            </div>
-        </main>
+    <main class="content-main content-main-narrow">
+        <section class="page-intro card page-intro-spaced">
+            <p class="section-label">Veřejná zeď</p>
+            <h1>Co se našlo v lese</h1>
+            <p>
+                Prohlížejte si nejnovější úlovky a příspěvky od ostatních houbařů.
+            </p>
+        </section>
 
-        <!-- Lightbox pro galerii -->
-        <div id="lightbox" class="lightbox">
-            <span id="lightbox-close" class="lightbox-close">&times;</span>
-            <span id="lightbox-prev" class="lightbox-nav lightbox-prev">&#10094;</span>
-            <img id="lightbox-img" class="lightbox-content" src="">
-            <span id="lightbox-next" class="lightbox-nav lightbox-next">&#10095;</span>
-            <button id="lightbox-map-btn" class="btn btn-primary lightbox-map-btn" style="display: none;">Zobrazit na mapě</button>
-            <p id="lightbox-note" class="lightbox-note"></p>
-            <div id="lightbox-map" class="lightbox-map-container"></div>
+        <div id="feed-container" class="feed-list">
+            <p class="muted-copy feed-list-status">Načítám zeď...</p>
         </div>
 
-        <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-        <script src="vendor/leaflet-markercluster/leaflet.markercluster.js"></script>
-        <script src="map-clusters.js"></script>
-        <script src="app.js" defer></script>
-        <script src="feed.js" defer></script>
-        </body>
-        </html>
+        <div class="load-more-row">
+            <button id="load-more-feed-btn" class="btn btn-secondary" style="display: none;">Načíst další příspěvky</button>
+        </div>
+    </main>
+
+    <div id="lightbox" class="lightbox">
+        <span id="lightbox-close" class="lightbox-close">&times;</span>
+        <span id="lightbox-prev" class="lightbox-nav lightbox-prev">&#10094;</span>
+        <img id="lightbox-img" class="lightbox-content" src="">
+        <span id="lightbox-next" class="lightbox-nav lightbox-next">&#10095;</span>
+        <button id="lightbox-map-btn" class="btn btn-primary lightbox-map-btn" style="display: none;">Zobrazit na mapě</button>
+        <p id="lightbox-note" class="lightbox-note"></p>
+        <div id="lightbox-map" class="lightbox-map-container"></div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script src="vendor/leaflet-markercluster/leaflet.markercluster.js"></script>
+    <script src="map-clusters.js"></script>
+    <script src="app.js" defer></script>
+    <script src="feed.js" defer></script>
+</body>
+</html>
