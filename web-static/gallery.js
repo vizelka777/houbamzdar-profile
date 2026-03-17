@@ -212,6 +212,69 @@ function closeModeratorGeoEditor() {
     state.moderation.geoEditorNote = "";
 }
 
+function closeGallerySpeciesModal() {
+    const modal = document.getElementById("gallery-species-modal");
+    if (!modal) {
+        return;
+    }
+    modal.hidden = true;
+    modal.setAttribute("aria-hidden", "true");
+}
+
+function openGallerySpeciesModal(captureID) {
+    const modal = document.getElementById("gallery-species-modal");
+    const body = document.getElementById("gallery-species-body");
+    const meta = document.getElementById("gallery-species-meta");
+    if (!modal || !body || !meta) {
+        return;
+    }
+
+    const capture = state.captures.find((item) => item && item.id === captureID);
+    const entries = buildCaptureSpeciesEntries(capture);
+    if (!capture || entries.length === 0) {
+        return;
+    }
+
+    const authorName = String(capture.author_name || "Neznámý houbař").trim();
+    const region = buildCaptureKrajLabel(capture);
+    meta.innerHTML = [
+        authorName ? `<span>${escapeHtml(authorName)}</span>` : "",
+        region ? `<span>${escapeHtml(region)}</span>` : ""
+    ].filter(Boolean).join(" • ");
+    body.innerHTML = `
+        <ul class="capture-species-list">
+            ${entries.map((entry) => `<li>${escapeHtml(entry)}</li>`).join("")}
+        </ul>
+    `;
+
+    modal.hidden = false;
+    modal.setAttribute("aria-hidden", "false");
+}
+
+function buildGallerySpeciesButton(capture) {
+    const entries = buildCaptureSpeciesEntries(capture);
+    if (entries.length === 0) {
+        return "";
+    }
+    return `
+        <button
+            type="button"
+            class="gallery-species-trigger"
+            data-capture-id="${escapeHtml(capture.id)}"
+            aria-label="Zobrazit rozpoznané druhy"
+        >
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M7 5.5A2.5 2.5 0 0 1 9.5 3H19v18h-9.5A2.5 2.5 0 0 0 7 23z"></path>
+                <path d="M7 5.5A2.5 2.5 0 0 0 4.5 3H5v18h.5A2.5 2.5 0 0 1 8 23"></path>
+                <path d="M10.5 8H16"></path>
+                <path d="M10.5 11.5H16"></path>
+                <path d="M10.5 15H14.5"></path>
+            </svg>
+            <span class="sr-only">Zobrazit rozpoznané druhy</span>
+        </button>
+    `;
+}
+
 function syncModeratorModelPanel() {
     const panel = document.getElementById("gallery-moderator-panel");
     const select = document.getElementById("gallery-moderator-model");
@@ -666,10 +729,7 @@ function renderGallery(container) {
         const accessBadge = buildCaptureAccessBadgeHtml(capture);
         const authorURL = buildPublicProfileURL(capture.author_user_id);
         const region = buildCaptureKrajLabel(capture);
-        const speciesTooltip = buildCaptureSpeciesTooltip(capture);
-        const speciesTitleAttr = speciesTooltip
-            ? ` title="${escapeHtml(speciesTooltip).replace(/\n/g, "&#10;")}"`
-            : "";
+        const speciesButton = buildGallerySpeciesButton(capture);
         const moderatorAction = canModeratorRecheck()
             ? `
                 <div class="gallery-item-actions">
@@ -697,12 +757,17 @@ function renderGallery(container) {
                         <span class="gallery-item-author">${escapeHtml(authorName)}</span>
                     </a>
                 </div>
-                <div class="gallery-item-image"${speciesTitleAttr}>
-                    <img src="${url}" loading="lazy" alt="Houbařský úlovek"${speciesTitleAttr}>
+                <div class="gallery-item-image">
+                    <img src="${url}" loading="lazy" alt="Houbařský úlovek">
                     ${accessBadge}
                 </div>
                 <div class="gallery-item-copy">
-                    ${region ? `<p>Kraj: ${escapeHtml(region)}</p>` : ""}
+                    ${(region || speciesButton) ? `
+                        <div class="gallery-item-meta-row">
+                            ${region ? `<p class="gallery-item-region">${escapeHtml(region)}</p>` : "<span></span>"}
+                            ${speciesButton}
+                        </div>
+                    ` : ""}
                     ${moderatorAction}
                     ${renderModeratorTaxonomyEditor(capture)}
                     ${renderModeratorGeoEditor(capture)}
@@ -753,6 +818,14 @@ function renderGallery(container) {
             event.preventDefault();
             event.stopPropagation();
             await hideGalleryCapture(button.dataset.captureId, button);
+        });
+    });
+
+    container.querySelectorAll(".gallery-species-trigger").forEach((button) => {
+        button.addEventListener("click", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            openGallerySpeciesModal(button.dataset.captureId);
         });
     });
 
@@ -976,6 +1049,24 @@ async function initGalleryPage() {
             await resetGalleryFilters();
         });
     }
+
+    const speciesModal = document.getElementById("gallery-species-modal");
+    const speciesModalClose = document.getElementById("gallery-species-close");
+    if (speciesModal) {
+        speciesModal.addEventListener("click", (event) => {
+            if (event.target instanceof HTMLElement && event.target.hasAttribute("data-close-species-modal")) {
+                closeGallerySpeciesModal();
+            }
+        });
+    }
+    if (speciesModalClose) {
+        speciesModalClose.addEventListener("click", closeGallerySpeciesModal);
+    }
+    window.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+            closeGallerySpeciesModal();
+        }
+    });
 
     const moderatorModelSelect = document.getElementById("gallery-moderator-model");
     if (moderatorModelSelect) {

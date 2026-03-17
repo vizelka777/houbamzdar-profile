@@ -204,6 +204,23 @@
         <nav id="gallery-pagination" class="server-pagination gallery-pagination" aria-label="Stránkování galerie" hidden></nav>
     </main>
 
+    <div id="gallery-species-modal" class="capture-species-modal" hidden aria-hidden="true">
+        <div class="capture-species-modal-backdrop" data-close-species-modal></div>
+        <div class="capture-species-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="gallery-species-title">
+            <div class="capture-species-modal-head">
+                <div>
+                    <p class="section-label">Rozpoznané druhy</p>
+                    <h2 id="gallery-species-title">Houby na fotografii</h2>
+                </div>
+                <button id="gallery-species-close" type="button" class="capture-species-modal-close" aria-label="Zavřít okno s druhy">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <p id="gallery-species-meta" class="capture-species-meta"></p>
+            <div id="gallery-species-body"></div>
+        </div>
+    </div>
+
     <!-- Lightbox pro galerii -->
     <div id="lightbox" class="lightbox">
         <span id="lightbox-close" class="lightbox-close">&times;</span>
