@@ -23,11 +23,11 @@
     </header>
 
     <main class="content-main content-main-narrow">
-        <details id="gallery-overview" class="gallery-overview card">
-            <summary class="gallery-overview-summary">
-                <p class="gallery-overview-title">Kritéria hledání</p>
+        <details id="gallery-overview" class="accordion card">
+            <summary class="accordion-summary">
+                <p class="accordion-title">Kritéria hledání</p>
             </summary>
-            <div class="gallery-overview-body">
+            <div class="accordion-body">
                 <form id="gallery-filter-form" class="public-capture-filter-form">
                     <div class="public-capture-filter-grid">
                         <label class="public-capture-filter-field">
@@ -98,17 +98,6 @@
             <p id="gallery-species-meta" class="capture-species-meta"></p>
             <div id="gallery-species-body"></div>
         </div>
-    </div>
-
-    <!-- Lightbox pro galerii -->
-    <div id="lightbox" class="lightbox">
-        <span id="lightbox-close" class="lightbox-close">&times;</span>
-        <span id="lightbox-prev" class="lightbox-nav lightbox-prev">&#10094;</span>
-        <img id="lightbox-img" class="lightbox-content" src="">
-        <span id="lightbox-next" class="lightbox-nav lightbox-next">&#10095;</span>
-        <button id="lightbox-map-btn" class="btn btn-primary lightbox-map-btn" style="display: none;">Zobrazit na mapě</button>
-        <p id="lightbox-note" class="lightbox-note"></p>
-        <div id="lightbox-map" class="lightbox-map-container"></div>
     </div>
 
     <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>

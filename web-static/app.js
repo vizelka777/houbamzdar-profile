@@ -1854,6 +1854,21 @@ function lightboxPrev() {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+    if (!document.getElementById("lightbox")) {
+        const lightboxHTML = `
+    <div id="lightbox" class="lightbox">
+        <button type="button" id="lightbox-close" class="lightbox-close" aria-label="Zavřít galerii">&times;</button>
+        <button type="button" id="lightbox-prev" class="lightbox-nav lightbox-prev" aria-label="Předchozí fotka">&#10094;</button>
+        <img id="lightbox-img" class="lightbox-content" src="" alt="Detail fotky">
+        <button type="button" id="lightbox-next" class="lightbox-nav lightbox-next" aria-label="Další fotka">&#10095;</button>
+        <button type="button" id="lightbox-map-btn" class="btn btn-primary lightbox-map-btn" style="display: none;">Zobrazit na mapě</button>
+        <p id="lightbox-note" class="lightbox-note"></p>
+        <div id="lightbox-map" class="lightbox-map-container"></div>
+    </div>
+        `;
+        document.body.insertAdjacentHTML('beforeend', lightboxHTML);
+    }
+
     const lbClose = document.getElementById("lightbox-close");
     const lbNext = document.getElementById("lightbox-next");
     const lbPrev = document.getElementById("lightbox-prev");

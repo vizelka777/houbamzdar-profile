@@ -750,7 +750,7 @@ function renderGallery(container) {
             : "";
 
         return `
-            <div class="gallery-item" data-index="${idx}">
+            <div class="gallery-item" data-index="${idx}" tabindex="0" role="button" aria-label="Zobrazit detail fotky">
                 <div class="gallery-item-header">
                     <a href="${escapeHtml(authorURL)}" class="author-link">
                         <img src="${escapeHtml(avatarUrl)}" class="gallery-item-avatar" alt="Avatar">
@@ -777,9 +777,16 @@ function renderGallery(container) {
     }).join("");
 
     container.querySelectorAll(".gallery-item").forEach((item) => {
-        item.addEventListener("click", () => {
+        const openItemLightbox = () => {
             window.currentLightboxIndex = Number(item.dataset.index || 0);
             if (typeof openLightbox === "function") openLightbox();
+        };
+        item.addEventListener("click", openItemLightbox);
+        item.addEventListener("keydown", (e) => {
+            if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                openItemLightbox();
+            }
         });
     });
 
