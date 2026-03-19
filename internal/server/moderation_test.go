@@ -583,8 +583,8 @@ func TestModerationUserRolesRouteDisabled(t *testing.T) {
 	if !moderator.IsModerator {
 		t.Fatalf("expected moderator account to be auto-flagged")
 	}
-	if !moderator.IsAdmin {
-		t.Fatalf("expected houbamzdar bootstrap account to be admin")
+	if moderator.IsAdmin {
+		t.Fatalf("expected houbamzdar bootstrap account to stay non-admin")
 	}
 
 	sessionID := "roles-disabled-session"

@@ -225,7 +225,7 @@ func TestMigrateIsIdempotentForFreshSchema(t *testing.T) {
 	}
 }
 
-func TestUpsertUserMarksHoubamzdarAsModeratorAndAdmin(t *testing.T) {
+func TestUpsertUserMarksHoubamzdarAsModeratorOnly(t *testing.T) {
 	t.Parallel()
 
 	rawDB := openTestDB(t)
@@ -250,8 +250,8 @@ func TestUpsertUserMarksHoubamzdarAsModeratorAndAdmin(t *testing.T) {
 	if !user.IsModerator {
 		t.Fatalf("expected houbamzdar user to be marked as moderator")
 	}
-	if !user.IsAdmin {
-		t.Fatalf("expected houbamzdar user to be marked as admin")
+	if user.IsAdmin {
+		t.Fatalf("expected houbamzdar user to stay non-admin")
 	}
 }
 

@@ -154,9 +154,12 @@ func TestDeleteMeRejectsAdminAccount(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create admin user: %v", err)
 	}
-	adminUser, err = database.BootstrapAdminByUserID(adminUser.ID, false)
+	if _, err := database.Exec(`UPDATE users SET is_admin = 1 WHERE id = ?`, adminUser.ID); err != nil {
+		t.Fatalf("promote admin: %v", err)
+	}
+	adminUser, err = database.GetUser(adminUser.ID)
 	if err != nil {
-		t.Fatalf("bootstrap admin: %v", err)
+		t.Fatalf("reload admin: %v", err)
 	}
 
 	sessionID := "delete-me-admin-session"

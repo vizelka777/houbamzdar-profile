@@ -614,7 +614,6 @@ func (db *DB) SetUserRoles(
 	targetUserID int64,
 	actorUserID int64,
 	isModerator bool,
-	isAdmin bool,
 	reasonCode string,
 	note string,
 ) error {
@@ -628,13 +627,11 @@ func (db *DB) SetUserRoles(
 	result, err := tx.Exec(`
 		UPDATE users
 		SET is_moderator = ?,
-			is_admin = ?,
 			moderated_by_user_id = ?,
 			moderated_at = ?
 		WHERE id = ?
 	`,
 		isModerator,
-		isAdmin,
 		nullIfZeroInt64(actorUserID),
 		now.Format(time.RFC3339),
 		targetUserID,
@@ -658,7 +655,6 @@ func (db *DB) SetUserRoles(
 		Note:         strings.TrimSpace(note),
 		MetaJSON: moderationMetaJSON(map[string]interface{}{
 			"is_moderator": isModerator,
-			"is_admin":     isAdmin,
 		}),
 		CreatedAt: now,
 	}

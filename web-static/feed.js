@@ -235,16 +235,20 @@ function buildCommentsSectionHtml(post) {
         `;
 
     return `
-        <section class="comments-panel">
-            <div class="comments-heading">
-                <strong>Komentáře</strong>
-                <span class="comments-count">${formatCommentCount(comments.length)}</span>
+        <details class="comments-panel">
+            <summary class="comments-heading">
+                <span class="comments-heading-copy">
+                    <strong>Komentáře</strong>
+                    <span class="comments-count">${formatCommentCount(comments.length)}</span>
+                </span>
+            </summary>
+            <div class="comments-panel-body">
+                <div class="comments-list">
+                    ${buildCommentsListHtml(post)}
+                </div>
+                ${composerHtml}
             </div>
-            <div class="comments-list">
-                ${buildCommentsListHtml(post)}
-            </div>
-            ${composerHtml}
-        </section>
+        </details>
     `;
 }
 
@@ -449,105 +453,6 @@ function attachCommentSectionHandlers(card, post, postsStore = state.posts) {
     attachCommentModerationHandlers(card, post, postsStore);
 }
 
-function buildInlineMapPopupHtml(capture, post) {
-    const authorName = post.author_name || "Neznámý houbař";
-    return window.HZDMapUI.buildPopupHtml({
-        authorName,
-        previewUrl: capture.public_url ? buildCaptureImageURL(capture, "popup") : "",
-        altText: authorName,
-        dateValue: capture.captured_at || post.created_at,
-        actionHtml: `
-            <button type="button" class="btn btn-secondary map-popup-action feed-map-open-btn" data-capture-id="${escapeHtml(capture.id)}">
-                Otevřít ve fotkách
-            </button>
-        `
-    });
-}
-
-function openPostCaptureLightbox(post, captureID) {
-    const startIndex = post.captures.findIndex((capture) => capture.id === captureID);
-    if (startIndex === -1 || !window.HZDLightbox) {
-        return;
-    }
-
-    window.HZDLightbox.openCollection(post.captures, startIndex);
-}
-
-function attachInlineMapToggle(card, post, mapId, mapCaptures) {
-    if (!mapCaptures.length || typeof L === "undefined") {
-        return;
-    }
-
-    const toggleBtn = card.querySelector(".map-toggle-btn");
-    const mapDiv = document.getElementById(mapId);
-    let mapInitialized = false;
-
-    if (!toggleBtn || !mapDiv) {
-        return;
-    }
-
-    toggleBtn.addEventListener("click", () => {
-        if (mapDiv.style.display === "block") {
-            mapDiv.style.display = "none";
-            toggleBtn.textContent = "Zobrazit na mapě";
-            return;
-        }
-
-        mapDiv.style.display = "block";
-        toggleBtn.textContent = "Skrýt mapu";
-
-        if (!mapInitialized) {
-            const postMap = L.map(mapId).setView([Number(mapCaptures[0].latitude), Number(mapCaptures[0].longitude)], 13);
-            mapDiv._leaflet_map = postMap;
-            L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-                attribution: "&copy; OpenStreetMap"
-            }).addTo(postMap);
-
-            const markers = mapCaptures.map((capture) => {
-                const marker = L.marker([Number(capture.latitude), Number(capture.longitude)]);
-                marker.bindPopup(buildInlineMapPopupHtml(capture, post));
-                if (window.HZDMapUI) {
-                    window.HZDMapUI.bindPopupAction(marker, ".feed-map-open-btn", () => {
-                        openPostCaptureLightbox(post, capture.id);
-                    });
-                }
-                return marker;
-            });
-
-            if (window.HZDMapClusters) {
-                mapDiv._leaflet_layer = window.HZDMapClusters.replaceLayer(
-                    postMap,
-                    mapDiv._leaflet_layer,
-                    markers,
-                    {
-                        clusterOptions: {
-                            maxClusterRadius: 42,
-                            spiderfyDistanceMultiplier: 1.12
-                        }
-                    }
-                );
-                window.HZDMapClusters.fitLayer(postMap, mapDiv._leaflet_layer, { padding: [10, 10], maxZoom: 15 });
-            } else {
-                const bounds = L.latLngBounds();
-                markers.forEach((marker) => {
-                    marker.addTo(postMap);
-                    bounds.extend(marker.getLatLng());
-                });
-                if (bounds.isValid()) {
-                    postMap.fitBounds(bounds, { padding: [10, 10], maxZoom: 15 });
-                }
-            }
-            mapInitialized = true;
-            return;
-        }
-
-        const existingMap = mapDiv._leaflet_map;
-        if (existingMap) {
-            existingMap.invalidateSize();
-        }
-    });
-}
-
 function attachPostManagementHandlers(card, post, postsStore, options) {
     const me = activeUser();
     const canManage = Boolean(options.allowPostManagement && me && Number(me.id) === Number(post.author_user_id));
@@ -656,7 +561,6 @@ function renderPosts(postsToRender, container, options = {}) {
         const authorName = post.author_name || "Neznámý houbař";
 
         let capturesHtml = "";
-        const mapCaptures = [];
 
         if (post.captures && post.captures.length > 0) {
             capturesHtml = '<div class="feed-gallery">';
@@ -669,19 +573,10 @@ function renderPosts(postsToRender, container, options = {}) {
                         ${accessBadge}
                     </div>
                 `;
-                if (captureHasCoordinates(capture)) {
-                    mapCaptures.push(capture);
-                }
             });
             capturesHtml += "</div>";
         }
 
-        const mapId = `feed-map-${post.id}`;
-        const hasCoords = mapCaptures.length > 0;
-        const mapBtnHtml = hasCoords
-            ? `<button class="btn btn-secondary map-toggle-btn" data-target="${mapId}">Zobrazit na mapě</button>`
-            : "";
-        const mapDivHtml = hasCoords ? `<div id="${mapId}" class="feed-map-container"></div>` : "";
         const activeClass = post.is_liked_by_me ? "active" : "";
         const canManage = Boolean(options.allowPostManagement && me && Number(me.id) === Number(post.author_user_id));
         const canModerate = userCanModerateClient(me);
@@ -712,7 +607,6 @@ function renderPosts(postsToRender, container, options = {}) {
                 ${escapeHtml(post.content).replace(/\n/g, "<br>")}
             </div>
             ${capturesHtml}
-            ${mapDivHtml}
             ${managementHtml}
             ${moderationHtml}
             <div class="feed-actions">
@@ -722,7 +616,6 @@ function renderPosts(postsToRender, container, options = {}) {
                     </svg>
                     <span>${post.likes_count || 0}</span>
                 </button>
-                ${mapBtnHtml}
             </div>
             ${buildCommentsSectionHtml(post)}
         `;
@@ -772,8 +665,6 @@ function renderPosts(postsToRender, container, options = {}) {
                 }
             });
         }
-
-        attachInlineMapToggle(card, post, mapId, mapCaptures);
 
         card.querySelectorAll(".feed-photo").forEach((photo) => {
             photo.addEventListener("click", (event) => {

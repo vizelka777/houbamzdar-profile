@@ -423,46 +423,19 @@ func (db *DB) DeleteUserByAdmin(userID int64) error {
 }
 
 func (db *DB) BootstrapAdminRole(targetUserID int64, alsoModerator bool) error {
-	result, err := db.Exec(`
-		UPDATE users
-		SET is_admin = 1,
-			is_moderator = CASE
-				WHEN ? THEN 1
-				ELSE COALESCE(is_moderator, 0)
-			END,
-			moderated_at = ?
-		WHERE id = ?
-	`, alsoModerator, time.Now().UTC().Format(time.RFC3339), targetUserID)
-	if err != nil {
-		return err
-	}
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if rowsAffected == 0 {
-		return sql.ErrNoRows
-	}
-	return nil
+	_ = targetUserID
+	_ = alsoModerator
+	return fmt.Errorf("setting is_admin via code is disabled; update users.is_admin directly in the database")
 }
 
 func (db *DB) BootstrapAdminByPreferredUsername(username string, alsoModerator bool) (*models.User, error) {
-	user, err := db.GetUserByPreferredUsername(username)
-	if err != nil {
-		return nil, err
-	}
-	if err := db.BootstrapAdminRole(user.ID, alsoModerator); err != nil {
-		return nil, err
-	}
-	return db.GetUser(user.ID)
+	_ = username
+	_ = alsoModerator
+	return nil, fmt.Errorf("setting is_admin via code is disabled; update users.is_admin directly in the database")
 }
 
 func (db *DB) BootstrapAdminByUserID(userID int64, alsoModerator bool) (*models.User, error) {
-	if userID <= 0 {
-		return nil, fmt.Errorf("invalid user id")
-	}
-	if err := db.BootstrapAdminRole(userID, alsoModerator); err != nil {
-		return nil, err
-	}
-	return db.GetUser(userID)
+	_ = userID
+	_ = alsoModerator
+	return nil, fmt.Errorf("setting is_admin via code is disabled; update users.is_admin directly in the database")
 }

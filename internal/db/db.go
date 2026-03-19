@@ -62,10 +62,6 @@ func isModeratorUsername(username string) bool {
 	return strings.EqualFold(strings.TrimSpace(username), "houbamzdar")
 }
 
-func isAdminUsername(username string) bool {
-	return strings.EqualFold(strings.TrimSpace(username), "houbamzdar")
-}
-
 func moderationNowRFC3339() string {
 	return time.Now().UTC().Format(time.RFC3339)
 }
@@ -219,41 +215,21 @@ func migrate(db *sql.DB) error {
 				if err := ensureColumnExists(tx, "users", "moderated_at", "TEXT"); err != nil {
 					return err
 				}
-				_, err := tx.Exec(`
-					UPDATE users
-					SET is_admin = COALESCE(is_admin, 0)
-				`)
-				return err
+				return nil
 			},
 		},
 		{
 			id: migrationDisableAutoAdminBootstrapID,
 			apply: func(tx *sql.Tx) error {
-				// Role management is intentionally disabled until a dedicated admin flow exists.
-				// Remove the temporary bootstrap admin flag from the hardcoded houbamzdar account.
-				_, err := tx.Exec(`
-					UPDATE users
-					SET is_admin = 0
-					WHERE lower(COALESCE(preferred_username, '')) = 'houbamzdar'
-				`)
-				return err
+				// Admin role changes must happen directly in the database.
+				return nil
 			},
 		},
 		{
 			id: migrationEnableHoubamzdarAdminBootstrapID,
 			apply: func(tx *sql.Tx) error {
-				_, err := tx.Exec(`
-					UPDATE users
-					SET is_admin = CASE
-							WHEN lower(COALESCE(preferred_username, '')) = 'houbamzdar' THEN 1
-							ELSE COALESCE(is_admin, 0)
-						END,
-						is_moderator = CASE
-							WHEN lower(COALESCE(preferred_username, '')) = 'houbamzdar' THEN 1
-							ELSE COALESCE(is_moderator, 0)
-						END
-				`)
-				return err
+				// Admin role changes must happen directly in the database.
+				return nil
 			},
 		},
 		{
@@ -732,10 +708,6 @@ func (db *DB) UpsertUser(claims *models.OIDCClaims, token *oauth2.Token) (*model
 	if isModeratorUsername(claims.PreferredUsername) {
 		isModerator = 1
 	}
-	isAdmin := 0
-	if isAdminUsername(claims.PreferredUsername) {
-		isAdmin = 1
-	}
 
 	err := db.QueryRow("SELECT id, COALESCE(about_me, '') FROM users WHERE idp_issuer = ? AND idp_sub = ?", claims.Iss, claims.Sub).Scan(&user.ID, &user.AboutMe)
 	if err == sql.ErrNoRows {
@@ -762,9 +734,9 @@ func (db *DB) UpsertUser(claims *models.OIDCClaims, token *oauth2.Token) (*model
 
 	if !exists {
 		res, err := db.Exec(`
-			INSERT INTO users (idp_issuer, idp_sub, preferred_username, is_moderator, is_admin, email, email_verified, phone_number, phone_number_verified, picture, access_token, refresh_token, token_expires_at, last_idp_sync_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-		`, claims.Iss, claims.Sub, claims.PreferredUsername, isModerator, isAdmin, claims.Email, ev, claims.PhoneNumber, pv, claims.Picture, token.AccessToken, token.RefreshToken, expiry)
+			INSERT INTO users (idp_issuer, idp_sub, preferred_username, is_moderator, email, email_verified, phone_number, phone_number_verified, picture, access_token, refresh_token, token_expires_at, last_idp_sync_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+		`, claims.Iss, claims.Sub, claims.PreferredUsername, isModerator, claims.Email, ev, claims.PhoneNumber, pv, claims.Picture, token.AccessToken, token.RefreshToken, expiry)
 		if err != nil {
 			return nil, false, err
 		}
@@ -790,13 +762,9 @@ func (db *DB) UpsertUser(claims *models.OIDCClaims, token *oauth2.Token) (*model
 				is_moderator = CASE
 					WHEN is_moderator = 1 OR ? = 1 THEN 1
 					ELSE 0
-				END,
-				is_admin = CASE
-					WHEN is_admin = 1 OR ? = 1 THEN 1
-					ELSE 0
 				END
 			WHERE id = ?
-		`, claims.PreferredUsername, claims.Email, ev, claims.PhoneNumber, pv, claims.Picture, token.AccessToken, token.RefreshToken, expiry, isModerator, isAdmin, user.ID)
+		`, claims.PreferredUsername, claims.Email, ev, claims.PhoneNumber, pv, claims.Picture, token.AccessToken, token.RefreshToken, expiry, isModerator, user.ID)
 		if err != nil {
 			return nil, false, err
 		}

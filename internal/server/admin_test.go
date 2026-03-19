@@ -69,9 +69,12 @@ func TestAdminOverviewAndUserDirectoryEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create admin user: %v", err)
 	}
-	adminUser, err = database.BootstrapAdminByUserID(adminUser.ID, false)
+	if _, err := database.Exec(`UPDATE users SET is_admin = 1 WHERE id = ?`, adminUser.ID); err != nil {
+		t.Fatalf("promote admin: %v", err)
+	}
+	adminUser, err = database.GetUser(adminUser.ID)
 	if err != nil {
-		t.Fatalf("bootstrap admin: %v", err)
+		t.Fatalf("reload admin: %v", err)
 	}
 
 	moderator, _, err := database.UpsertUser(&models.OIDCClaims{
@@ -275,9 +278,12 @@ func TestAdminRoleManagementRouteDisabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create admin user: %v", err)
 	}
-	adminUser, err = database.BootstrapAdminByUserID(adminUser.ID, false)
+	if _, err := database.Exec(`UPDATE users SET is_admin = 1 WHERE id = ?`, adminUser.ID); err != nil {
+		t.Fatalf("promote admin: %v", err)
+	}
+	adminUser, err = database.GetUser(adminUser.ID)
 	if err != nil {
-		t.Fatalf("bootstrap admin: %v", err)
+		t.Fatalf("reload admin: %v", err)
 	}
 
 	targetUser, _, err := database.UpsertUser(&models.OIDCClaims{
@@ -417,9 +423,12 @@ func TestAdminBackupEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create admin user: %v", err)
 	}
-	adminUser, err = database.BootstrapAdminByUserID(adminUser.ID, false)
+	if _, err := database.Exec(`UPDATE users SET is_admin = 1 WHERE id = ?`, adminUser.ID); err != nil {
+		t.Fatalf("promote admin: %v", err)
+	}
+	adminUser, err = database.GetUser(adminUser.ID)
 	if err != nil {
-		t.Fatalf("bootstrap admin: %v", err)
+		t.Fatalf("reload admin: %v", err)
 	}
 
 	storage := &fakeBackupStorage{}
@@ -516,9 +525,12 @@ func TestAdminPruneBackupsEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create admin user: %v", err)
 	}
-	adminUser, err = database.BootstrapAdminByUserID(adminUser.ID, false)
+	if _, err := database.Exec(`UPDATE users SET is_admin = 1 WHERE id = ?`, adminUser.ID); err != nil {
+		t.Fatalf("promote admin: %v", err)
+	}
+	adminUser, err = database.GetUser(adminUser.ID)
 	if err != nil {
-		t.Fatalf("bootstrap admin: %v", err)
+		t.Fatalf("reload admin: %v", err)
 	}
 
 	oldStartedAt := time.Now().UTC().Add(-10 * 24 * time.Hour)

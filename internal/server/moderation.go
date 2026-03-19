@@ -412,7 +412,7 @@ func (s *Server) handleSetModerationUserRoles(w http.ResponseWriter, r *http.Req
 
 	var req struct {
 		IsModerator bool   `json:"is_moderator"`
-		IsAdmin     bool   `json:"is_admin"`
+		IsAdmin     *bool  `json:"is_admin"`
 		ReasonCode  string `json:"reason_code"`
 		Note        string `json:"note"`
 	}
@@ -420,8 +420,12 @@ func (s *Server) handleSetModerationUserRoles(w http.ResponseWriter, r *http.Req
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
+	if req.IsAdmin != nil {
+		http.Error(w, "is_admin must be changed directly in the database", http.StatusUnprocessableEntity)
+		return
+	}
 
-	if err := s.DB.SetUserRoles(userID, actor.ID, req.IsModerator, req.IsAdmin, req.ReasonCode, req.Note); err != nil {
+	if err := s.DB.SetUserRoles(userID, actor.ID, req.IsModerator, req.ReasonCode, req.Note); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			http.Error(w, "user not found", http.StatusNotFound)
 			return
