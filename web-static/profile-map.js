@@ -96,52 +96,37 @@ function profileCaptureImageURL(capture, variant = "original") {
 function openProfileMapLightbox(captureID) {
     const capturesToOpen = currentProfileDataset().items.filter((capture) => profileCaptureImageURL(capture));
     const startIndex = capturesToOpen.findIndex((capture) => capture.id === captureID);
-    if (startIndex === -1) {
+    if (startIndex === -1 || !window.HZDLightbox) {
         return;
     }
 
-    window.lightboxImages = capturesToOpen.map((capture) => profileCaptureImageURL(capture, "original"));
-    window.lightboxCaptureData = capturesToOpen;
-    window.lightboxMapData = capturesToOpen.map((capture) => buildCaptureMapData(capture));
-    window.currentLightboxIndex = startIndex;
-
-    if (typeof openLightbox === "function") {
-        openLightbox();
-    }
+    window.HZDLightbox.openCollection(capturesToOpen, startIndex, {
+        imageBuilder: (capture) => profileCaptureImageURL(capture, "original")
+    });
 }
 
 function buildProfilePopupHtml(capture) {
     const imageURL = profileCaptureImageURL(capture, "popup");
-    const previewHtml = imageURL
-        ? `<img src="${escapeHtml(imageURL)}" alt="${escapeHtml(capture.author_name || "Fotografie")}" loading="lazy">`
-        : '<div class="map-popup-placeholder">Bez náhledu</div>';
-    const accessLine = capture.coordinates_free
-        ? '<p><strong>Souřadnice zdarma</strong></p>'
-        : '<p>Soukromý bod na mapě</p>';
-
-    return `
-        <div class="map-popup-content">
-            ${previewHtml}
-            <h4>${escapeHtml(capture.author_name || "Neznámý houbař")}</h4>
-            <p>${escapeHtml(formatDateTime(capture.unlocked_at || capture.captured_at))}</p>
-            ${accessLine}
-            ${imageURL
-                ? `<button type="button" class="btn btn-secondary map-popup-action profile-map-open-btn" data-capture-id="${escapeHtml(capture.id)}">Otevřít ve fotkách</button>`
-                : ""}
-        </div>
-    `;
+    return window.HZDMapUI.buildPopupHtml({
+        authorName: capture.author_name || "Neznámý houbař",
+        previewUrl: imageURL,
+        altText: capture.author_name || "Fotografie",
+        dateValue: capture.unlocked_at || capture.captured_at,
+        metaLines: [capture.coordinates_free ? "Souřadnice zdarma" : "Soukromý bod na mapě"],
+        actionHtml: imageURL
+            ? `<button type="button" class="btn btn-secondary map-popup-action profile-map-open-btn" data-capture-id="${escapeHtml(capture.id)}">Otevřít ve fotkách</button>`
+            : ""
+    });
 }
 
 function buildProfileMarker(capture) {
     const marker = L.marker([Number(capture.latitude), Number(capture.longitude)]);
     marker.bindPopup(buildProfilePopupHtml(capture));
-    marker.on("popupopen", () => {
-        const popupNode = marker.getPopup()?.getElement();
-        const openButton = popupNode?.querySelector(".profile-map-open-btn");
-        if (openButton) {
-            openButton.onclick = () => openProfileMapLightbox(capture.id);
-        }
-    });
+    if (window.HZDMapUI) {
+        window.HZDMapUI.bindPopupAction(marker, ".profile-map-open-btn", () => {
+            openProfileMapLightbox(capture.id);
+        });
+    }
     return marker;
 }
 

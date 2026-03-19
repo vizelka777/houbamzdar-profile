@@ -263,16 +263,16 @@ function createDirectCameraButton(label, iconSVG, className) {
     return wrapper;
 }
 
-function createHeaderMenuButton(label, iconSVG, className, items) {
+function createHeaderMenuButton(label, iconSVG, className, items, hideLabel = false) {
     const details = document.createElement("details");
     details.className = "header-menu";
 
     const summary = document.createElement("summary");
-    summary.className = `btn ${className} btn-icon btn-icon-labeled`;
+    summary.className = `btn ${className} btn-icon${hideLabel ? '' : ' btn-icon-labeled'}`;
     summary.setAttribute("aria-label", label);
     summary.innerHTML = `
         <span class="btn-icon-glyph" aria-hidden="true">${iconSVG}</span>
-        <span class="btn-icon-label">${escapeHtml(label)}</span>
+        ${hideLabel ? '' : `<span class="btn-icon-label">${escapeHtml(label)}</span>`}
     `;
     details.appendChild(summary);
 
@@ -315,10 +315,28 @@ function setText(id, value) {
     node.textContent = value;
 }
 
-function formatDateTime(dateString) {
-    if (!dateString) return "Právě teď";
-    const date = new Date(dateString);
-    if (Number.isNaN(date.getTime())) return "Právě teď";
+function normalizeDateTimeInput(dateString) {
+    const raw = String(dateString || "").trim();
+    if (!raw || raw.startsWith("0001-01-01")) {
+        return "";
+    }
+
+    const date = new Date(raw);
+    if (Number.isNaN(date.getTime()) || date.getUTCFullYear() <= 1) {
+        return "";
+    }
+
+    return raw;
+}
+
+function hasMeaningfulDateTime(dateString) {
+    return Boolean(normalizeDateTimeInput(dateString));
+}
+
+function formatDateTime(dateString, fallback = "Právě teď") {
+    const normalized = normalizeDateTimeInput(dateString);
+    if (!normalized) return fallback;
+    const date = new Date(normalized);
     return new Intl.DateTimeFormat("cs-CZ", {
         dateStyle: "medium",
         timeStyle: "short"
@@ -675,63 +693,61 @@ function renderHeader(session, profile = null) {
     authButtons.innerHTML = "";
     const identity = profile || session?.user || null;
 
+    const menuIcon = `
+        <svg viewBox="0 0 24 24" aria-hidden="true" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="3" y1="12" x2="21" y2="12"></line>
+            <line x1="3" y1="6" x2="21" y2="6"></line>
+            <line x1="3" y1="18" x2="21" y2="18"></line>
+        </svg>
+    `;
+
     if (session && session.logged_in) {
         const greeting = document.createElement("span");
         greeting.className = "user-greeting";
         greeting.textContent = `Ahoj, ${session.user?.preferred_username || "hoste"}`;
 
-        const composeIcon = `
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M6 3h8l4 4v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zm7 1.5V8h3.5"></path>
-                <path d="M9 14.5 15.2 8.3a1.4 1.4 0 0 1 2 2L11 16.5l-2.7.7z"></path>
-            </svg>
-        `;
-        const cameraIcon = `
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M4 7h3l1.4-2h7.2L17 7h3a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2zm8 2.5A4.5 4.5 0 1 0 12 18a4.5 4.5 0 0 0 0-9zm0 2A2.5 2.5 0 1 1 12 16a2.5 2.5 0 0 1 0-5z"></path>
-            </svg>
-        `;
-        const photoToolsIcon = `
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M4 7.5h8m4 0h4M9 7.5a2 2 0 1 1-4 0 2 2 0 0 1 4 0Zm10 0a2 2 0 1 1-4 0 2 2 0 0 1 4 0ZM4 16.5h4m4 0h8M13 16.5a2 2 0 1 1-4 0 2 2 0 0 1 4 0Zm10 0a2 2 0 1 1-4 0 2 2 0 0 1 4 0Z"></path>
-            </svg>
-        `;
+        const menuItems = [
+            { href: "/create-post.html", label: "Vytvořit publikaci" },
+            { href: "/capture.html?camera=1", label: "Vyfotit nový nález" },
+            { href: "/capture.html", label: "Zpracování fotek", note: "lokální snímky, výběr a nahrání na server" },
+            { href: "/server-storage.html", label: "Serverový archiv", note: "to, co už je uložené v Bunny" },
+            { href: "/feed.html", label: "Zeď úlovků" },
+            { href: "/gallery.html", label: "Galerie" },
+            { href: "/map.html", label: "Mapa" },
+        ];
 
-        authButtons.appendChild(greeting);
-        authButtons.appendChild(createLabeledIconLinkButton("/create-post.html", "Vytvořit publikaci", composeIcon, "btn-primary"));
-        authButtons.appendChild(createDirectCameraButton("Vyfotit nový nález", cameraIcon, "btn-secondary"));
-        authButtons.appendChild(createHeaderMenuButton("Foto", photoToolsIcon, "btn-secondary", [
-            {
-                href: "/capture.html",
-                label: "Zpracování fotek",
-                note: "lokální snímky, výběr a nahrání na server"
-            },
-            {
-                href: "/server-storage.html",
-                label: "Serverový archiv",
-                note: "to, co už je uložené v Bunny"
-            }
-        ]));
-        authButtons.appendChild(createLinkButton("Zeď úlovků", "/feed.html", "btn-secondary"));
-        authButtons.appendChild(createLinkButton("Galerie", "/gallery.html", "btn-secondary"));
-        authButtons.appendChild(createLinkButton("Mapa", "/map.html", "btn-secondary"));
         if (userCanModerateClient(identity)) {
-            authButtons.appendChild(createLinkButton("Moderace", "/moderation.html", "btn-secondary"));
+            menuItems.push({ href: "/moderation.html", label: "Moderace" });
         }
         if (userCanAdminClient(identity)) {
-            authButtons.appendChild(createLinkButton("Administrace", "/admin.html", "btn-secondary"));
+            menuItems.push({ href: "/admin.html", label: "Administrace" });
         }
 
-        authButtons.appendChild(createLinkButton("Můj profil", "/me.html", "btn-primary"));
+        menuItems.push({ href: "/me.html", label: "Můj profil" });
+
+        authButtons.appendChild(greeting);
+        authButtons.appendChild(createHeaderMenuButton("Menu", menuIcon, "btn-secondary", menuItems, true));
         authButtons.appendChild(createActionButton("Odhlásit", "btn-secondary", logoutFlow));
         return;
     }
 
-    authButtons.appendChild(createLinkButton("Zeď úlovků", "/feed.html", "btn-secondary"));
-    authButtons.appendChild(createLinkButton("Galerie", "/gallery.html", "btn-secondary"));
-    authButtons.appendChild(createLinkButton("Mapa", "/map.html", "btn-secondary"));
+    const menuItems = [
+        { href: "/feed.html", label: "Zeď úlovků" },
+        { href: "/gallery.html", label: "Galerie" },
+        { href: "/map.html", label: "Mapa" },
+    ];
+
+    const loginIcon = `
+        <svg viewBox="0 0 24 24" aria-hidden="true" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path>
+            <polyline points="10 17 15 12 10 7"></polyline>
+            <line x1="15" y1="12" x2="3" y2="12"></line>
+        </svg>
+    `;
+
+    authButtons.appendChild(createHeaderMenuButton("Menu", menuIcon, "btn-secondary", menuItems, true));
     authButtons.appendChild(
-        createLinkButton("Přihlášení / registrace", `${API_URL}/auth/login`, "btn-primary")
+        createLabeledIconLinkButton(`${API_URL}/auth/login`, "Přihlášení", loginIcon, "btn-primary")
     );
 }
 
@@ -800,6 +816,7 @@ function renderViewedCaptures(captures) {
     container.innerHTML = items.map((capture) => {
         const imageUrl = buildCaptureImageURL(capture, "thumb");
         const badge = buildCaptureAccessBadgeHtml(capture);
+        const unlockedAtLabel = hasMeaningfulDateTime(capture.unlocked_at) ? formatDateTime(capture.unlocked_at, "") : "";
         const imageHtml = capture.public_url
             ? `<img src="${escapeHtml(imageUrl)}" alt="Odemčená fotografie" class="viewed-capture-thumb" loading="lazy">`
             : `<div class="viewed-capture-thumb viewed-capture-thumb-placeholder">Náhled už není veřejný</div>`;
@@ -813,7 +830,7 @@ function renderViewedCaptures(captures) {
                 <div class="viewed-capture-meta">
                     <div class="viewed-capture-head">
                         <strong>${escapeHtml(capture.author_name || "Neznámý houbař")}</strong>
-                        <span>${escapeHtml(formatDateTime(capture.unlocked_at))}</span>
+                        ${unlockedAtLabel ? `<span>${escapeHtml(unlockedAtLabel)}</span>` : ""}
                     </div>
                     <p class="viewed-capture-coordinates">${escapeHtml(formatCaptureCoordinates(capture))}</p>
                     <p class="subtle-note">
@@ -1366,19 +1383,74 @@ function buildCapturePopupPreviewHtml(capture, altText) {
     return `<img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(altText)}" loading="lazy">`;
 }
 
-function buildPublicProfileMapPopupHtml(capture) {
-    const authorName = capture.author_name || publicProfileState.user?.preferred_username || "Neznámý houbař";
-    const imageUrl = capture.public_url ? buildCaptureImageURL(capture, "original") : "";
-    const previewHtml = imageUrl
-        ? `<a href="${escapeHtml(imageUrl)}" target="_blank" rel="noreferrer">${buildCapturePopupPreviewHtml(capture, authorName)}</a>`
-        : buildCapturePopupPreviewHtml(capture, authorName);
+function buildSharedMapPopupHtml({
+    authorName = "Neznámý houbař",
+    authorUrl = "",
+    previewUrl = "",
+    altText = "",
+    dateValue = "",
+    metaLines = [],
+    actionHtml = ""
+} = {}) {
+    const safeAuthor = escapeHtml(authorName || "Neznámý houbař");
+    const previewHtml = previewUrl
+        ? `<img src="${escapeHtml(previewUrl)}" alt="${escapeHtml(altText || authorName || "Fotografie")}" loading="lazy">`
+        : '<div class="map-popup-placeholder">Bez veřejného náhledu</div>';
+    const titleHtml = authorUrl
+        ? `<h4><a href="${escapeHtml(authorUrl)}">${safeAuthor}</a></h4>`
+        : `<h4>${safeAuthor}</h4>`;
+    const detailsHtml = (Array.isArray(metaLines) ? metaLines : [])
+        .filter(Boolean)
+        .map((line) => `<p>${escapeHtml(line)}</p>`)
+        .join("");
+
     return `
         <div class="map-popup-content">
             ${previewHtml}
-            <h4>${escapeHtml(authorName)}</h4>
-            <p>${escapeHtml(formatDateTime(capture.captured_at))}</p>
+            ${titleHtml}
+            ${dateValue ? `<p>${escapeHtml(formatDateTime(dateValue))}</p>` : ""}
+            ${detailsHtml}
+            ${actionHtml || ""}
         </div>
     `;
+}
+
+function bindMapPopupAction(marker, selector, handler) {
+    if (!marker || typeof marker.on !== "function" || !selector || typeof handler !== "function") {
+        return;
+    }
+
+    marker.on("popupopen", () => {
+        const popupNode = marker.getPopup()?.getElement();
+        const button = popupNode?.querySelector(selector);
+        if (!button) {
+            return;
+        }
+        button.onclick = (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            handler(event, button);
+        };
+    });
+}
+
+window.HZDMapUI = {
+    buildPopupHtml: buildSharedMapPopupHtml,
+    bindPopupAction: bindMapPopupAction
+};
+
+function buildPublicProfileMapPopupHtml(capture) {
+    const authorName = capture.author_name || publicProfileState.user?.preferred_username || "Neznámý houbař";
+    const canOpenLightbox = Boolean(capture.public_url || publicProfileState.isOwner);
+    return buildSharedMapPopupHtml({
+        authorName,
+        previewUrl: capture.public_url ? buildCaptureImageURL(capture, "popup") : "",
+        altText: authorName,
+        dateValue: capture.captured_at,
+        actionHtml: canOpenLightbox
+            ? `<button type="button" class="btn btn-secondary map-popup-action public-profile-map-open-btn" data-capture-id="${escapeHtml(capture.id)}">Otevřít ve fotkách</button>`
+            : ""
+    });
 }
 
 function ensurePublicProfileMap() {
@@ -1396,6 +1468,16 @@ function ensurePublicProfileMap() {
     }
 
     return publicProfileState.map;
+}
+
+function openPublicProfileMapLightbox(captureID) {
+    const capturesToOpen = publicProfileState.captures.filter((capture) => capture && (capture.public_url || publicProfileState.isOwner));
+    const startIndex = capturesToOpen.findIndex((capture) => capture.id === captureID);
+    if (startIndex === -1 || !window.HZDLightbox) {
+        return;
+    }
+
+    window.HZDLightbox.openCollection(capturesToOpen, startIndex);
 }
 
 function renderPublicProfileMap() {
@@ -1428,6 +1510,11 @@ function renderPublicProfileMap() {
     const markers = captures.map((capture) => {
         const marker = L.marker([Number(capture.latitude), Number(capture.longitude)]);
         marker.bindPopup(buildPublicProfileMapPopupHtml(capture));
+        if (window.HZDMapUI) {
+            window.HZDMapUI.bindPopupAction(marker, ".public-profile-map-open-btn", () => {
+                openPublicProfileMapLightbox(capture.id);
+            });
+        }
         return marker;
     });
 
@@ -1621,7 +1708,39 @@ window.lightboxImages = [];
 window.lightboxMapData = []; // [{lat: 12.3, lon: 45.6}, null, ...]
 window.lightboxCaptureData = [];
 window.currentLightboxIndex = 0;
-let lightboxMapInstance = null;
+let captureMapViewerInstance = null;
+let captureMapViewerMarkerLayer = null;
+
+function openSharedLightboxCollection(captures, startIndex = 0, options = {}) {
+    const list = Array.isArray(captures) ? captures.filter(Boolean) : [];
+    const index = Number(startIndex);
+    const imageBuilder = typeof options.imageBuilder === "function"
+        ? options.imageBuilder
+        : (capture) => buildCaptureImageURL(capture, "original");
+    const mapBuilder = typeof options.mapBuilder === "function"
+        ? options.mapBuilder
+        : (capture) => buildCaptureMapData(capture);
+
+    if (!list.length || !Number.isInteger(index) || index < 0 || index >= list.length) {
+        return false;
+    }
+
+    window.lightboxImages = list.map((capture) => imageBuilder(capture));
+    window.lightboxCaptureData = list.slice();
+    window.lightboxMapData = list.map((capture) => mapBuilder(capture));
+    window.currentLightboxIndex = index;
+
+    if (typeof openLightbox === "function") {
+        openLightbox();
+        return true;
+    }
+
+    return false;
+}
+
+window.HZDLightbox = {
+    openCollection: openSharedLightboxCollection
+};
 
 function currentLightboxCapture() {
     return window.lightboxCaptureData[window.currentLightboxIndex] || null;
@@ -1642,6 +1761,87 @@ function syncLightboxImage() {
     const img = document.getElementById("lightbox-img");
     if (!img || window.lightboxImages.length === 0) return;
     img.src = window.lightboxImages[window.currentLightboxIndex];
+}
+
+function ensureCaptureMapViewer() {
+    const viewer = document.getElementById("capture-map-viewer");
+    const mapNode = document.getElementById("capture-map-viewer-map");
+    if (!viewer || !mapNode || typeof L === "undefined") {
+        return null;
+    }
+
+    if (!captureMapViewerInstance) {
+        captureMapViewerInstance = L.map("capture-map-viewer-map").setView([49.8, 15.5], 7);
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+            attribution: "&copy; OpenStreetMap"
+        }).addTo(captureMapViewerInstance);
+        captureMapViewerMarkerLayer = L.layerGroup().addTo(captureMapViewerInstance);
+    }
+
+    return {
+        viewer,
+        map: captureMapViewerInstance,
+        markerLayer: captureMapViewerMarkerLayer
+    };
+}
+
+function closeCaptureMapViewer() {
+    const viewer = document.getElementById("capture-map-viewer");
+    if (!viewer) {
+        return;
+    }
+
+    viewer.classList.remove("active");
+    viewer.hidden = true;
+}
+
+function openCaptureMapViewer(data, capture = null, options = {}) {
+    if (!data || Number.isNaN(data.lat) || Number.isNaN(data.lon)) {
+        return false;
+    }
+
+    const viewerState = ensureCaptureMapViewer();
+    const titleNode = document.getElementById("capture-map-viewer-title");
+    const noteNode = document.getElementById("capture-map-viewer-note");
+    if (!viewerState) {
+        return false;
+    }
+
+    const { viewer, map, markerLayer } = viewerState;
+    const authorName = capture?.author_name || "Fotografie";
+    const locationLabel = buildCaptureRegionLabel(capture);
+    const customNote = String(options.note || "").trim();
+
+    if (titleNode) {
+        titleNode.textContent = locationLabel ? `Poloha: ${locationLabel}` : `Poloha fotografie od ${authorName}`;
+    }
+
+    if (noteNode) {
+        if (customNote) {
+            noteNode.textContent = customNote;
+        } else if (capture?.coordinates_free) {
+            noteNode.textContent = locationLabel
+                ? `Veřejně sdílené souřadnice. ${locationLabel}.`
+                : "Veřejně sdílené souřadnice této fotografie.";
+        } else if (hasMeaningfulDateTime(capture?.unlocked_at)) {
+            noteNode.textContent = locationLabel
+                ? `Odemčené souřadnice. ${locationLabel}.`
+                : `Souřadnice odemčeny ${formatDateTime(capture.unlocked_at)}.`;
+        } else {
+            noteNode.textContent = locationLabel || "Přesná poloha fotografie.";
+        }
+    }
+
+    if (markerLayer && typeof markerLayer.clearLayers === "function") {
+        markerLayer.clearLayers();
+        L.marker([data.lat, data.lon]).addTo(markerLayer);
+    }
+
+    viewer.hidden = false;
+    viewer.classList.add("active");
+    map.setView([data.lat, data.lon], 13);
+    window.setTimeout(() => map.invalidateSize(), 0);
+    return true;
 }
 
 async function unlockCurrentLightboxCapture() {
@@ -1702,12 +1902,20 @@ async function unlockCurrentLightboxCapture() {
         }
 
         syncLightboxImage();
-        setLightboxMessage(
+        const successMessage = (
             payload.already_unlocked
                 ? "Souřadnice už jste měli k dispozici."
-                : `Souřadnice odemčeny. Zůstatek: ${formatHoubickaCount(payload.balance)}.`,
-            "success"
+                : `Souřadnice odemčeny. Zůstatek: ${formatHoubickaCount(payload.balance)}.`
         );
+        const updatedMapData = buildCaptureMapData(updatedCapture);
+        const openedMapViewer = openCaptureMapViewer(updatedMapData, updatedCapture, {
+            note: successMessage
+        });
+        if (openedMapViewer) {
+            closeLightbox();
+            return;
+        }
+        setLightboxMessage(successMessage, "success");
         updateLightboxMap();
     } catch (error) {
         console.error("Failed to unlock coordinates", error);
@@ -1719,8 +1927,7 @@ async function unlockCurrentLightboxCapture() {
 
 function updateLightboxMap() {
     const mapBtn = document.getElementById("lightbox-map-btn");
-    const mapDiv = document.getElementById("lightbox-map");
-    if (!mapBtn || !mapDiv) return;
+    if (!mapBtn) return;
 
     const capture = currentLightboxCapture();
     const data = capture ? buildCaptureMapData(capture) : window.lightboxMapData[window.currentLightboxIndex];
@@ -1728,7 +1935,6 @@ function updateLightboxMap() {
 
     mapBtn.style.display = "none";
     mapBtn.disabled = false;
-    mapDiv.style.display = "none";
     mapBtn.onclick = null;
     setLightboxMessage("");
 
@@ -1781,7 +1987,7 @@ function updateLightboxMap() {
                 : "Souřadnice této fotografie jsou zdarma.",
             "success"
         );
-    } else if (capture.unlocked_at) {
+    } else if (hasMeaningfulDateTime(capture.unlocked_at)) {
         setLightboxMessage(
             locationLabel
                 ? `Lokalita: ${locationLabel}. Souřadnice byly odemčeny ${formatDateTime(capture.unlocked_at)}.`
@@ -1794,38 +2000,15 @@ function updateLightboxMap() {
 
     mapBtn.onclick = (event) => {
         event.stopPropagation();
-
-        if (mapDiv.style.display === "none") {
-            mapDiv.style.display = "block";
-            mapBtn.textContent = "Skrýt mapu";
-
-            if (!lightboxMapInstance && typeof L !== "undefined") {
-                lightboxMapInstance = L.map("lightbox-map").setView([data.lat, data.lon], 13);
-                L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-                    attribution: "&copy; OpenStreetMap"
-                }).addTo(lightboxMapInstance);
-                L.marker([data.lat, data.lon]).addTo(lightboxMapInstance);
-            } else if (lightboxMapInstance) {
-                lightboxMapInstance.setView([data.lat, data.lon], 13);
-                lightboxMapInstance.eachLayer((layer) => {
-                    if (layer instanceof L.Marker) {
-                        lightboxMapInstance.removeLayer(layer);
-                    }
-                });
-                L.marker([data.lat, data.lon]).addTo(lightboxMapInstance);
-                lightboxMapInstance.invalidateSize();
-            }
-            return;
-        }
-
-        mapDiv.style.display = "none";
-        mapBtn.textContent = "Zobrazit na mapě";
+        closeLightbox();
+        openCaptureMapViewer(data, capture);
     };
 }
 
 function openLightbox() {
     const lb = document.getElementById("lightbox");
     if (!lb || window.lightboxImages.length === 0) return;
+    closeCaptureMapViewer();
     syncLightboxImage();
     updateLightboxMap();
     lb.classList.add("active");
@@ -1834,8 +2017,6 @@ function openLightbox() {
 function closeLightbox() {
     const lb = document.getElementById("lightbox");
     if (lb) lb.classList.remove("active");
-    const mapDiv = document.getElementById("lightbox-map");
-    if (mapDiv) mapDiv.style.display = "none";
     setLightboxMessage("");
 }
 
@@ -1863,16 +2044,38 @@ document.addEventListener("DOMContentLoaded", () => {
         <button type="button" id="lightbox-next" class="lightbox-nav lightbox-next" aria-label="Další fotka">&#10095;</button>
         <button type="button" id="lightbox-map-btn" class="btn btn-primary lightbox-map-btn" style="display: none;">Zobrazit na mapě</button>
         <p id="lightbox-note" class="lightbox-note"></p>
-        <div id="lightbox-map" class="lightbox-map-container"></div>
     </div>
         `;
         document.body.insertAdjacentHTML('beforeend', lightboxHTML);
+    }
+
+    if (!document.getElementById("capture-map-viewer")) {
+        const mapViewerHTML = `
+    <div id="capture-map-viewer" class="capture-map-viewer" hidden>
+        <div class="capture-map-viewer-backdrop" data-close-capture-map></div>
+        <div class="capture-map-viewer-dialog" role="dialog" aria-modal="true" aria-labelledby="capture-map-viewer-title">
+            <button type="button" id="capture-map-viewer-close" class="capture-map-viewer-close" aria-label="Zavřít mapu">&times;</button>
+            <div class="capture-map-viewer-head">
+                <div>
+                    <p class="section-label">Mapa lokality</p>
+                    <h2 id="capture-map-viewer-title">Poloha fotografie</h2>
+                </div>
+            </div>
+            <p id="capture-map-viewer-note" class="capture-map-viewer-note muted-copy"></p>
+            <div id="capture-map-viewer-map" class="capture-map-viewer-map"></div>
+        </div>
+    </div>
+        `;
+        document.body.insertAdjacentHTML("beforeend", mapViewerHTML);
     }
 
     const lbClose = document.getElementById("lightbox-close");
     const lbNext = document.getElementById("lightbox-next");
     const lbPrev = document.getElementById("lightbox-prev");
     const lb = document.getElementById("lightbox");
+    const mapViewer = document.getElementById("capture-map-viewer");
+    const mapViewerClose = document.getElementById("capture-map-viewer-close");
+    const mapViewerBackdrop = document.querySelector("[data-close-capture-map]");
 
     if (lbClose) lbClose.addEventListener("click", closeLightbox);
     if (lbNext) lbNext.addEventListener("click", (e) => { e.stopPropagation(); lightboxNext(); });
@@ -1880,10 +2083,25 @@ document.addEventListener("DOMContentLoaded", () => {
     if (lb) lb.addEventListener("click", (e) => {
         if (e.target === lb) closeLightbox();
     });
+    if (mapViewerClose) mapViewerClose.addEventListener("click", closeCaptureMapViewer);
+    if (mapViewerBackdrop) mapViewerBackdrop.addEventListener("click", closeCaptureMapViewer);
+    if (mapViewer) mapViewer.addEventListener("click", (e) => {
+        if (e.target === mapViewer) closeCaptureMapViewer();
+    });
 
     document.addEventListener("keydown", (e) => {
-        if (!lb || !lb.classList.contains("active")) return;
-        if (e.key === "Escape") closeLightbox();
+        const lightboxActive = Boolean(lb && lb.classList.contains("active"));
+        const mapViewerActive = Boolean(mapViewer && !mapViewer.hidden);
+        if (!lightboxActive && !mapViewerActive) return;
+        if (e.key === "Escape") {
+            if (mapViewerActive) {
+                closeCaptureMapViewer();
+                return;
+            }
+            closeLightbox();
+            return;
+        }
+        if (!lightboxActive) return;
         if (e.key === "ArrowRight") lightboxNext();
         if (e.key === "ArrowLeft") lightboxPrev();
     });

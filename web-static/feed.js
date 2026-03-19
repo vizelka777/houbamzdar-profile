@@ -361,35 +361,26 @@ function attachCommentSectionHandlers(card, post, postsStore = state.posts) {
 
 function buildInlineMapPopupHtml(capture, post) {
     const authorName = post.author_name || "Neznámý houbař";
-    const previewHtml = capture.public_url
-        ? `<img src="${escapeHtml(buildCaptureImageURL(capture, "popup"))}" alt="${escapeHtml(authorName)}" loading="lazy">`
-        : '<div class="map-popup-placeholder">Bez veřejného náhledu</div>';
-
-    return `
-        <div class="map-popup-content">
-            ${previewHtml}
-            <h4>${escapeHtml(authorName)}</h4>
-            <p>${escapeHtml(formatDateTime(capture.captured_at || post.created_at))}</p>
+    return window.HZDMapUI.buildPopupHtml({
+        authorName,
+        previewUrl: capture.public_url ? buildCaptureImageURL(capture, "popup") : "",
+        altText: authorName,
+        dateValue: capture.captured_at || post.created_at,
+        actionHtml: `
             <button type="button" class="btn btn-secondary map-popup-action feed-map-open-btn" data-capture-id="${escapeHtml(capture.id)}">
-                Otevřít fotku
+                Otevřít ve fotkách
             </button>
-        </div>
-    `;
+        `
+    });
 }
 
 function openPostCaptureLightbox(post, captureID) {
     const startIndex = post.captures.findIndex((capture) => capture.id === captureID);
-    if (startIndex === -1) {
+    if (startIndex === -1 || !window.HZDLightbox) {
         return;
     }
 
-    window.lightboxImages = post.captures.map((capture) => buildCaptureImageURL(capture, "original"));
-    window.lightboxCaptureData = post.captures;
-    window.lightboxMapData = post.captures.map((capture) => buildCaptureMapData(capture));
-    window.currentLightboxIndex = startIndex;
-    if (typeof openLightbox === "function") {
-        openLightbox();
-    }
+    window.HZDLightbox.openCollection(post.captures, startIndex);
 }
 
 function attachInlineMapToggle(card, post, mapId, mapCaptures) {
@@ -425,13 +416,11 @@ function attachInlineMapToggle(card, post, mapId, mapCaptures) {
             const markers = mapCaptures.map((capture) => {
                 const marker = L.marker([Number(capture.latitude), Number(capture.longitude)]);
                 marker.bindPopup(buildInlineMapPopupHtml(capture, post));
-                marker.on("popupopen", () => {
-                    const popupNode = marker.getPopup()?.getElement();
-                    const openButton = popupNode?.querySelector(".feed-map-open-btn");
-                    if (openButton) {
-                        openButton.onclick = () => openPostCaptureLightbox(post, capture.id);
-                    }
-                });
+                if (window.HZDMapUI) {
+                    window.HZDMapUI.bindPopupAction(marker, ".feed-map-open-btn", () => {
+                        openPostCaptureLightbox(post, capture.id);
+                    });
+                }
                 return marker;
             });
 
@@ -694,13 +683,10 @@ function renderPosts(postsToRender, container, options = {}) {
 
         card.querySelectorAll(".feed-photo").forEach((photo) => {
             photo.addEventListener("click", (event) => {
-                window.lightboxImages = post.captures.map((capture) => buildCaptureImageURL(capture, "original"));
-                window.lightboxCaptureData = post.captures;
-                window.lightboxMapData = post.captures.map((capture) => buildCaptureMapData(capture));
-                window.currentLightboxIndex = parseInt(event.target.dataset.idx, 10);
-                if (typeof openLightbox === "function") {
-                    openLightbox();
+                if (!window.HZDLightbox) {
+                    return;
                 }
+                window.HZDLightbox.openCollection(post.captures, parseInt(event.target.dataset.idx, 10));
             });
         });
 

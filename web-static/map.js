@@ -87,24 +87,30 @@ function updateGlobalMapSummary() {
 }
 
 function buildGlobalMapPopupHtml(capture) {
-    const author = escapeHtml(capture.author_name || "Neznámý houbař");
-    const authorUrl = escapeHtml(buildPublicProfileURL(capture.author_user_id));
-    const date = escapeHtml(formatDateTime(capture.captured_at));
-    const imageHtml = capture.public_url
-        ? `<a href="${escapeHtml(buildCaptureImageURL(capture, "original"))}" target="_blank" rel="noreferrer"><img src="${escapeHtml(buildCaptureImageURL(capture, "popup"))}" alt="${author}" loading="lazy"></a>`
-        : '<div class="map-popup-placeholder">Bez veřejného náhledu</div>';
     const species = buildCaptureSpeciesLabel(capture);
     const region = buildCaptureRegionLabel(capture);
 
-    return `
-        <div class="map-popup-content">
-            ${imageHtml}
-            <h4><a href="${authorUrl}">${author}</a></h4>
-            <p>${date}</p>
-            ${species ? `<p>${escapeHtml(species)}</p>` : ""}
-            ${region ? `<p>${escapeHtml(region)}</p>` : ""}
-        </div>
-    `;
+    return window.HZDMapUI.buildPopupHtml({
+        authorName: capture.author_name || "Neznámý houbař",
+        authorUrl: buildPublicProfileURL(capture.author_user_id),
+        previewUrl: capture.public_url ? buildCaptureImageURL(capture, "popup") : "",
+        altText: capture.author_name || "Neznámý houbař",
+        dateValue: capture.captured_at,
+        metaLines: [species, region],
+        actionHtml: capture.public_url
+            ? `<button type="button" class="btn btn-secondary map-popup-action global-map-open-btn" data-capture-id="${escapeHtml(capture.id)}">Otevřít ve fotkách</button>`
+            : ""
+    });
+}
+
+function openGlobalMapCaptureLightbox(captureID) {
+    const capturesToOpen = globalMapState.results.filter((capture) => capture && capture.public_url);
+    const startIndex = capturesToOpen.findIndex((capture) => capture.id === captureID);
+    if (startIndex === -1 || !window.HZDLightbox) {
+        return;
+    }
+
+    window.HZDLightbox.openCollection(capturesToOpen, startIndex);
 }
 
 function applyGlobalMapMarkers(markers) {
@@ -151,6 +157,11 @@ function renderGlobalMapMarkers() {
         globalMapState.bounds.extend([lat, lon]);
         const marker = L.marker([lat, lon]);
         marker.bindPopup(buildGlobalMapPopupHtml(capture));
+        if (window.HZDMapUI) {
+            window.HZDMapUI.bindPopupAction(marker, ".global-map-open-btn", () => {
+                openGlobalMapCaptureLightbox(capture.id);
+            });
+        }
         markers.push(marker);
     });
 

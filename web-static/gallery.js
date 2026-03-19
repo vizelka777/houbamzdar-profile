@@ -275,6 +275,11 @@ function buildGallerySpeciesButton(capture) {
     `;
 }
 
+function formatGalleryRegionLabel(region) {
+    const safeRegion = escapeHtml(region || "");
+    return safeRegion.replace(/\s+([^\s]+)$/u, "<br>$1");
+}
+
 function syncModeratorModelPanel() {
     const panel = document.getElementById("gallery-moderator-panel");
     const select = document.getElementById("gallery-moderator-model");
@@ -718,10 +723,6 @@ function renderGallery(container) {
         return;
     }
 
-    window.lightboxImages = state.captures.map((capture) => buildCaptureImageURL(capture, "original"));
-    window.lightboxCaptureData = state.captures;
-    window.lightboxMapData = state.captures.map((capture) => buildCaptureMapData(capture));
-
     container.innerHTML = state.captures.map((capture, idx) => {
         const url = escapeHtml(buildCaptureImageURL(capture, "thumb"));
         const avatarUrl = capture.author_avatar || "/default-avatar.png";
@@ -762,24 +763,26 @@ function renderGallery(container) {
                     ${accessBadge}
                 </div>
                 <div class="gallery-item-copy">
-                    ${(region || speciesButton) ? `
+                    ${region ? `
                         <div class="gallery-item-meta-row">
-                            ${region ? `<p class="gallery-item-region">${escapeHtml(region)}</p>` : "<span></span>"}
-                            ${speciesButton}
+                            <p class="gallery-item-region">${formatGalleryRegionLabel(region)}</p>
                         </div>
                     ` : ""}
                     ${moderatorAction}
                     ${renderModeratorTaxonomyEditor(capture)}
                     ${renderModeratorGeoEditor(capture)}
                 </div>
+                ${speciesButton}
             </div>
         `;
     }).join("");
 
     container.querySelectorAll(".gallery-item").forEach((item) => {
         const openItemLightbox = () => {
-            window.currentLightboxIndex = Number(item.dataset.index || 0);
-            if (typeof openLightbox === "function") openLightbox();
+            if (!window.HZDLightbox) {
+                return;
+            }
+            window.HZDLightbox.openCollection(state.captures, Number(item.dataset.index || 0));
         };
         item.addEventListener("click", openItemLightbox);
         item.addEventListener("keydown", (e) => {
