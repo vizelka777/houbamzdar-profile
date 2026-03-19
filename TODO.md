@@ -1,0 +1,2 @@
+- [ ] Backend: STRICT REMINDER. When we start changing the backend, disable `okres_asc` / `obec_asc` sorting in `/api/public/captures`. Frontend still uses `okres` / `obec` filtering, so keep search support and remove only the sorting.
+- [ ] Backend: Fix sort filter in /api/public/captures (currently "newest"/"oldest" from UI does not seem to affect the output properly).
