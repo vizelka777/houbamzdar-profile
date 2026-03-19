@@ -1,0 +1,133 @@
+.moderation-action-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    align-items: baseline;
+    flex-wrap: wrap;
+}
+
+.moderation-dashboard-grid {
+    display: grid;
+    gap: 1.25rem;
+}
+
+.moderation-dashboard-section {
+    display: grid;
+    gap: 0.95rem;
+}
+
+.moderation-dashboard-list {
+    display: grid;
+    gap: 0.95rem;
+}
+
+.moderation-item-card {
+    display: grid;
+    gap: 0.8rem;
+    padding: 1rem;
+    border: 1px solid rgba(19, 38, 29, 0.08);
+    border-radius: 1.05rem;
+    background: rgba(255, 255, 255, 0.7);
+}
+
+.moderation-item-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 0.85rem;
+    flex-wrap: wrap;
+}
+
+.moderation-item-head h3,
+.moderation-item-head h4 {
+    margin: 0;
+}
+
+.moderation-item-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem 0.85rem;
+    color: var(--muted);
+    font-size: 0.9rem;
+}
+
+.moderation-item-meta span {
+    display: inline-flex;
+    align-items: center;
+}
+
+.moderation-item-copy {
+    display: grid;
+    gap: 0.5rem;
+}
+
+.moderation-item-copy p {
+    margin: 0;
+}
+
+.moderation-preview-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
+    gap: 0.55rem;
+    max-width: 24rem;
+}
+
+.moderation-preview-grid img {
+    width: 100%;
+    aspect-ratio: 1;
+    object-fit: cover;
+    border-radius: 0.8rem;
+    border: 1px solid rgba(19, 38, 29, 0.08);
+}
+
+.moderation-capture-layout {
+    display: grid;
+    grid-template-columns: minmax(110px, 150px) 1fr;
+    gap: 0.95rem;
+    align-items: start;
+}
+
+.moderation-capture-layout img {
+    width: 100%;
+    aspect-ratio: 1;
+    object-fit: cover;
+    border-radius: 0.95rem;
+    border: 1px solid rgba(19, 38, 29, 0.08);
+}
+
+.moderation-item-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+}
+
+.moderation-context-box {
+    padding: 0.8rem 0.9rem;
+    border-radius: 0.9rem;
+    background: rgba(255, 250, 242, 0.72);
+    border: 1px solid rgba(19, 38, 29, 0.08);
+}
+
+.moderation-dashboard-empty {
+    margin: 0;
+    color: var(--muted);
+}
+
+@media (max-width: 700px) {
+    .moderation-capture-layout {
+        grid-template-columns: 1fr;
+    }
+}
+
+.moderation-checkbox {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    font-weight: 700;
+    color: var(--forest-950);
+}
+
+.moderation-checkbox input {
+    width: 1rem;
+    height: 1rem;
+}

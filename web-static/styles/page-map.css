@@ -1,0 +1,211 @@
+.feed-map-container,
+.public-profile-map,
+#profile-activity-map {
+    width: 100%;
+    border-radius: var(--radius-md);
+    z-index: 1;
+}
+
+.feed-map-container {
+    height: 220px;
+    margin-top: 1rem;
+    display: none;
+}
+
+.page-intro-spaced {
+    margin-bottom: 2rem;
+}
+
+.map-page-card {
+    display: grid;
+    gap: 0.85rem;
+}
+
+.map-filter-accordion {
+    margin-bottom: 0;
+    border: 1px solid rgba(19, 38, 29, 0.08);
+    border-radius: 1.15rem;
+    background: rgba(255, 255, 255, 0.46);
+}
+
+.map-filter-summary {
+    padding: 0.95rem 1rem;
+}
+
+.map-filter-body {
+    gap: 0.85rem;
+    padding: 0 1rem 1rem;
+}
+
+.map-filter-body .public-capture-filter-form {
+    margin-top: 0;
+    gap: 0.85rem;
+}
+
+.map-filter-body .action-row {
+    gap: 0.6rem;
+}
+
+.feed-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.feed-list-status {
+    text-align: center;
+}
+
+.load-more-row {
+    margin: 2rem 0;
+    text-align: center;
+}
+
+.dashboard-span-full {
+    grid-column: 1 / -1;
+}
+
+.section-spaced {
+    margin-top: 2rem;
+}
+
+.public-profile-map {
+    height: 420px;
+    margin-top: 1rem;
+}
+
+.public-posts-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    margin-top: 1rem;
+}
+
+.profile-activity-card {
+    display: grid;
+    gap: 1rem;
+}
+
+.profile-activity-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.profile-activity-switch {
+    display: inline-flex;
+    padding: 0.3rem;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.56);
+    border: 1px solid rgba(19, 38, 29, 0.08);
+    height: fit-content;
+}
+
+.profile-activity-toggle {
+    border: 0;
+    background: transparent;
+    color: var(--forest-950);
+    font: inherit;
+    font-weight: 700;
+    cursor: pointer;
+    padding: 0.7rem 1rem;
+    border-radius: 999px;
+}
+
+.profile-activity-toggle.is-active {
+    background: linear-gradient(135deg, var(--forest-900), var(--forest-700));
+    color: #f8f2e7;
+}
+
+.profile-activity-map-shell {
+    display: grid;
+    gap: 1rem;
+    padding: 0.8rem;
+    border-radius: 1.35rem;
+    background: rgba(255, 255, 255, 0.56);
+    border: 1px solid rgba(19, 38, 29, 0.08);
+    box-shadow: 0 18px 40px rgba(19, 38, 29, 0.12);
+}
+
+#profile-activity-map {
+    height: 420px;
+}
+
+.map-popup-content h4 a {
+    color: inherit;
+    text-decoration: none;
+}
+
+.map-popup-content h4 a:hover,
+.map-popup-content h4 a:focus-visible {
+    text-decoration: underline;
+}
+
+.map-popup-placeholder {
+    display: grid;
+    place-items: center;
+    min-height: 9rem;
+    border-radius: var(--radius-sm);
+    background: rgba(19, 38, 29, 0.08);
+    color: var(--muted);
+    margin-bottom: 0.5rem;
+}
+
+.map-popup-content img {
+    width: 100%;
+    max-width: 13rem;
+    max-height: 11rem;
+    object-fit: cover;
+    border-radius: 0.95rem;
+    margin: 0 auto 0.6rem;
+}
+
+.map-popup-content h4 {
+    margin: 0 0 0.2rem;
+    font-size: 1rem;
+}
+
+.map-popup-content p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.84rem;
+}
+
+.map-popup-content .map-popup-action {
+    width: 100%;
+    justify-content: center;
+    margin-top: 0.7rem;
+}
+
+.hzd-cluster-icon {
+    background: transparent;
+    border: 0;
+}
+
+.hzd-cluster-bubble {
+    width: 3.6rem;
+    height: 3.6rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    color: #f8f2e7;
+    border: 4px solid rgba(255, 255, 255, 0.92);
+    box-shadow: 0 18px 32px rgba(19, 38, 29, 0.24);
+    background: linear-gradient(135deg, rgba(24, 93, 41, 0.92), rgba(59, 129, 78, 0.96));
+    backdrop-filter: blur(10px);
+}
+
+.hzd-cluster-bubble strong {
+    font-size: 1rem;
+    line-height: 1;
+}
+
+.hzd-cluster-bubble.is-medium {
+    background: linear-gradient(135deg, rgba(173, 95, 36, 0.92), rgba(214, 132, 48, 0.96));
+}
+
+.hzd-cluster-bubble.is-large {
+    background: linear-gradient(135deg, rgba(125, 40, 30, 0.94), rgba(173, 64, 52, 0.98));
+}
