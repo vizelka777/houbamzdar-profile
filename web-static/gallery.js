@@ -20,6 +20,7 @@ const state = {
         selectedModel: "",
         loading: false,
         loadError: "",
+        modalCaptureId: "",
         editorCaptureId: "",
         editorLoading: false,
         editorLoadError: "",
@@ -37,6 +38,21 @@ const state = {
     }
 };
 
+const GALLERY_SORT_OPTIONS = new Set([
+    "published_desc",
+    "captured_desc",
+    "probability_desc",
+    "kraj_asc"
+]);
+
+function normalizeGallerySort(rawValue) {
+    const value = String(rawValue || "").trim();
+    if (!GALLERY_SORT_OPTIONS.has(value)) {
+        return "published_desc";
+    }
+    return value;
+}
+
 function parsePositivePage(raw, fallback = 1) {
     const value = Number.parseInt(String(raw || ""), 10);
     if (!Number.isFinite(value) || value <= 0) {
@@ -52,7 +68,7 @@ function readGalleryFiltersFromQuery() {
     state.filters.kraj = (query.get("kraj") || "").trim();
     state.filters.okres = (query.get("okres") || "").trim();
     state.filters.obec = (query.get("obec") || "").trim();
-    state.filters.sort = (query.get("sort") || "published_desc").trim() || "published_desc";
+    state.filters.sort = normalizeGallerySort(query.get("sort"));
 }
 
 function syncGalleryFilterInputs() {
@@ -93,7 +109,7 @@ function readGalleryFiltersFromForm() {
     state.filters.kraj = readValue("gallery-filter-kraj");
     state.filters.okres = readValue("gallery-filter-okres");
     state.filters.obec = readValue("gallery-filter-obec");
-    state.filters.sort = readValue("gallery-filter-sort") || "published_desc";
+    state.filters.sort = normalizeGallerySort(readValue("gallery-filter-sort"));
 }
 
 function buildGalleryQuery() {
@@ -212,6 +228,17 @@ function closeModeratorGeoEditor() {
     state.moderation.geoEditorNote = "";
 }
 
+function findGalleryCapture(captureID) {
+    if (!captureID) {
+        return null;
+    }
+    return state.captures.find((item) => item && item.id === captureID) || null;
+}
+
+function getActiveModerationCapture() {
+    return findGalleryCapture(state.moderation.modalCaptureId);
+}
+
 function closeGallerySpeciesModal() {
     const modal = document.getElementById("gallery-species-modal");
     if (!modal) {
@@ -249,6 +276,93 @@ function openGallerySpeciesModal(captureID) {
 
     modal.hidden = false;
     modal.setAttribute("aria-hidden", "false");
+}
+
+function renderGalleryModerationBody(capture) {
+    if (!capture) {
+        return `
+            <div class="help-panel gallery-moderation-empty">
+                <p class="muted-copy">Fotografie pro moderaci už není v aktuálním seznamu.</p>
+            </div>
+        `;
+    }
+
+    if (state.moderation.editorCaptureId === capture.id) {
+        return renderModeratorTaxonomyEditor(capture);
+    }
+    if (state.moderation.geoEditorCaptureId === capture.id) {
+        return renderModeratorGeoEditor(capture);
+    }
+
+    const modelLabel = state.moderation.selectedModel || state.moderation.defaultModel || "výchozí model backendu";
+    return `
+        <div class="help-panel gallery-moderation-empty">
+            <p class="section-label">Rychlá moderace</p>
+            <p>Vyberte akci nahoře. AI recheck použije model <strong>${escapeHtml(modelLabel)}</strong>.</p>
+            <p class="muted-copy">Taxony i lokaci lze potom ručně opravit a uložit bez zásahu do backendu.</p>
+        </div>
+    `;
+}
+
+function syncGalleryModerationModal() {
+    const modal = document.getElementById("gallery-moderation-modal");
+    const meta = document.getElementById("gallery-moderation-meta");
+    const preview = document.getElementById("gallery-moderation-preview");
+    const body = document.getElementById("gallery-moderation-body");
+    const aiButton = document.getElementById("gallery-moderation-ai-action");
+    const taxonomyButton = document.getElementById("gallery-moderation-taxonomy-action");
+    const geoButton = document.getElementById("gallery-moderation-geo-action");
+    const hideButton = document.getElementById("gallery-moderation-hide-action");
+    const capture = getActiveModerationCapture();
+
+    if (!modal || !meta || !preview || !body || !aiButton || !taxonomyButton || !geoButton || !hideButton) {
+        return;
+    }
+
+    if (!canModeratorRecheck() || !capture) {
+        modal.hidden = true;
+        modal.setAttribute("aria-hidden", "true");
+        body.innerHTML = "";
+        preview.removeAttribute("src");
+        preview.alt = "";
+        return;
+    }
+
+    const authorName = String(capture.author_name || "Neznámý houbař").trim();
+    const region = buildCaptureRegionLabel(capture);
+    meta.innerHTML = [
+        authorName ? `<span>${escapeHtml(authorName)}</span>` : "",
+        region ? `<span>${escapeHtml(region)}</span>` : "",
+        capture.id ? `<span>ID ${escapeHtml(capture.id)}</span>` : ""
+    ].filter(Boolean).join(" • ");
+    preview.src = buildCaptureImageURL(capture, "thumb");
+    preview.alt = escapeHtml(authorName || "Fotografie");
+    body.innerHTML = renderGalleryModerationBody(capture);
+
+    aiButton.dataset.captureId = capture.id;
+    taxonomyButton.dataset.captureId = capture.id;
+    geoButton.dataset.captureId = capture.id;
+    hideButton.dataset.captureId = capture.id;
+
+    modal.hidden = false;
+    modal.setAttribute("aria-hidden", "false");
+}
+
+function openGalleryModerationModal(captureID) {
+    if (!captureID || !canModeratorRecheck()) {
+        return;
+    }
+    state.moderation.modalCaptureId = captureID;
+    closeModeratorTaxonomyEditor();
+    closeModeratorGeoEditor();
+    syncGalleryModerationModal();
+}
+
+function closeGalleryModerationModal() {
+    state.moderation.modalCaptureId = "";
+    closeModeratorTaxonomyEditor();
+    closeModeratorGeoEditor();
+    syncGalleryModerationModal();
 }
 
 function buildGallerySpeciesButton(capture) {
@@ -411,6 +525,7 @@ async function runModeratorRecheck(captureID, button) {
         closeModeratorTaxonomyEditor();
         closeModeratorGeoEditor();
         await loadGallery({ reset: true });
+        syncGalleryModerationModal();
     } catch (error) {
         console.error("Moderator recheck failed", error);
         window.alert(error.message || "Moderatorská kontrola se nepodařila.");
@@ -425,19 +540,14 @@ async function openModeratorTaxonomyEditor(captureID) {
     if (!captureID || !canModeratorRecheck()) {
         return;
     }
-    if (state.moderation.editorCaptureId === captureID) {
-        closeModeratorTaxonomyEditor();
-        renderGallery(document.getElementById("gallery-container"));
-        return;
-    }
-
+    state.moderation.modalCaptureId = captureID;
     closeModeratorGeoEditor();
     state.moderation.editorCaptureId = captureID;
     state.moderation.editorLoading = true;
     state.moderation.editorLoadError = "";
     state.moderation.editorText = "";
     state.moderation.editorNote = "";
-    renderGallery(document.getElementById("gallery-container"));
+    syncGalleryModerationModal();
 
     try {
         const response = await apiJsonRequest(`/api/moderation/captures/${encodeURIComponent(captureID)}/taxonomy`);
@@ -450,7 +560,7 @@ async function openModeratorTaxonomyEditor(captureID) {
         state.moderation.editorLoadError = error.message || "Nepodařilo se načíst současné taxony.";
     } finally {
         state.moderation.editorLoading = false;
-        renderGallery(document.getElementById("gallery-container"));
+        syncGalleryModerationModal();
     }
 }
 
@@ -458,12 +568,7 @@ async function openModeratorGeoEditor(captureID) {
     if (!captureID || !canModeratorRecheck()) {
         return;
     }
-    if (state.moderation.geoEditorCaptureId === captureID) {
-        closeModeratorGeoEditor();
-        renderGallery(document.getElementById("gallery-container"));
-        return;
-    }
-
+    state.moderation.modalCaptureId = captureID;
     closeModeratorTaxonomyEditor();
     state.moderation.geoEditorCaptureId = captureID;
     state.moderation.geoEditorLoading = true;
@@ -474,7 +579,7 @@ async function openModeratorGeoEditor(captureID) {
     state.moderation.geoEditorObecName = "";
     state.moderation.geoEditorCanViewDetailed = false;
     state.moderation.geoEditorNote = "";
-    renderGallery(document.getElementById("gallery-container"));
+    syncGalleryModerationModal();
 
     try {
         const response = await apiJsonRequest(`/api/moderation/captures/${encodeURIComponent(captureID)}/geo`);
@@ -493,7 +598,7 @@ async function openModeratorGeoEditor(captureID) {
         state.moderation.geoEditorLoadError = error.message || "Nepodařilo se načíst uloženou lokalitu.";
     } finally {
         state.moderation.geoEditorLoading = false;
-        renderGallery(document.getElementById("gallery-container"));
+        syncGalleryModerationModal();
     }
 }
 
@@ -530,6 +635,7 @@ async function saveModeratorTaxonomy(captureID, button) {
         window.alert("Ruční úprava taxonů byla uložena.");
         closeModeratorTaxonomyEditor();
         await loadGallery({ reset: true });
+        syncGalleryModerationModal();
     } catch (error) {
         console.error("Failed to save capture taxonomy", error);
         window.alert(error.message || "Taxony se nepodařilo uložit.");
@@ -576,6 +682,7 @@ async function saveModeratorGeo(captureID, button) {
         window.alert("Ruční úprava lokality byla uložena.");
         closeModeratorGeoEditor();
         await loadGallery({ reset: true });
+        syncGalleryModerationModal();
     } catch (error) {
         console.error("Failed to save capture geo", error);
         window.alert(error.message || "Lokalitu se nepodařilo uložit.");
@@ -705,6 +812,7 @@ async function hideGalleryCapture(captureID, button) {
         closeModeratorTaxonomyEditor();
         closeModeratorGeoEditor();
         await loadGallery({ reset: true });
+        syncGalleryModerationModal();
     } catch (error) {
         console.error("Failed to hide capture", error);
         window.alert(error.message || "Fotografii se nepodařilo skrýt.");
@@ -731,27 +839,17 @@ function renderGallery(container) {
         const authorURL = buildPublicProfileURL(capture.author_user_id);
         const region = buildCaptureKrajLabel(capture);
         const speciesButton = buildGallerySpeciesButton(capture);
-        const moderatorAction = canModeratorRecheck()
+        const moderatorTrigger = canModeratorRecheck()
             ? `
-                <div class="gallery-item-actions">
-                    <button type="button" class="btn btn-secondary gallery-moderator-action" data-capture-id="${escapeHtml(capture.id)}">
-                        AI recheck
-                    </button>
-                    <button type="button" class="btn btn-secondary gallery-moderator-edit-action" data-capture-id="${escapeHtml(capture.id)}">
-                        Upravit taxony
-                    </button>
-                    <button type="button" class="btn btn-secondary gallery-moderator-geo-action" data-capture-id="${escapeHtml(capture.id)}">
-                        Upravit lokaci
-                    </button>
-                    <button type="button" class="btn btn-secondary gallery-moderator-hide-action" data-capture-id="${escapeHtml(capture.id)}">
-                        Skrýt foto
-                    </button>
-                </div>
+                <button type="button" class="gallery-moderation-trigger" data-capture-id="${escapeHtml(capture.id)}" aria-label="Otevřít moderaci fotografie">
+                    <span aria-hidden="true">M</span>
+                </button>
             `
             : "";
+        const moderatorCardClass = canModeratorRecheck() ? " gallery-item--moderator" : "";
 
         return `
-            <div class="gallery-item" data-index="${idx}" tabindex="0" role="button" aria-label="Zobrazit detail fotky">
+            <div class="gallery-item${moderatorCardClass}" data-index="${idx}" tabindex="0" role="button" aria-label="Zobrazit detail fotky">
                 <div class="gallery-item-header">
                     <a href="${escapeHtml(authorURL)}" class="author-link">
                         <img src="${escapeHtml(avatarUrl)}" class="gallery-item-avatar" alt="Avatar">
@@ -768,10 +866,8 @@ function renderGallery(container) {
                             <p class="gallery-item-region">${formatGalleryRegionLabel(region)}</p>
                         </div>
                     ` : ""}
-                    ${moderatorAction}
-                    ${renderModeratorTaxonomyEditor(capture)}
-                    ${renderModeratorGeoEditor(capture)}
                 </div>
+                ${moderatorTrigger}
                 ${speciesButton}
             </div>
         `;
@@ -799,38 +895,6 @@ function renderGallery(container) {
         });
     });
 
-    container.querySelectorAll(".gallery-moderator-action").forEach((button) => {
-        button.addEventListener("click", async (event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            await runModeratorRecheck(button.dataset.captureId, button);
-        });
-    });
-
-    container.querySelectorAll(".gallery-moderator-edit-action").forEach((button) => {
-        button.addEventListener("click", async (event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            await openModeratorTaxonomyEditor(button.dataset.captureId);
-        });
-    });
-
-    container.querySelectorAll(".gallery-moderator-geo-action").forEach((button) => {
-        button.addEventListener("click", async (event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            await openModeratorGeoEditor(button.dataset.captureId);
-        });
-    });
-
-    container.querySelectorAll(".gallery-moderator-hide-action").forEach((button) => {
-        button.addEventListener("click", async (event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            await hideGalleryCapture(button.dataset.captureId, button);
-        });
-    });
-
     container.querySelectorAll(".gallery-species-trigger").forEach((button) => {
         button.addEventListener("click", (event) => {
             event.preventDefault();
@@ -839,43 +903,11 @@ function renderGallery(container) {
         });
     });
 
-    container.querySelectorAll(".gallery-moderator-save-taxonomy-action").forEach((button) => {
-        button.addEventListener("click", async (event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            await saveModeratorTaxonomy(button.dataset.captureId, button);
-        });
-    });
-
-    container.querySelectorAll(".gallery-moderator-cancel-taxonomy-action").forEach((button) => {
+    container.querySelectorAll(".gallery-moderation-trigger").forEach((button) => {
         button.addEventListener("click", (event) => {
             event.preventDefault();
             event.stopPropagation();
-            closeModeratorTaxonomyEditor();
-            renderGallery(container);
-        });
-    });
-
-    container.querySelectorAll(".gallery-moderator-save-geo-action").forEach((button) => {
-        button.addEventListener("click", async (event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            await saveModeratorGeo(button.dataset.captureId, button);
-        });
-    });
-
-    container.querySelectorAll(".gallery-moderator-cancel-geo-action").forEach((button) => {
-        button.addEventListener("click", (event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            closeModeratorGeoEditor();
-            renderGallery(container);
-        });
-    });
-
-    container.querySelectorAll(".gallery-moderator-editor").forEach((panel) => {
-        panel.addEventListener("click", (event) => {
-            event.stopPropagation();
+            openGalleryModerationModal(button.dataset.captureId);
         });
     });
 }
@@ -1062,6 +1094,8 @@ async function initGalleryPage() {
 
     const speciesModal = document.getElementById("gallery-species-modal");
     const speciesModalClose = document.getElementById("gallery-species-close");
+    const moderationModal = document.getElementById("gallery-moderation-modal");
+    const moderationModalClose = document.getElementById("gallery-moderation-close");
     if (speciesModal) {
         speciesModal.addEventListener("click", (event) => {
             if (event.target instanceof HTMLElement && event.target.hasAttribute("data-close-species-modal")) {
@@ -1072,9 +1106,69 @@ async function initGalleryPage() {
     if (speciesModalClose) {
         speciesModalClose.addEventListener("click", closeGallerySpeciesModal);
     }
+    if (moderationModal) {
+        moderationModal.addEventListener("click", async (event) => {
+            const target = event.target instanceof HTMLElement ? event.target : null;
+            if (!target) {
+                return;
+            }
+            if (target.hasAttribute("data-close-gallery-moderation")) {
+                closeGalleryModerationModal();
+                return;
+            }
+
+            const button = target.closest("button");
+            if (!button) {
+                return;
+            }
+
+            const captureID = button.dataset.captureId || state.moderation.modalCaptureId;
+            if (!captureID) {
+                return;
+            }
+
+            if (button.id === "gallery-moderation-ai-action") {
+                await runModeratorRecheck(captureID, button);
+                return;
+            }
+            if (button.id === "gallery-moderation-taxonomy-action") {
+                await openModeratorTaxonomyEditor(captureID);
+                return;
+            }
+            if (button.id === "gallery-moderation-geo-action") {
+                await openModeratorGeoEditor(captureID);
+                return;
+            }
+            if (button.id === "gallery-moderation-hide-action") {
+                await hideGalleryCapture(captureID, button);
+                return;
+            }
+            if (button.classList.contains("gallery-moderator-save-taxonomy-action")) {
+                await saveModeratorTaxonomy(captureID, button);
+                return;
+            }
+            if (button.classList.contains("gallery-moderator-cancel-taxonomy-action")) {
+                closeModeratorTaxonomyEditor();
+                syncGalleryModerationModal();
+                return;
+            }
+            if (button.classList.contains("gallery-moderator-save-geo-action")) {
+                await saveModeratorGeo(captureID, button);
+                return;
+            }
+            if (button.classList.contains("gallery-moderator-cancel-geo-action")) {
+                closeModeratorGeoEditor();
+                syncGalleryModerationModal();
+            }
+        });
+    }
+    if (moderationModalClose) {
+        moderationModalClose.addEventListener("click", closeGalleryModerationModal);
+    }
     window.addEventListener("keydown", (event) => {
         if (event.key === "Escape") {
             closeGallerySpeciesModal();
+            closeGalleryModerationModal();
         }
     });
 

@@ -7,7 +7,9 @@
     <meta name="description" content="Veřejná galerie všech sdílených houbařských úlovků.">
     <link rel="icon" href="/favicon.ico" sizes="any">
     <link rel="apple-touch-icon" href="/apple-touch-icon.png">
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="styles/base.css">
+    <link rel="stylesheet" href="styles/page-explore.css">
+    <link rel="stylesheet" href="styles/page-gallery.css">
     <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
 </head>
 <body data-page="gallery" class="page-shell">
@@ -29,7 +31,7 @@
             </summary>
             <div class="accordion-body">
                 <form id="gallery-filter-form" class="public-capture-filter-form">
-                    <div class="public-capture-filter-grid">
+                    <div class="public-capture-filter-grid gallery-filter-grid">
                         <label class="public-capture-filter-field">
                             <span>Druh houby</span>
                             <input id="gallery-filter-species" type="search" placeholder="např. hřib smrkový nebo boletus">
@@ -53,8 +55,6 @@
                                 <option value="captured_desc">Nejnovější nález</option>
                                 <option value="probability_desc">Nejvyšší pravděpodobnost</option>
                                 <option value="kraj_asc">Kraje A-Z</option>
-                                <option value="okres_asc">Okresy A-Z</option>
-                                <option value="obec_asc">Obce A-Z</option>
                             </select>
                         </label>
                     </div>
@@ -97,6 +97,38 @@
             </div>
             <p id="gallery-species-meta" class="capture-species-meta"></p>
             <div id="gallery-species-body"></div>
+        </div>
+    </div>
+
+    <div id="gallery-moderation-modal" class="gallery-moderation-modal" hidden aria-hidden="true">
+        <div class="gallery-moderation-modal-backdrop" data-close-gallery-moderation></div>
+        <div class="gallery-moderation-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="gallery-moderation-title">
+            <div class="gallery-moderation-modal-head">
+                <div>
+                    <p class="section-label">Moderace galerie</p>
+                    <h2 id="gallery-moderation-title">Moderace fotografie</h2>
+                    <p id="gallery-moderation-meta" class="muted-copy gallery-moderation-meta"></p>
+                </div>
+                <button id="gallery-moderation-close" type="button" class="capture-species-modal-close" aria-label="Zavřít moderaci">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="gallery-moderation-modal-layout">
+                <div class="gallery-moderation-preview-shell">
+                    <div class="gallery-moderation-preview-frame">
+                        <img id="gallery-moderation-preview" class="gallery-moderation-preview" alt="">
+                    </div>
+                </div>
+                <div class="gallery-moderation-panel">
+                    <div class="gallery-moderation-toolbar">
+                        <button id="gallery-moderation-ai-action" type="button" class="btn btn-secondary gallery-moderator-action">AI recheck</button>
+                        <button id="gallery-moderation-taxonomy-action" type="button" class="btn btn-secondary gallery-moderator-edit-action">Upravit taxony</button>
+                        <button id="gallery-moderation-geo-action" type="button" class="btn btn-secondary gallery-moderator-geo-action">Upravit lokaci</button>
+                        <button id="gallery-moderation-hide-action" type="button" class="btn btn-danger gallery-moderator-hide-action">Skrýt foto</button>
+                    </div>
+                    <div id="gallery-moderation-body" class="gallery-moderation-body"></div>
+                </div>
+            </div>
         </div>
     </div>
 

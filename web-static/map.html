@@ -7,7 +7,9 @@
     <meta name="description" content="Mapa všech sdílených houbařských úlovků.">
     <link rel="icon" href="/favicon.ico" sizes="any">
     <link rel="apple-touch-icon" href="/apple-touch-icon.png">
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="styles/base.css">
+    <link rel="stylesheet" href="styles/page-explore.css">
+    <link rel="stylesheet" href="styles/page-map.css">
     <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
     <link rel="stylesheet" href="vendor/leaflet-markercluster/MarkerCluster.css" />
 </head>
@@ -24,24 +26,28 @@
     </header>
 
     <main class="content-main content-main-narrow">
-        <section class="page-intro card page-intro-spaced">
-            <form id="global-map-filter-form" class="public-capture-filter-form">
-                <div class="public-capture-filter-grid">
-                    <label class="public-capture-filter-field">
-                        <span>Druh houby</span>
-                        <input id="global-filter-species" type="search" placeholder="např. hřib smrkový nebo boletus">
-                    </label>
+        <section class="page-intro card page-intro-spaced map-page-card">
+            <details id="global-map-filters" class="accordion map-filter-accordion">
+                <summary class="accordion-summary map-filter-summary">
+                    <p class="accordion-title">Hledání na mapě</p>
+                </summary>
+                <div class="accordion-body map-filter-body">
+                    <form id="global-map-filter-form" class="public-capture-filter-form">
+                        <div class="public-capture-filter-grid map-filter-grid">
+                            <label class="public-capture-filter-field">
+                                <span>Druh houby</span>
+                                <input id="global-filter-species" type="search" placeholder="např. hřib smrkový nebo boletus">
+                            </label>
+                        </div>
+                        <div class="action-row">
+                            <button type="submit" class="btn btn-primary">Použít filtry</button>
+                            <button id="global-map-filter-reset" type="button" class="btn btn-secondary">Vymazat</button>
+                        </div>
+                    </form>
                 </div>
-                <div class="action-row">
-                    <button type="submit" class="btn btn-primary">Použít filtry</button>
-                    <button id="global-map-filter-reset" type="button" class="btn btn-secondary">Vymazat</button>
-                </div>
-            </form>
+            </details>
             <p id="global-map-summary" class="muted-copy">Načítám veřejná místa...</p>
             <div id="global-map"></div>
-            <div class="action-row">
-                <button id="global-map-load-more-btn" class="btn btn-secondary" style="display: none;">Načíst další body</button>
-            </div>
         </section>
     </main>
 

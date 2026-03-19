@@ -263,12 +263,13 @@ function createDirectCameraButton(label, iconSVG, className) {
     return wrapper;
 }
 
-function createHeaderMenuButton(label, iconSVG, className, items, hideLabel = false) {
+function createHeaderMenuButton(label, iconSVG, className, items, options = {}) {
+    const { hideLabel = false, lead = null } = options;
     const details = document.createElement("details");
     details.className = "header-menu";
 
     const summary = document.createElement("summary");
-    summary.className = `btn ${className} btn-icon${hideLabel ? '' : ' btn-icon-labeled'}`;
+    summary.className = `btn ${className} btn-icon header-control-button${hideLabel ? "" : " btn-icon-labeled"}`;
     summary.setAttribute("aria-label", label);
     summary.innerHTML = `
         <span class="btn-icon-glyph" aria-hidden="true">${iconSVG}</span>
@@ -279,7 +280,31 @@ function createHeaderMenuButton(label, iconSVG, className, items, hideLabel = fa
     const panel = document.createElement("div");
     panel.className = "header-menu-panel";
 
+    if (lead) {
+        const leadNode = document.createElement("div");
+        leadNode.className = "header-menu-lead";
+        leadNode.innerHTML = `
+            ${lead.eyebrow ? `<span class="section-label">${escapeHtml(lead.eyebrow)}</span>` : ""}
+            ${lead.title ? `<strong>${escapeHtml(lead.title)}</strong>` : ""}
+            ${lead.copy ? `<p>${escapeHtml(lead.copy)}</p>` : ""}
+        `;
+        panel.appendChild(leadNode);
+    }
+
     items.forEach((item) => {
+        if (item.type === "action" && typeof item.handler === "function") {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = `btn ${item.className || "btn-secondary"} header-menu-action`;
+            button.textContent = item.label || "Akce";
+            button.addEventListener("click", async () => {
+                details.removeAttribute("open");
+                await item.handler();
+            });
+            panel.appendChild(button);
+            return;
+        }
+
         const link = document.createElement("a");
         link.className = "header-menu-item";
         link.href = item.href;
@@ -700,12 +725,20 @@ function renderHeader(session, profile = null) {
             <line x1="3" y1="18" x2="21" y2="18"></line>
         </svg>
     `;
+    const cameraIcon = `
+        <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 7h3l1.6-2h6.8L17 7h3a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2z"></path>
+            <circle cx="12" cy="13" r="3.6"></circle>
+        </svg>
+    `;
+    const profileIcon = `
+        <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20 21a8 8 0 0 0-16 0"></path>
+            <circle cx="12" cy="8" r="4"></circle>
+        </svg>
+    `;
 
     if (session && session.logged_in) {
-        const greeting = document.createElement("span");
-        greeting.className = "user-greeting";
-        greeting.textContent = `Ahoj, ${session.user?.preferred_username || "hoste"}`;
-
         const menuItems = [
             { href: "/create-post.html", label: "Vytvořit publikaci" },
             { href: "/capture.html?camera=1", label: "Vyfotit nový nález" },
@@ -725,9 +758,28 @@ function renderHeader(session, profile = null) {
 
         menuItems.push({ href: "/me.html", label: "Můj profil" });
 
-        authButtons.appendChild(greeting);
-        authButtons.appendChild(createHeaderMenuButton("Menu", menuIcon, "btn-secondary", menuItems, true));
-        authButtons.appendChild(createActionButton("Odhlásit", "btn-secondary", logoutFlow));
+        const cameraButton = createDirectCameraButton("Přidat úlovek", cameraIcon, "btn-secondary");
+        cameraButton.classList.add("header-control-button");
+
+        const profileButton = createIconLinkButton("/me.html", "Můj profil", profileIcon, "btn-secondary");
+        profileButton.classList.add("header-control-button");
+
+        const username = session.user?.preferred_username || identity?.preferred_username || "hoste";
+        const menuButton = createHeaderMenuButton("Menu", menuIcon, "btn-secondary", [
+            ...menuItems,
+            { type: "action", label: "Odhlásit", className: "btn-danger", handler: logoutFlow }
+        ], {
+            hideLabel: true,
+            lead: {
+                eyebrow: "Menu",
+                title: `Ahoj, ${username}`,
+                copy: "Rychlé přepnutí mezi galerií, mapou, archivem a správou obsahu."
+            }
+        });
+
+        authButtons.appendChild(cameraButton);
+        authButtons.appendChild(profileButton);
+        authButtons.appendChild(menuButton);
         return;
     }
 
@@ -745,10 +797,20 @@ function renderHeader(session, profile = null) {
         </svg>
     `;
 
-    authButtons.appendChild(createHeaderMenuButton("Menu", menuIcon, "btn-secondary", menuItems, true));
-    authButtons.appendChild(
-        createLabeledIconLinkButton(`${API_URL}/auth/login`, "Přihlášení", loginIcon, "btn-primary")
-    );
+    const loginButton = createIconLinkButton(`${API_URL}/auth/login`, "Přihlášení", loginIcon, "btn-primary");
+    loginButton.classList.add("header-control-button");
+
+    const menuButton = createHeaderMenuButton("Menu", menuIcon, "btn-secondary", menuItems, {
+        hideLabel: true,
+        lead: {
+            eyebrow: "Veřejné menu",
+            title: "Houbam Zdar",
+            copy: "Galerie, mapa a zeď úlovků jsou dostupné i bez přihlášení."
+        }
+    });
+
+    authButtons.appendChild(loginButton);
+    authButtons.appendChild(menuButton);
 }
 
 function updateHomeHero(session) {
@@ -1801,20 +1863,14 @@ function openCaptureMapViewer(data, capture = null, options = {}) {
     }
 
     const viewerState = ensureCaptureMapViewer();
-    const titleNode = document.getElementById("capture-map-viewer-title");
     const noteNode = document.getElementById("capture-map-viewer-note");
     if (!viewerState) {
         return false;
     }
 
     const { viewer, map, markerLayer } = viewerState;
-    const authorName = capture?.author_name || "Fotografie";
     const locationLabel = buildCaptureRegionLabel(capture);
     const customNote = String(options.note || "").trim();
-
-    if (titleNode) {
-        titleNode.textContent = locationLabel ? `Poloha: ${locationLabel}` : `Poloha fotografie od ${authorName}`;
-    }
 
     if (noteNode) {
         if (customNote) {
@@ -2053,13 +2109,10 @@ document.addEventListener("DOMContentLoaded", () => {
         const mapViewerHTML = `
     <div id="capture-map-viewer" class="capture-map-viewer" hidden>
         <div class="capture-map-viewer-backdrop" data-close-capture-map></div>
-        <div class="capture-map-viewer-dialog" role="dialog" aria-modal="true" aria-labelledby="capture-map-viewer-title">
+        <div class="capture-map-viewer-dialog" role="dialog" aria-modal="true" aria-label="Mapa lokality">
             <button type="button" id="capture-map-viewer-close" class="capture-map-viewer-close" aria-label="Zavřít mapu">&times;</button>
             <div class="capture-map-viewer-head">
-                <div>
-                    <p class="section-label">Mapa lokality</p>
-                    <h2 id="capture-map-viewer-title">Poloha fotografie</h2>
-                </div>
+                <p class="section-label">Mapa lokality</p>
             </div>
             <p id="capture-map-viewer-note" class="capture-map-viewer-note muted-copy"></p>
             <div id="capture-map-viewer-map" class="capture-map-viewer-map"></div>
