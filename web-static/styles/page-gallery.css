@@ -156,56 +156,6 @@
     display: none !important;
 }
 
-.accordion {
-    margin-bottom: 0.1rem;
-    padding: 0;
-    overflow: hidden;
-}
-
-.accordion-summary {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-    padding: 1.1rem 1.4rem;
-    cursor: pointer;
-    list-style: none;
-    background:
-        linear-gradient(180deg, rgba(255, 255, 255, 0.68), rgba(244, 237, 223, 0.9)),
-        radial-gradient(circle at top right, rgba(238, 177, 109, 0.22), transparent 45%);
-}
-
-.accordion-summary::-webkit-details-marker {
-    display: none;
-}
-
-.accordion-summary::after {
-    content: "▾";
-    font-size: 1.1rem;
-    color: var(--muted);
-    transition: transform 0.2s ease;
-    transform: rotate(-90deg);
-    margin-top: 0.2rem;
-}
-
-.accordion[open] .accordion-summary::after {
-    transform: rotate(0deg);
-}
-
-.accordion-title {
-    margin: 0;
-    color: var(--forest-950);
-    font-size: 1rem;
-    font-weight: 700;
-}
-
-.accordion-body {
-    display: grid;
-    gap: 1rem;
-    padding: 0 1.4rem 1.4rem;
-    border-top: 1px solid var(--border-color);
-}
-
 .gallery-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));

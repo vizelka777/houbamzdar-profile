@@ -4,8 +4,15 @@ const state = {
     pageSize: 10,
     hasMore: true,
     session: null,
-    me: null
+    me: null,
+    sort: "latest_desc"
 };
+
+const FEED_SORT_VALUES = new Set([
+    "latest_desc",
+    "likes_desc",
+    "comments_desc"
+]);
 
 function activeSession() {
     return state.session || window.appSession || null;
@@ -13,6 +20,85 @@ function activeSession() {
 
 function activeUser() {
     return state.me || window.appMe || null;
+}
+
+function normalizeFeedSort(value) {
+    return FEED_SORT_VALUES.has(value) ? value : "latest_desc";
+}
+
+function getPostCreatedTime(post) {
+    const timestamp = Date.parse(post?.created_at || "");
+    return Number.isNaN(timestamp) ? 0 : timestamp;
+}
+
+function getPostLikesCount(post) {
+    return Number(post?.likes_count || 0);
+}
+
+function getPostCommentsCount(post) {
+    if (typeof post?.comments_count === "number") {
+        return post.comments_count;
+    }
+    return Array.isArray(post?.comments) ? post.comments.length : 0;
+}
+
+function sortFeedPosts(posts, sortValue = state.sort) {
+    const sort = normalizeFeedSort(sortValue);
+    return [...(posts || [])].sort((left, right) => {
+        if (sort === "likes_desc") {
+            const likeDiff = getPostLikesCount(right) - getPostLikesCount(left);
+            if (likeDiff !== 0) {
+                return likeDiff;
+            }
+        }
+
+        if (sort === "comments_desc") {
+            const commentDiff = getPostCommentsCount(right) - getPostCommentsCount(left);
+            if (commentDiff !== 0) {
+                return commentDiff;
+            }
+        }
+
+        return getPostCreatedTime(right) - getPostCreatedTime(left);
+    });
+}
+
+function renderFeedState() {
+    const container = document.getElementById("feed-container");
+    if (!container) {
+        return;
+    }
+
+    if (!state.posts.length) {
+        container.innerHTML = '<p class="muted-copy feed-list-status">Zatím nejsou žádné příspěvky k zobrazení.</p>';
+        return;
+    }
+
+    container.innerHTML = "";
+    renderPosts(sortFeedPosts(state.posts), container, {
+        postsStore: state.posts,
+        onPostDeleted: () => {
+            renderFeedState();
+        }
+    });
+}
+
+function applyFeedSort(sortValue, options = {}) {
+    state.sort = normalizeFeedSort(sortValue);
+
+    const select = document.getElementById("feed-sort-select");
+    if (select) {
+        select.value = state.sort;
+    }
+
+    renderFeedState();
+
+    if (options.closeOnMobile) {
+        const panel = document.getElementById("feed-sort-panel");
+        if (panel && window.matchMedia("(max-width: 768px)").matches) {
+            panel.open = false;
+        }
+    }
 }
 
 function findPostById(postID, postsStore = state.posts) {
@@ -168,6 +254,10 @@ function renderCommentsSection(card, post, postsStore = state.posts) {
 
     commentsPanel.outerHTML = buildCommentsSectionHtml(post);
     attachCommentSectionHandlers(card, post, postsStore);
+
+    if (state.sort === "comments_desc") {
+        renderFeedState();
+    }
 }
 
 function attachCommentCreateHandler(card, post, postsStore) {
@@ -668,6 +758,10 @@ function renderPosts(postsToRender, container, options = {}) {
                     likeBtn.classList.toggle("active", Boolean(res.is_liked));
                     post.likes_count = res.likes_count;
                     post.is_liked_by_me = res.is_liked;
+
+                    if (state.sort === "likes_desc") {
+                        renderFeedState();
+                    }
                 } catch (error) {
                     likeBtn.classList.toggle("active", wasActive);
                     countNode.textContent = currentCount;
@@ -732,7 +826,7 @@ async function loadFeed(append = false) {
             return;
         }
 
-        renderPosts(newPosts, container, { postsStore: state.posts });
+        renderFeedState();
 
         if (loadMoreBtn) {
             loadMoreBtn.style.display = state.hasMore ? "inline-block" : "none";
@@ -754,6 +848,18 @@ async function initFeedPage() {
     }
     setAppIdentity(state.session, state.me);
     renderHeader(state.session, state.me);
+
+    const sortSelect = document.getElementById("feed-sort-select");
+    const sortForm = document.getElementById("feed-sort-form");
+    if (sortSelect) {
+        sortSelect.value = state.sort;
+    }
+    if (sortForm) {
+        sortForm.addEventListener("submit", (event) => {
+            event.preventDefault();
+            applyFeedSort(sortSelect?.value || state.sort, { closeOnMobile: true });
+        });
+    }
 
     const loadMoreBtn = document.getElementById("load-more-feed-btn");
     if (loadMoreBtn) {

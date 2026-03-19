@@ -1059,6 +1059,20 @@ async function resetGalleryFilters() {
     await loadGallery();
 }
 
+function collapseGalleryFiltersOnMobile() {
+    const overview = document.getElementById("gallery-overview");
+    if (!(overview instanceof HTMLDetailsElement)) {
+        return;
+    }
+
+    if (window.matchMedia("(min-width: 720px)").matches) {
+        return;
+    }
+
+    overview.open = false;
+    overview.scrollIntoView({ block: "start", behavior: "smooth" });
+}
+
 async function initGalleryPage() {
     if (document.body.dataset.page !== "gallery") return;
 
@@ -1082,6 +1096,7 @@ async function initGalleryPage() {
             state.page = 1;
             syncGalleryQueryString();
             await loadGallery({ reset: true });
+            collapseGalleryFiltersOnMobile();
         });
     }
 

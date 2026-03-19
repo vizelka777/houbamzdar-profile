@@ -1,3 +1,11 @@
+.feed-sort-grid {
+    grid-template-columns: 1fr;
+}
+
+.feed-sort-note {
+    margin: 0;
+}
+
 .feed-card {
     padding: 1.5rem;
 }

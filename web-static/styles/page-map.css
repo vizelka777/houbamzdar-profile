@@ -12,29 +12,14 @@
     display: none;
 }
 
-.page-intro-spaced {
-    margin-bottom: 2rem;
-}
-
 .map-page-card {
     display: grid;
     gap: 0.85rem;
+    padding: 1.25rem;
 }
 
 .map-filter-accordion {
-    margin-bottom: 0;
-    border: 1px solid rgba(19, 38, 29, 0.08);
-    border-radius: 1.15rem;
-    background: rgba(255, 255, 255, 0.46);
-}
-
-.map-filter-summary {
-    padding: 0.95rem 1rem;
-}
-
-.map-filter-body {
-    gap: 0.85rem;
-    padding: 0 1rem 1rem;
+    margin-bottom: 0.1rem;
 }
 
 .map-filter-body .public-capture-filter-form {

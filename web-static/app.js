@@ -263,6 +263,14 @@ function createDirectCameraButton(label, iconSVG, className) {
     return wrapper;
 }
 
+function buildHeaderMenuIconMarkup(icon) {
+    if (!icon) {
+        return "";
+    }
+
+    return `<span class="header-menu-icon" aria-hidden="true">${icon}</span>`;
+}
+
 function createHeaderMenuButton(label, iconSVG, className, items, options = {}) {
     const { hideLabel = false, lead = null } = options;
     const details = document.createElement("details");
@@ -296,7 +304,10 @@ function createHeaderMenuButton(label, iconSVG, className, items, options = {}) 
             const button = document.createElement("button");
             button.type = "button";
             button.className = `btn ${item.className || "btn-secondary"} header-menu-action`;
-            button.textContent = item.label || "Akce";
+            button.innerHTML = `
+                ${buildHeaderMenuIconMarkup(item.icon)}
+                <span>${escapeHtml(item.label || "Akce")}</span>
+            `;
             button.addEventListener("click", async () => {
                 details.removeAttribute("open");
                 await item.handler();
@@ -309,8 +320,11 @@ function createHeaderMenuButton(label, iconSVG, className, items, options = {}) 
         link.className = "header-menu-item";
         link.href = item.href;
         link.innerHTML = `
-            <span>${escapeHtml(item.label)}</span>
-            ${item.note ? `<small class="header-menu-note">${escapeHtml(item.note)}</small>` : ""}
+            ${buildHeaderMenuIconMarkup(item.icon)}
+            <span class="header-menu-item-copy">
+                <span>${escapeHtml(item.label)}</span>
+                ${item.note ? `<small class="header-menu-note">${escapeHtml(item.note)}</small>` : ""}
+            </span>
         `;
         panel.appendChild(link);
     });
@@ -711,6 +725,22 @@ function renderSimpleList(elementId, items, emptyText) {
     });
 }
 
+async function initSharedHeaderOnly() {
+    const authButtons = document.getElementById("auth-buttons");
+    if (!authButtons) {
+        return;
+    }
+
+    const session = await apiGet("/api/session");
+    let profile = null;
+    if (session && session.logged_in) {
+        profile = await apiGet("/api/me");
+    }
+
+    setAppIdentity(session, profile);
+    renderHeader(session, profile);
+}
+
 function renderHeader(session, profile = null) {
     const authButtons = document.getElementById("auth-buttons");
     if (!authButtons) return;
@@ -719,20 +749,17 @@ function renderHeader(session, profile = null) {
     const identity = profile || session?.user || null;
 
     const menuIcon = `
-        <svg viewBox="0 0 24 24" aria-hidden="true" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
             <line x1="3" y1="12" x2="21" y2="12"></line>
             <line x1="3" y1="6" x2="21" y2="6"></line>
             <line x1="3" y1="18" x2="21" y2="18"></line>
         </svg>
     `;
     const cameraIcon = `
-        <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M4 7h3l1.6-2h6.8L17 7h3a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2z"></path>
-            <circle cx="12" cy="13" r="3.6"></circle>
-        </svg>
+        <span class="header-emoji-icon">📷</span>
     `;
     const profileIcon = `
-        <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round">
             <path d="M20 21a8 8 0 0 0-16 0"></path>
             <circle cx="12" cy="8" r="4"></circle>
         </svg>
@@ -740,23 +767,23 @@ function renderHeader(session, profile = null) {
 
     if (session && session.logged_in) {
         const menuItems = [
-            { href: "/create-post.html", label: "Vytvořit publikaci" },
-            { href: "/capture.html?camera=1", label: "Vyfotit nový nález" },
-            { href: "/capture.html", label: "Zpracování fotek", note: "lokální snímky, výběr a nahrání na server" },
-            { href: "/server-storage.html", label: "Serverový archiv", note: "to, co už je uložené v Bunny" },
-            { href: "/feed.html", label: "Zeď úlovků" },
-            { href: "/gallery.html", label: "Galerie" },
-            { href: "/map.html", label: "Mapa" },
+            { href: "/create-post.html", label: "Vytvořit publikaci", icon: "✍️" },
+            { href: "/capture.html?camera=1", label: "Vyfotit nový nález", icon: "📷" },
+            { href: "/capture.html", label: "Zpracování fotek", note: "lokální snímky, výběr a nahrání na server", icon: "🧺" },
+            { href: "/server-storage.html", label: "Serverový archiv", note: "to, co už je uložené v Bunny", icon: "🗂️" },
+            { href: "/feed.html", label: "Zeď úlovků", icon: "📰" },
+            { href: "/gallery.html", label: "Galerie", icon: "🖼️" },
+            { href: "/map.html", label: "Mapa", icon: "🗺️" },
         ];
 
         if (userCanModerateClient(identity)) {
-            menuItems.push({ href: "/moderation.html", label: "Moderace" });
+            menuItems.push({ href: "/moderation.html", label: "Moderace", icon: "🛡️" });
         }
         if (userCanAdminClient(identity)) {
-            menuItems.push({ href: "/admin.html", label: "Administrace" });
+            menuItems.push({ href: "/admin.html", label: "Administrace", icon: "⚙️" });
         }
 
-        menuItems.push({ href: "/me.html", label: "Můj profil" });
+        menuItems.push({ href: "/me.html", label: "Můj profil", icon: "👤" });
 
         const cameraButton = createDirectCameraButton("Přidat úlovek", cameraIcon, "btn-secondary");
         cameraButton.classList.add("header-control-button");
@@ -767,7 +794,7 @@ function renderHeader(session, profile = null) {
         const username = session.user?.preferred_username || identity?.preferred_username || "hoste";
         const menuButton = createHeaderMenuButton("Menu", menuIcon, "btn-secondary", [
             ...menuItems,
-            { type: "action", label: "Odhlásit", className: "btn-danger", handler: logoutFlow }
+            { type: "action", label: "Odhlásit", className: "btn-danger", handler: logoutFlow, icon: "↪" }
         ], {
             hideLabel: true,
             lead: {
@@ -784,13 +811,13 @@ function renderHeader(session, profile = null) {
     }
 
     const menuItems = [
-        { href: "/feed.html", label: "Zeď úlovků" },
-        { href: "/gallery.html", label: "Galerie" },
-        { href: "/map.html", label: "Mapa" },
+        { href: "/feed.html", label: "Zeď úlovků", icon: "📰" },
+        { href: "/gallery.html", label: "Galerie", icon: "🖼️" },
+        { href: "/map.html", label: "Mapa", icon: "🗺️" },
     ];
 
     const loginIcon = `
-        <svg viewBox="0 0 24 24" aria-hidden="true" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+        <svg viewBox="0 0 24 24" aria-hidden="true" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
             <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path>
             <polyline points="10 17 15 12 10 7"></polyline>
             <line x1="15" y1="12" x2="3" y2="12"></line>
@@ -2221,6 +2248,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
     if (page === "public-profile") {
         initPublicProfilePage();
+        return;
+    }
+
+    if (page === "map") {
+        initSharedHeaderOnly();
         return;
     }
 

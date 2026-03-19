@@ -8,6 +8,7 @@
     <link rel="icon" href="/favicon.ico" sizes="any">
     <link rel="apple-touch-icon" href="/apple-touch-icon.png">
     <link rel="stylesheet" href="styles/base.css">
+    <link rel="stylesheet" href="styles/page-explore.css">
     <link rel="stylesheet" href="styles/page-feed.css">
     <link rel="stylesheet" href="styles/page-map.css">
     <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css">
@@ -26,13 +27,29 @@
     </header>
 
     <main class="content-main content-main-narrow">
-        <section class="page-intro card page-intro-spaced">
-            <p class="section-label">Veřejná zeď</p>
-            <h1>Co se našlo v lese</h1>
-            <p>
-                Prohlížejte si nejnovější úlovky a příspěvky od ostatních houbařů.
-            </p>
-        </section>
+        <details id="feed-sort-panel" class="accordion card">
+            <summary class="accordion-summary">
+                <p class="accordion-title">Řazení publikací</p>
+            </summary>
+            <div class="accordion-body">
+                <form id="feed-sort-form" class="public-capture-filter-form">
+                    <div class="public-capture-filter-grid feed-sort-grid">
+                        <label class="public-capture-filter-field">
+                            <span>Seřadit podle</span>
+                            <select id="feed-sort-select">
+                                <option value="latest_desc">Nejnovější</option>
+                                <option value="likes_desc">Nejvíc lajků</option>
+                                <option value="comments_desc">Nejvíc komentářů</option>
+                            </select>
+                        </label>
+                    </div>
+                    <div class="action-row">
+                        <button type="submit" class="btn btn-primary">Použít řazení</button>
+                    </div>
+                </form>
+                <p class="muted-copy feed-sort-note">Zatím jen pro načtené publikace.</p>
+            </div>
+        </details>
 
         <div id="feed-container" class="feed-list">
             <p class="muted-copy feed-list-status">Načítám zeď...</p>

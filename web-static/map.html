@@ -26,26 +26,27 @@
     </header>
 
     <main class="content-main content-main-narrow">
-        <section class="page-intro card page-intro-spaced map-page-card">
-            <details id="global-map-filters" class="accordion map-filter-accordion">
-                <summary class="accordion-summary map-filter-summary">
-                    <p class="accordion-title">Hledání na mapě</p>
-                </summary>
-                <div class="accordion-body map-filter-body">
-                    <form id="global-map-filter-form" class="public-capture-filter-form">
-                        <div class="public-capture-filter-grid map-filter-grid">
-                            <label class="public-capture-filter-field">
-                                <span>Druh houby</span>
-                                <input id="global-filter-species" type="search" placeholder="např. hřib smrkový nebo boletus">
-                            </label>
-                        </div>
-                        <div class="action-row">
-                            <button type="submit" class="btn btn-primary">Použít filtry</button>
-                            <button id="global-map-filter-reset" type="button" class="btn btn-secondary">Vymazat</button>
-                        </div>
-                    </form>
-                </div>
-            </details>
+        <details id="global-map-filters" class="accordion card map-filter-accordion">
+            <summary class="accordion-summary map-filter-summary">
+                <p class="accordion-title">Kritéria hledání</p>
+            </summary>
+            <div class="accordion-body map-filter-body">
+                <form id="global-map-filter-form" class="public-capture-filter-form">
+                    <div class="public-capture-filter-grid map-filter-grid">
+                        <label class="public-capture-filter-field">
+                            <span>Druh houby</span>
+                            <input id="global-filter-species" type="search" placeholder="např. hřib smrkový nebo boletus">
+                        </label>
+                    </div>
+                    <div class="action-row">
+                        <button type="submit" class="btn btn-primary">Použít filtry</button>
+                        <button id="global-map-filter-reset" type="button" class="btn btn-secondary">Vymazat</button>
+                    </div>
+                </form>
+            </div>
+        </details>
+
+        <section class="card map-page-card">
             <p id="global-map-summary" class="muted-copy">Načítám veřejná místa...</p>
             <div id="global-map"></div>
         </section>
