@@ -56,6 +56,7 @@ const migrationModerationActionsTableID = "20260316_create_moderation_actions_ta
 const migrationAdminBackupsTableID = "20260316_create_admin_backups_table"
 const migrationUsersPreferredUsernameNormID = "20260320_add_users_preferred_username_norm"
 const migrationUsersClearContactDataID = "20260320_clear_user_contact_data"
+const migrationUsersClearStoredOIDCTokensID = "20260320_clear_user_oidc_tokens"
 
 var ErrInsufficientHoubickaBalance = errors.New("insufficient houbicka balance")
 var ErrCaptureHasNoCoordinates = errors.New("capture has no coordinates")
@@ -653,7 +654,23 @@ func migrate(db *sql.DB) error {
 						updated_at = datetime('now')
 					WHERE COALESCE(email, '') != ''
 						OR COALESCE(phone_number, '') != ''
-				`)
+					`)
+				return err
+			},
+		},
+		{
+			id: migrationUsersClearStoredOIDCTokensID,
+			apply: func(tx *sql.Tx) error {
+				_, err := tx.Exec(`
+						UPDATE users
+						SET access_token = NULL,
+							refresh_token = NULL,
+							token_expires_at = NULL,
+							updated_at = datetime('now')
+						WHERE COALESCE(access_token, '') != ''
+							OR COALESCE(refresh_token, '') != ''
+							OR COALESCE(token_expires_at, '') != ''
+					`)
 				return err
 			},
 		},
@@ -800,18 +817,29 @@ func (db *DB) UpsertUser(claims *models.OIDCClaims, token *oauth2.Token) (*model
 		pv = 1
 	}
 
-	expiry := ""
-	if !token.Expiry.IsZero() {
-		expiry = token.Expiry.Format(time.RFC3339)
-	}
+	// Token persistence is intentionally disabled.
+	//
+	// The columns stay in the schema so the deployment remains backwards-compatible
+	// and the old behavior can be restored without a database migration. For the
+	// current privacy model we do not retain OIDC access/refresh tokens after the
+	// login callback finishes. Existing values are cleared back to NULL on every
+	// login sync.
+	//
+	// If token retention is needed again in the future, restore the original
+	// token.* bindings in the INSERT/UPDATE statements below and reintroduce tests
+	// that assert AccessToken / RefreshToken / TokenExpiresAt persistence.
+	_ = token
+	var storedAccessToken interface{}
+	var storedRefreshToken interface{}
+	var storedTokenExpiry interface{}
 
 	if !exists {
 		for attempt := 0; attempt < 5000; attempt++ {
 			preferredUsername := preferredUsernameCandidate(claims.PreferredUsername, attempt)
 			res, insertErr := tx.Exec(`
-				INSERT INTO users (
-					idp_issuer,
-					idp_sub,
+					INSERT INTO users (
+						idp_issuer,
+						idp_sub,
 					preferred_username,
 					preferred_username_norm,
 					is_moderator,
@@ -823,11 +851,11 @@ func (db *DB) UpsertUser(claims *models.OIDCClaims, token *oauth2.Token) (*model
 					picture,
 					access_token,
 					refresh_token,
-					token_expires_at,
-					last_idp_sync_at
-				)
-				VALUES (?, ?, ?, ?, ?, ?, NULL, ?, NULL, ?, ?, ?, ?, ?, datetime('now'))
-			`, claims.Iss, claims.Sub, preferredUsername, normalizedPreferredUsername(preferredUsername), isModerator, isAdmin, ev, pv, claims.Picture, token.AccessToken, token.RefreshToken, expiry)
+						token_expires_at,
+						last_idp_sync_at
+					)
+					VALUES (?, ?, ?, ?, ?, ?, NULL, ?, NULL, ?, ?, ?, ?, ?, datetime('now'))
+				`, claims.Iss, claims.Sub, preferredUsername, normalizedPreferredUsername(preferredUsername), isModerator, isAdmin, ev, pv, claims.Picture, storedAccessToken, storedRefreshToken, storedTokenExpiry)
 			if insertErr != nil {
 				if isPreferredUsernameUniqueConstraintError(insertErr) {
 					continue
@@ -855,9 +883,9 @@ func (db *DB) UpsertUser(claims *models.OIDCClaims, token *oauth2.Token) (*model
 		}
 
 		_, err := tx.Exec(`
-			UPDATE users SET
-				preferred_username = ?,
-				preferred_username_norm = ?,
+				UPDATE users SET
+					preferred_username = ?,
+					preferred_username_norm = ?,
 				email = NULL,
 				email_verified = ?,
 				phone_number = NULL,
@@ -875,9 +903,9 @@ func (db *DB) UpsertUser(claims *models.OIDCClaims, token *oauth2.Token) (*model
 				is_admin = CASE
 					WHEN is_admin = 1 OR ? = 1 THEN 1
 					ELSE 0
-				END
-			WHERE id = ?
-		`, preferredUsername, normalizedPreferredUsername(preferredUsername), ev, pv, claims.Picture, token.AccessToken, token.RefreshToken, expiry, isModerator, isAdmin, userID)
+					END
+				WHERE id = ?
+			`, preferredUsername, normalizedPreferredUsername(preferredUsername), ev, pv, claims.Picture, storedAccessToken, storedRefreshToken, storedTokenExpiry, isModerator, isAdmin, userID)
 		if err != nil {
 			return nil, false, err
 		}

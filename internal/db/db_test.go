@@ -180,17 +180,66 @@ func TestMigrateUpgradesLegacyUsersTable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get migrated user: %v", err)
 	}
-	if got.AccessToken != token.AccessToken {
-		t.Fatalf("expected access token to persist, got %q", got.AccessToken)
+	if got.AccessToken != "" {
+		t.Fatalf("expected access token to stay empty in storage, got %q", got.AccessToken)
 	}
-	if got.RefreshToken != token.RefreshToken {
-		t.Fatalf("expected refresh token to persist, got %q", got.RefreshToken)
+	if got.RefreshToken != "" {
+		t.Fatalf("expected refresh token to stay empty in storage, got %q", got.RefreshToken)
 	}
-	if got.TokenExpiresAt.IsZero() {
-		t.Fatalf("expected token expiry to persist")
+	if !got.TokenExpiresAt.IsZero() {
+		t.Fatalf("expected token expiry to stay empty in storage, got %v", got.TokenExpiresAt)
 	}
 	if got.IsModerator {
 		t.Fatalf("expected ordinary migrated user to stay non-moderator")
+	}
+
+	staleExpiry := time.Now().Add(2 * time.Hour).UTC().Format(time.RFC3339)
+	if _, err := db.Exec(`
+		UPDATE users
+		SET access_token = ?, refresh_token = ?, token_expires_at = ?
+		WHERE id = ?
+	`, "stale-access-token", "stale-refresh-token", staleExpiry, user.ID); err != nil {
+		t.Fatalf("seed stale tokens: %v", err)
+	}
+
+	if _, isNew, err := wrapped.UpsertUser(&models.OIDCClaims{
+		Iss:               "https://ahoj420.eu",
+		Sub:               "user-123",
+		PreferredUsername: "houbar",
+		Email:             "houbar@example.test",
+		EmailVerified:     true,
+	}, token); err != nil {
+		t.Fatalf("upsert existing user with stale tokens: %v", err)
+	} else if isNew {
+		t.Fatalf("expected second upsert to update existing user")
+	}
+
+	got, err = wrapped.GetUser(user.ID)
+	if err != nil {
+		t.Fatalf("get updated migrated user: %v", err)
+	}
+	if got.AccessToken != "" {
+		t.Fatalf("expected stale access token to be cleared, got %q", got.AccessToken)
+	}
+	if got.RefreshToken != "" {
+		t.Fatalf("expected stale refresh token to be cleared, got %q", got.RefreshToken)
+	}
+	if !got.TokenExpiresAt.IsZero() {
+		t.Fatalf("expected stale token expiry to be cleared, got %v", got.TokenExpiresAt)
+	}
+
+	var accessTokenIsNull bool
+	var refreshTokenIsNull bool
+	var tokenExpiryIsNull bool
+	if err := db.QueryRow(`
+		SELECT access_token IS NULL, refresh_token IS NULL, token_expires_at IS NULL
+		FROM users
+		WHERE id = ?
+	`, user.ID).Scan(&accessTokenIsNull, &refreshTokenIsNull, &tokenExpiryIsNull); err != nil {
+		t.Fatalf("query raw token columns: %v", err)
+	}
+	if !accessTokenIsNull || !refreshTokenIsNull || !tokenExpiryIsNull {
+		t.Fatalf("expected stored token columns to be NULL, got access=%v refresh=%v expiry=%v", accessTokenIsNull, refreshTokenIsNull, tokenExpiryIsNull)
 	}
 }
 

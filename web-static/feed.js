@@ -206,7 +206,7 @@ function buildCommentsListHtml(post) {
     }).join("");
 }
 
-function buildCommentsSectionHtml(post) {
+function buildCommentsSectionHtml(post, isOpen = false) {
     const comments = Array.isArray(post.comments) ? post.comments : [];
     const isLoggedIn = Boolean(activeSession() && activeSession().logged_in);
 
@@ -235,16 +235,20 @@ function buildCommentsSectionHtml(post) {
         `;
 
     return `
-        <section class="comments-panel">
-            <div class="comments-heading">
-                <strong>Komentáře</strong>
-                <span class="comments-count">${formatCommentCount(comments.length)}</span>
+        <details class="comments-panel" ${isOpen ? "open" : ""}>
+            <summary class="comments-heading">
+                <div class="comments-heading-copy">
+                    <strong>Komentáře</strong>
+                    <span class="comments-count">${formatCommentCount(comments.length)}</span>
+                </div>
+            </summary>
+            <div class="comments-panel-body">
+                <div class="comments-list">
+                    ${buildCommentsListHtml(post)}
+                </div>
+                ${composerHtml}
             </div>
-            <div class="comments-list">
-                ${buildCommentsListHtml(post)}
-            </div>
-            ${composerHtml}
-        </section>
+        </details>
     `;
 }
 
@@ -252,7 +256,8 @@ function renderCommentsSection(card, post, postsStore = state.posts) {
     const commentsPanel = card.querySelector(".comments-panel");
     if (!commentsPanel) return;
 
-    commentsPanel.outerHTML = buildCommentsSectionHtml(post);
+    const isOpen = commentsPanel.hasAttribute("open");
+    commentsPanel.outerHTML = buildCommentsSectionHtml(post, isOpen);
     attachCommentSectionHandlers(card, post, postsStore);
 
     if (state.sort === "comments_desc") {
