@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -129,6 +130,101 @@ func TestListPublicPostsIncludesCapturePublicURLs(t *testing.T) {
 	wantPublicURL := "https://foto.houbamzdar.cz/captures/published/1/2026/03/capture-001.jpg"
 	if got := payload.Posts[0].Captures[0].PublicURL; got != wantPublicURL {
 		t.Fatalf("expected public_url %q, got %q", wantPublicURL, got)
+	}
+}
+
+func TestCreatePostTrimsContentAndRejectsTooLongContent(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{
+		DBURL:             "file:" + filepath.Join(t.TempDir(), "test.db"),
+		FrontOrigin:       "https://houbamzdar.cz",
+		SessionCookieName: "hzd_session",
+	}
+
+	database, err := db.New(cfg)
+	if err != nil {
+		t.Fatalf("open test database: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = database.Close()
+	})
+
+	user, _, err := database.UpsertUser(&models.OIDCClaims{
+		Iss:               "https://ahoj420.eu",
+		Sub:               "post-content-author",
+		PreferredUsername: "autor",
+		Email:             "author@example.test",
+		EmailVerified:     true,
+	}, &oauth2.Token{
+		AccessToken:  "post-content-access",
+		RefreshToken: "post-content-refresh",
+		Expiry:       time.Now().Add(time.Hour).UTC(),
+	})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	sessionID := "post-content-session"
+	if err := database.CreateSession(&models.Session{
+		SessionID: sessionID,
+		UserID:    user.ID,
+		ExpiresAt: time.Now().Add(time.Hour).UTC(),
+	}); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	srv := New(cfg, database, nil, nil)
+
+	createBody, err := json.Marshal(models.CreatePostRequest{
+		Content: "  Obsah publikace s mezerami  ",
+	})
+	if err != nil {
+		t.Fatalf("marshal create payload: %v", err)
+	}
+
+	createReq := httptest.NewRequest(http.MethodPost, "/api/posts", bytes.NewReader(createBody))
+	createReq.Header.Set("Content-Type", "application/json")
+	createReq.AddCookie(&http.Cookie{Name: cfg.SessionCookieName, Value: sessionID})
+	createRec := httptest.NewRecorder()
+	srv.Router.ServeHTTP(createRec, createReq)
+	if createRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for valid post, got %d: %s", createRec.Code, createRec.Body.String())
+	}
+
+	var createPayload struct {
+		OK   bool `json:"ok"`
+		Post struct {
+			Content string `json:"content"`
+		} `json:"post"`
+	}
+	if err := json.NewDecoder(createRec.Body).Decode(&createPayload); err != nil {
+		t.Fatalf("decode create payload: %v", err)
+	}
+	if !createPayload.OK {
+		t.Fatalf("expected ok=true for post creation")
+	}
+	if createPayload.Post.Content != "Obsah publikace s mezerami" {
+		t.Fatalf("expected trimmed post content, got %q", createPayload.Post.Content)
+	}
+
+	tooLongBody, err := json.Marshal(models.CreatePostRequest{
+		Content: strings.Repeat("ž", maxPostContentLength+1),
+	})
+	if err != nil {
+		t.Fatalf("marshal too-long payload: %v", err)
+	}
+
+	tooLongReq := httptest.NewRequest(http.MethodPost, "/api/posts", bytes.NewReader(tooLongBody))
+	tooLongReq.Header.Set("Content-Type", "application/json")
+	tooLongReq.AddCookie(&http.Cookie{Name: cfg.SessionCookieName, Value: sessionID})
+	tooLongRec := httptest.NewRecorder()
+	srv.Router.ServeHTTP(tooLongRec, tooLongReq)
+	if tooLongRec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for too-long post, got %d: %s", tooLongRec.Code, tooLongRec.Body.String())
+	}
+	if !strings.Contains(tooLongRec.Body.String(), "post is too long") {
+		t.Fatalf("expected too-long error, got %q", tooLongRec.Body.String())
 	}
 }
 
@@ -386,6 +482,93 @@ func TestModeratorCanHidePostViaEndpoint(t *testing.T) {
 	}
 	if len(payload.Posts) != 0 {
 		t.Fatalf("expected moderated post to disappear from public feed, got %+v", payload.Posts)
+	}
+}
+
+func TestUpdatePostRejectsTooLongContent(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{
+		DBURL:             "file:" + filepath.Join(t.TempDir(), "test.db"),
+		FrontOrigin:       "https://houbamzdar.cz",
+		SessionCookieName: "hzd_session",
+	}
+
+	database, err := db.New(cfg)
+	if err != nil {
+		t.Fatalf("open test database: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = database.Close()
+	})
+
+	user, _, err := database.UpsertUser(&models.OIDCClaims{
+		Iss:               "https://ahoj420.eu",
+		Sub:               "update-post-author",
+		PreferredUsername: "autor",
+		Email:             "author@example.test",
+		EmailVerified:     true,
+	}, &oauth2.Token{
+		AccessToken:  "update-post-access",
+		RefreshToken: "update-post-refresh",
+		Expiry:       time.Now().Add(time.Hour).UTC(),
+	})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	post := &models.Post{
+		ID:        "update-post-validation",
+		UserID:    user.ID,
+		Content:   "Puvodni obsah publikace",
+		Status:    "published",
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	}
+	if err := database.CreatePost(post); err != nil {
+		t.Fatalf("create post: %v", err)
+	}
+
+	sessionID := "update-post-session"
+	if err := database.CreateSession(&models.Session{
+		SessionID: sessionID,
+		UserID:    user.ID,
+		ExpiresAt: time.Now().Add(time.Hour).UTC(),
+	}); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	srv := New(cfg, database, nil, nil)
+
+	updateBody, err := json.Marshal(models.CreatePostRequest{
+		Content: strings.Repeat("ž", maxPostContentLength+1),
+	})
+	if err != nil {
+		t.Fatalf("marshal update payload: %v", err)
+	}
+
+	updateReq := httptest.NewRequest(
+		http.MethodPut,
+		"/api/posts/"+post.ID,
+		bytes.NewReader(updateBody),
+	)
+	updateReq.Header.Set("Content-Type", "application/json")
+	updateReq.AddCookie(&http.Cookie{Name: cfg.SessionCookieName, Value: sessionID})
+	updateRec := httptest.NewRecorder()
+	srv.Router.ServeHTTP(updateRec, updateReq)
+	if updateRec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for too-long update, got %d: %s", updateRec.Code, updateRec.Body.String())
+	}
+	if !strings.Contains(updateRec.Body.String(), "post is too long") {
+		t.Fatalf("expected too-long error, got %q", updateRec.Body.String())
+	}
+
+	storedPost, err := database.GetPost(post.ID, user.ID)
+	if err != nil {
+		t.Fatalf("load stored post: %v", err)
+	}
+	if storedPost.Content != "Puvodni obsah publikace" {
+		t.Fatalf("expected original post content to stay unchanged, got %q", storedPost.Content)
 	}
 }
 

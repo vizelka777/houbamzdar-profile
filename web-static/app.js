@@ -970,7 +970,11 @@ function renderHeader(session, profile = null) {
             menuItems.push({ href: "/admin.html", label: "Administrace", icon: "⚙️" });
         }
 
-        menuItems.push({ href: "/me.html", label: "Můj profil", icon: "👤" });
+        const menuProfileIcon = avatarUrl
+            ? `<img src="${escapeHtml(avatarUrl)}" alt="Avatar" loading="lazy">`
+            : "👤";
+
+        menuItems.push({ href: "/me.html", label: "Můj profil", icon: menuProfileIcon });
 
         const cameraButton = createDirectCameraButton("Přidat úlovek", cameraIcon, "btn-secondary");
         cameraButton.classList.add("header-control-button");

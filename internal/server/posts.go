@@ -14,7 +14,21 @@ import (
 	"github.com/houbamzdar/bff/internal/models"
 )
 
-const maxPostCommentLength = 1000
+const (
+	maxPostContentLength = 2000
+	maxPostCommentLength = 1000
+)
+
+func validatePostContent(content string) (string, error) {
+	trimmed := strings.TrimSpace(content)
+	if trimmed == "" {
+		return "", errPostContentRequired
+	}
+	if utf8.RuneCountInString(trimmed) > maxPostContentLength {
+		return "", errPostTooLong
+	}
+	return trimmed, nil
+}
 
 func validatePostCommentContent(content string) (string, error) {
 	trimmed := strings.TrimSpace(content)
@@ -28,6 +42,8 @@ func validatePostCommentContent(content string) (string, error) {
 }
 
 var (
+	errPostContentRequired    = errors.New("post content is required")
+	errPostTooLong            = errors.New("post is too long")
 	errCommentContentRequired = errors.New("comment content is required")
 	errCommentTooLong         = errors.New("comment is too long")
 )
@@ -44,8 +60,16 @@ func (s *Server) handleCreatePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Content == "" {
-		http.Error(w, "content is required", http.StatusBadRequest)
+	content, err := validatePostContent(req.Content)
+	if err != nil {
+		switch err {
+		case errPostContentRequired:
+			http.Error(w, "content is required", http.StatusBadRequest)
+		case errPostTooLong:
+			http.Error(w, "post is too long", http.StatusBadRequest)
+		default:
+			http.Error(w, "invalid post content", http.StatusBadRequest)
+		}
 		return
 	}
 
@@ -74,7 +98,7 @@ func (s *Server) handleCreatePost(w http.ResponseWriter, r *http.Request) {
 	post := &models.Post{
 		ID:        uuid.New().String(),
 		UserID:    user.ID,
-		Content:   req.Content,
+		Content:   content,
 		Status:    "published",
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
@@ -131,8 +155,16 @@ func (s *Server) handleUpdatePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Content == "" {
-		http.Error(w, "content is required", http.StatusBadRequest)
+	content, err := validatePostContent(req.Content)
+	if err != nil {
+		switch err {
+		case errPostContentRequired:
+			http.Error(w, "content is required", http.StatusBadRequest)
+		case errPostTooLong:
+			http.Error(w, "post is too long", http.StatusBadRequest)
+		default:
+			http.Error(w, "invalid post content", http.StatusBadRequest)
+		}
 		return
 	}
 
@@ -158,7 +190,7 @@ func (s *Server) handleUpdatePost(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	post.Content = req.Content
+	post.Content = content
 	post.Captures = captures
 
 	if err := s.DB.UpdatePost(post); err != nil {

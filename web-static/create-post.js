@@ -5,6 +5,25 @@ const state = {
     totalPages: 1
 };
 
+function validatePostContentInput(input, statusNode) {
+    if (!input) return null;
+
+    const content = input.value.trim();
+    const maxLength = input.maxLength > 0 ? input.maxLength : 2000;
+
+    if (!content) {
+        setStatusMessage(statusNode, "Text publikace je povinný.", "error");
+        return null;
+    }
+
+    if ([...content].length > maxLength) {
+        setStatusMessage(statusNode, `Text publikace může mít maximálně ${maxLength} znaků.`, "error");
+        return null;
+    }
+
+    return content;
+}
+
 async function loadCapturesForSelection(append = false) {
     const grid = document.getElementById("post-captures-grid");
     const loadMoreBtn = document.getElementById("load-more-captures-btn");
@@ -81,10 +100,11 @@ async function loadCapturesForSelection(append = false) {
 
 async function handlePostSubmit(event) {
     event.preventDefault();
-    const content = document.getElementById("post-content").value.trim();
+    const statusNode = document.getElementById("post-status");
+    const contentInput = document.getElementById("post-content");
+    const content = validatePostContentInput(contentInput, statusNode);
     if (!content) return;
 
-    const statusNode = document.getElementById("post-status");
     const submitBtn = document.getElementById("post-submit-btn");
 
     if (state.selectedCaptureIds.size > 9) {
