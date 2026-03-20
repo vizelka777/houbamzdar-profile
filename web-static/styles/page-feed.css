@@ -106,8 +106,12 @@
 
 .comments-panel {
     margin-top: 1rem;
-    padding-top: 1rem;
     border-top: 1px solid var(--border-color);
+    padding-top: 0.75rem;
+}
+
+.comments-panel[open] {
+    padding-bottom: 0.1rem;
 }
 
 .comments-heading {
@@ -115,7 +119,38 @@
     align-items: center;
     justify-content: space-between;
     gap: 1rem;
-    margin-bottom: 0.85rem;
+    cursor: pointer;
+    list-style: none;
+}
+
+.comments-heading::-webkit-details-marker {
+    display: none;
+}
+
+.comments-heading::after {
+    content: "▾";
+    font-size: 1rem;
+    color: var(--text-muted);
+    transform: rotate(-90deg);
+    transition: transform 0.2s ease;
+}
+
+.comments-panel[open] .comments-heading::after {
+    transform: rotate(0deg);
+}
+
+.comments-heading-copy {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.55rem;
+    min-width: 0;
+    flex-wrap: wrap;
+}
+
+.comments-panel-body {
+    display: grid;
+    gap: 0.85rem;
+    padding-top: 0.85rem;
 }
 
 .comments-count {
@@ -208,6 +243,11 @@
     flex-direction: column;
     gap: 0.75rem;
     margin-top: 1rem;
+}
+
+.comment-edit-form[hidden],
+.comment-text[hidden] {
+    display: none;
 }
 
 .comment-input {
