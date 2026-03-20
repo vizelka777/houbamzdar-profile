@@ -106,7 +106,7 @@ img {
     justify-content: space-between;
     gap: 0.85rem;
     margin-top: 0.25rem;
-    z-index: 100;
+    z-index: 1100;
 }
 
 .brand-link {
@@ -149,6 +149,8 @@ img {
 }
 
 .header-actions {
+    position: relative;
+    z-index: 1101;
     display: flex;
     flex: 0 0 auto;
     flex-wrap: nowrap;
@@ -422,7 +424,7 @@ img {
 
 .header-menu-panel {
     position: fixed;
-    top: 0.75rem;
+    top: 4.0rem;
     right: 0.75rem;
     width: min(21rem, calc(100vw - 1.5rem));
     max-height: calc(100dvh - 1.5rem);
@@ -769,7 +771,7 @@ textarea {
     display: none;
     position: fixed;
     inset: 0;
-    z-index: 1000;
+    z-index: 1200;
     align-items: center;
     justify-content: center;
     flex-direction: column;
@@ -788,7 +790,7 @@ textarea {
     font-size: 2rem;
     cursor: pointer;
     user-select: none;
-    z-index: 1001;
+    z-index: 1201;
     background: none;
     border: none;
 }
@@ -808,7 +810,7 @@ textarea {
     cursor: pointer;
     user-select: none;
     padding: 1rem;
-    z-index: 1001;
+    z-index: 1201;
     background: none;
     border: none;
 }
@@ -823,7 +825,7 @@ textarea {
 
 .lightbox-map-btn {
     margin-top: 0.9rem;
-    z-index: 1001;
+    z-index: 1201;
 }
 
 .lightbox-note {
@@ -832,7 +834,7 @@ textarea {
     padding: 0 1rem;
     color: rgba(247, 242, 232, 0.88);
     text-align: center;
-    z-index: 1001;
+    z-index: 1201;
 }
 
 .lightbox-note.is-success {
@@ -850,13 +852,13 @@ textarea {
     display: none;
     border-radius: 0.75rem;
     overflow: hidden;
-    z-index: 1001;
+    z-index: 1201;
 }
 
 .capture-map-viewer {
     position: fixed;
     inset: 0;
-    z-index: 1002;
+    z-index: 1210;
     display: none;
     align-items: center;
     justify-content: center;
