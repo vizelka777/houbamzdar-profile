@@ -1175,7 +1175,7 @@ textarea {
     }
 
     .header-menu-panel {
-        top: 0.4rem;
+        top: 4.0rem;
         right: 0.4rem;
         width: min(18rem, calc(100vw - 0.8rem));
         max-height: calc(100dvh - 0.8rem);
