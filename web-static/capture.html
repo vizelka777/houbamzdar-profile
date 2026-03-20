@@ -23,80 +23,16 @@
     </header>
 
     <main class="content-main content-main-narrow">
-        <section class="page-intro card">
-            <p class="section-label">Zpracování fotek</p>
-            <h1>Fotky hub připravené k dalšímu kroku</h1>
-            <p>
-                Přímé focení je nově v horní liště pod ikonou fotoaparátu. Tady spravujete lokální snímky,
-                přidáváte další fotky z telefonu a rozhodujete, co má jít na server pro mapu a publikace.
-            </p>
-        </section>
+        <div style="text-align: center; margin-bottom: 1rem;">
+            <p class="muted-copy" style="font-size: 0.9rem; margin-bottom: 0.25rem;">Uloženo v telefonu: <strong id="capture-total">0</strong></p>
+            <p id="capture-status" class="status-message" aria-live="polite" style="margin-top: 0; min-height: 1.5rem;"></p>
+        </div>
 
-        <section class="capture-card card">
-            <div class="capture-toolbar">
-                <input id="capture-file-input" class="sr-only" type="file" accept="image/*" capture="environment" multiple>
-                <label for="capture-file-input" class="btn btn-primary">Přidat fotky k zpracování</label>
-                <button id="capture-queue-btn" type="button" class="btn btn-secondary">Označit pro server</button>
-                <button id="capture-upload-btn" type="button" class="btn btn-secondary">Nahrát označené</button>
-                <button id="capture-delete-btn" type="button" class="btn btn-secondary">Smazat vybrané</button>
-            </div>
-            <p id="capture-status" class="status-message" aria-live="polite"></p>
+        <div id="capture-grid" class="capture-grid"></div>
 
-            <div class="metric-grid capture-metrics">
-                <div class="metric-tile">
-                    <span class="metric-label">Uloženo v zařízení</span>
-                    <strong id="capture-total" class="metric-value">0</strong>
-                </div>
-                <div class="metric-tile">
-                    <span class="metric-label">Připraveno k odeslání</span>
-                    <strong id="capture-queued" class="metric-value">0</strong>
-                </div>
-                <div class="metric-tile">
-                    <span class="metric-label">Poslední poloha</span>
-                    <strong id="capture-location" class="metric-value">Bez GPS</strong>
-                </div>
-                <div class="metric-tile">
-                    <span class="metric-label">Ukládání</span>
-                    <strong class="metric-value">IndexedDB</strong>
-                </div>
-            </div>
-
-            <p class="subtle-note">
-                Soukromé snímky jdou po nahrání do Bunny storage, zatímco přesné souřadnice držíme
-                odděleně v databázi. Po úspěšném nahrání se lokální kopie smaže z zařízení a HEIC/HEIF
-                se při podpoře prohlížeče převádí do JPEG.
-            </p>
-        </section>
-
-        <section class="capture-gallery card">
-            <div class="about-head">
-                <div>
-                    <p class="section-label">Archiv nálezů</p>
-                    <h2>Co máte uložené v telefonu</h2>
-                </div>
-                <p class="muted-copy">Snímky zůstávají v zařízení, dokud je sami nesmažete nebo neposunete do dalšího kroku.</p>
-            </div>
-
-            <div id="capture-grid" class="capture-grid"></div>
-        </section>
-
-        <section class="capture-gallery card">
-            <div class="about-head">
-                <div>
-                    <p class="section-label">Serverový archiv</p>
-                    <h2>Soukromé úložiště je teď zvlášť</h2>
-                </div>
-                <p class="muted-copy">
-                    Fotky, které už jsou na serveru, mají vlastní stránku s filtrem podle data, stránkováním
-                    a hromadnými akcemi pro zveřejnění, stažení z webu nebo smazání.
-                </p>
-            </div>
-
-            <div class="action-row">
-                <a href="/server-storage.html" class="btn btn-primary">Otevřít serverový archiv</a>
-                <p class="subtle-note">Tam uvidíte jen to, co už je opravdu nahrané v Bunny storage.</p>
-            </div>
-        </section>
+        <div style="text-align: center; margin-top: 2rem;">
+            <a href="/server-storage.html" class="btn btn-secondary">Přejít do serverového archivu</a>
+        </div>
     </main>
 
     <script src="https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js"></script>

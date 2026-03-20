@@ -233,11 +233,10 @@ function releaseCaptureObjectUrls() {
 }
 
 function renderCaptureStats(items) {
-    setText("capture-total", String(items.length));
-    setText("capture-queued", String(items.filter((item) => item.queued).length));
-
-    const latestWithCoords = items.find((item) => typeof item.latitude === "number" && typeof item.longitude === "number");
-    setText("capture-location", latestWithCoords ? formatCoords(latestWithCoords.latitude, latestWithCoords.longitude) : "Bez GPS");
+    const totalNode = document.getElementById("capture-total");
+    if (totalNode) {
+        totalNode.textContent = String(items.length);
+    }
 }
 
 function renderCaptureGrid(items) {
@@ -258,30 +257,30 @@ function renderCaptureGrid(items) {
     items.forEach((item) => {
         const card = document.createElement("article");
         card.className = "capture-item";
+        card.style.display = "flex";
+        card.style.flexDirection = "column";
+        card.style.gap = "0.5rem";
+        card.style.background = "var(--surface)";
+        card.style.padding = "0.5rem";
+        card.style.borderRadius = "var(--radius-md)";
+        card.style.boxShadow = "var(--shadow-soft)";
 
         const previewUrl = URL.createObjectURL(item.blob);
         captureObjectUrls.push(previewUrl);
 
-        const badges = [];
-        if (item.queued) {
-            badges.push('<span class="status-badge verified">Označeno pro server</span>');
-        }
-        if (item.serverCaptureId) {
-            badges.push(`<span class="status-badge verified">${escapeHtml(item.serverStatus === "published" ? "Na serveru a zveřejněno" : "Na serveru")}</span>`);
-        }
+        const dateStr = escapeHtml(formatDateTime(item.capturedAt));
+        const coordsStr = escapeHtml(formatCoords(item.latitude, item.longitude));
+        const gpsIcon = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: text-bottom; margin-right: 4px;"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>`;
 
         card.innerHTML = `
-            <label class="capture-select">
-                <input class="capture-checkbox" type="checkbox" value="${escapeHtml(item.id)}">
-                <span>Vybrat</span>
-            </label>
-            <img src="${previewUrl}" alt="Nález hub" class="capture-thumb">
-            <div class="capture-meta">
-                <h3>${escapeHtml(item.fileName || "Nález")}</h3>
-                <p>${escapeHtml(formatDateTime(item.capturedAt))}</p>
-                <p>${escapeHtml(formatCoords(item.latitude, item.longitude))}</p>
-                <p>${escapeHtml(`${Math.round((item.size || 0) / 1024)} KB`)}</p>
-                ${badges.join("")}
+            <img src="${previewUrl}" alt="Nález hub" loading="lazy" style="width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: var(--radius-sm);">
+            <div>
+                <p style="font-size: 0.85rem; color: var(--text-muted); margin: 0 0 0.25rem 0;">${dateStr}</p>
+                <p style="font-size: 0.85rem; color: var(--text-muted); margin: 0 0 0.75rem 0;">${gpsIcon}${coordsStr}</p>
+                <div style="display: flex; gap: 0.5rem;">
+                    <button type="button" class="btn btn-primary btn-send-single" data-id="${escapeHtml(item.id)}" style="flex: 1; background: var(--success-color, #4CAF50); border-color: var(--success-color, #4CAF50);">Odeslat</button>
+                    <button type="button" class="btn btn-danger btn-delete-single" data-id="${escapeHtml(item.id)}" style="flex: 1;">Smazat</button>
+                </div>
             </div>
         `;
 
@@ -562,11 +561,8 @@ async function initCapturePage() {
 
     renderHeader(session, me);
 
-    const fileInput = document.getElementById("capture-file-input");
-    const queueButton = document.getElementById("capture-queue-btn");
-    const uploadButton = document.getElementById("capture-upload-btn");
-    const deleteButton = document.getElementById("capture-delete-btn");
     const statusNode = document.getElementById("capture-status");
+    const gridNode = document.getElementById("capture-grid");
     const directCameraRequested = new URLSearchParams(window.location.search).get("source") === "camera";
     if (!indexedDbAvailable()) {
         setStatusMessage(statusNode, "Tento prohlížeč neumí IndexedDB. Zkuste moderní mobilní prohlížeč.", "error");
@@ -590,63 +586,47 @@ async function initCapturePage() {
         }
     }
 
-    fileInput.addEventListener("change", async (event) => {
-        const selectedFiles = Array.from(event.target.files || []);
-        try {
-            await handleCaptureSelection(selectedFiles);
-        } catch (error) {
-            console.error("Failed to save captures", error);
-            setStatusMessage(statusNode, "Fotky se nepodařilo uložit do zařízení.", "error");
-        } finally {
-            fileInput.value = "";
-        }
-    });
+    if (gridNode) {
+        gridNode.addEventListener("click", async (event) => {
+            const sendBtn = event.target.closest(".btn-send-single");
+            if (sendBtn) {
+                const id = sendBtn.dataset.id;
+                try {
+                    setStatusMessage(statusNode, "Nahrávám snímek na server...");
+                    const items = await getAllCaptures();
+                    const target = items.find(i => i.id === id);
+                    if (!target) throw new Error("Snímek nebyl nalezen.");
+                    
+                    const result = await uploadCaptureToServer(target);
+                    if (result.capture?.id) {
+                        await deleteCaptures([id]);
+                        await refreshCaptureVault();
+                        setStatusMessage(statusNode, "Snímek byl úspěšně nahrán.", "success");
+                    }
+                } catch (error) {
+                    console.error("Upload failed", error);
+                    setStatusMessage(statusNode, error.message || "Nahrání se nepovedlo.", "error");
+                }
+                return;
+            }
 
-    queueButton.addEventListener("click", async () => {
-        const ids = getSelectedCaptureIds();
-        if (!ids.length) {
-            setStatusMessage(statusNode, "Vyberte snímky, které chcete připravit pro server.", "error");
-            return;
-        }
-
-        try {
-            await updateQueuedState(ids, true);
-            await refreshCaptureVault();
-            setStatusMessage(statusNode, "Vybrané snímky jsou připravené k nahrání na server.", "success");
-        } catch (error) {
-            console.error("Failed to queue captures", error);
-            setStatusMessage(statusNode, "Snímky se nepodařilo označit.", "error");
-        }
-    });
-
-    uploadButton.addEventListener("click", async () => {
-        try {
-            setStatusMessage(statusNode, "Nahrávám označené snímky do soukromého úložiště...");
-            await uploadQueuedCaptures();
-            await refreshCaptureVault();
-            setStatusMessage(statusNode, "Vybrané snímky jsou uložené na serveru a odstraněné z tohoto zařízení.", "success");
-        } catch (error) {
-            console.error("Failed to upload captures", error);
-            setStatusMessage(statusNode, error.message || "Nahrání se nepovedlo.", "error");
-        }
-    });
-
-    deleteButton.addEventListener("click", async () => {
-        const ids = getSelectedCaptureIds();
-        if (!ids.length) {
-            setStatusMessage(statusNode, "Vyberte snímky, které chcete smazat.", "error");
-            return;
-        }
-
-        try {
-            await deleteCaptures(ids);
-            await refreshCaptureVault();
-            setStatusMessage(statusNode, "Vybrané snímky byly odstraněny ze zařízení.", "success");
-        } catch (error) {
-            console.error("Failed to delete captures", error);
-            setStatusMessage(statusNode, "Snímky se nepodařilo smazat.", "error");
-        }
-    });
+            const deleteBtn = event.target.closest(".btn-delete-single");
+            if (deleteBtn) {
+                const id = deleteBtn.dataset.id;
+                if (window.confirm("Opravdu chcete tento snímek smazat?")) {
+                    try {
+                        await deleteCaptures([id]);
+                        await refreshCaptureVault();
+                        setStatusMessage(statusNode, "Snímek byl smazán.", "success");
+                    } catch (error) {
+                        console.error("Delete failed", error);
+                        setStatusMessage(statusNode, "Snímky se nepodařilo smazat.", "error");
+                    }
+                }
+                return;
+            }
+        });
+    }
 
 }
 
