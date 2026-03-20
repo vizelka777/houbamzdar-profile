@@ -316,6 +316,33 @@ function createHeaderMenuButton(label, iconSVG, className, items, options = {}) 
             return;
         }
 
+        if (item.type === "file-input" && typeof item.handler === "function") {
+            const label = document.createElement("label");
+            label.className = "header-menu-item";
+            label.style.cursor = "pointer";
+            label.innerHTML = `
+                ${buildHeaderMenuIconMarkup(item.icon)}
+                <span class="header-menu-item-copy">
+                    <span>${escapeHtml(item.label)}</span>
+                    ${item.note ? `<small class="header-menu-note">${escapeHtml(item.note)}</small>` : ""}
+                </span>
+            `;
+
+            const input = document.createElement("input");
+            input.type = "file";
+            input.accept = "image/*";
+            input.capture = "environment";
+            input.multiple = true;
+            input.className = "sr-only";
+            input.addEventListener("change", (e) => {
+                details.removeAttribute("open");
+                item.handler(e);
+            });
+            label.appendChild(input);
+            panel.appendChild(label);
+            return;
+        }
+
         const link = document.createElement("a");
         link.className = "header-menu-item";
         link.href = item.href;
@@ -889,7 +916,7 @@ function renderHeader(session, profile = null) {
     if (session && session.logged_in) {
         const menuItems = [
             { href: "/create-post.html", label: "Vytvořit publikaci", icon: "✍️" },
-            { href: "/capture.html?camera=1", label: "Vyfotit nový nález", icon: "📷" },
+            { type: "file-input", label: "Vyfotit nový nález", handler: handleDirectCameraSelection, icon: "📷" },
             { href: "/capture.html", label: "Zpracování fotek", note: "lokální snímky, výběr a nahrání na server", icon: "🧺" },
             { href: "/server-storage.html", label: "Serverový archiv", note: "to, co už je uložené v Bunny", icon: "🗂️" },
             { href: "/feed.html", label: "Zeď úlovků", icon: "📰" },
