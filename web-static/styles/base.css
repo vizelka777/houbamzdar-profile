@@ -161,7 +161,6 @@ img {
     background: rgba(255, 249, 240, 0.58);
     border: 1px solid rgba(19, 38, 29, 0.08);
     box-shadow: var(--shadow-soft);
-    backdrop-filter: blur(14px);
 }
 
 .content-main {
@@ -371,6 +370,13 @@ img {
     fill: currentColor;
 }
 
+.btn-icon-glyph img {
+    width: 1.35rem;
+    height: 1.35rem;
+    border-radius: 50%;
+    object-fit: cover;
+}
+
 .header-emoji-icon {
     display: inline-flex;
     align-items: center;
@@ -386,6 +392,8 @@ img {
 
 .header-menu summary {
     list-style: none;
+    position: relative;
+    z-index: 1000;
 }
 
 .header-menu summary::-webkit-details-marker {
@@ -407,6 +415,11 @@ img {
 .header-control-button .btn-icon-glyph svg {
     width: 1.25rem;
     height: 1.25rem;
+}
+
+.header-control-button .btn-icon-glyph img {
+    width: 1.5rem;
+    height: 1.5rem;
 }
 
 .header-control-button .header-emoji-icon {
