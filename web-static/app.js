@@ -784,9 +784,34 @@ function applyPreferredUsernameUpdate(me, preferredUsername) {
     renderHeader(window.appSession, window.appMe || me);
 }
 
+function setNicknameEditorMode(isEditing, me) {
+    const displayNode = document.getElementById("nickname-display");
+    const displayValueNode = document.getElementById("nickname-display-value");
+    const editorNode = document.getElementById("nickname-editor");
+    const input = document.getElementById("nickname-input");
+    const saveBtn = document.getElementById("save-nickname-btn");
+    const editBtn = document.getElementById("edit-nickname-btn");
+
+    if (!displayNode || !displayValueNode || !editorNode || !input || !saveBtn || !editBtn) {
+        return;
+    }
+
+    const nickname = String(me?.preferred_username || "").trim();
+    displayValueNode.textContent = nickname || "Bez uživatelského jména";
+    displayNode.hidden = isEditing || !nickname;
+    editorNode.hidden = !isEditing;
+    saveBtn.hidden = !isEditing;
+    editBtn.hidden = isEditing || !nickname;
+
+    if (isEditing) {
+        input.value = nickname;
+    }
+}
+
 function setupNicknameEditor(me) {
     const input = document.getElementById("nickname-input");
     const saveBtn = document.getElementById("save-nickname-btn");
+    const editBtn = document.getElementById("edit-nickname-btn");
     const statusNode = document.getElementById("nickname-status");
 
     if (!input || !saveBtn || !me) {
@@ -794,12 +819,24 @@ function setupNicknameEditor(me) {
     }
 
     input.value = me.preferred_username || "";
+    const hasExistingNickname = Boolean(String(me.preferred_username || "").trim());
+    setNicknameEditorMode(!hasExistingNickname, me);
 
     const selectSuggestion = (suggestion) => {
         input.value = suggestion;
         input.focus();
         setStatusMessage(statusNode, "Návrh je vložený. Uložte ho tlačítkem.", "success");
     };
+
+    if (editBtn) {
+        editBtn.addEventListener("click", () => {
+            setNicknameEditorMode(true, me);
+            renderNicknameSuggestions([], null);
+            setStatusMessage(statusNode, "");
+            input.focus();
+            input.select();
+        });
+    }
 
     saveBtn.addEventListener("click", async () => {
         const nextNickname = String(input.value || "").trim();
@@ -829,10 +866,12 @@ function setupNicknameEditor(me) {
 
             applyPreferredUsernameUpdate(me, payload?.preferred_username || nextNickname);
             renderNicknameSuggestions([], null);
+            setNicknameEditorMode(false, me);
             setStatusMessage(statusNode, "Nick byl uložen.", "success");
         } catch (error) {
             console.error("Failed to update nickname", error);
             renderNicknameSuggestions([], null);
+            setNicknameEditorMode(true, me);
             setStatusMessage(statusNode, "Nick se nepodařilo uložit.", "error");
         } finally {
             saveBtn.disabled = false;

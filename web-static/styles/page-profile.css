@@ -89,6 +89,37 @@
     gap: 0.9rem;
 }
 
+.nickname-display {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.9rem 1rem;
+    border-radius: 1rem;
+    background: rgba(255, 255, 255, 0.62);
+    border: 1px solid rgba(19, 38, 29, 0.08);
+}
+
+.nickname-display-copy {
+    display: grid;
+    gap: 0.15rem;
+}
+
+.nickname-display-label {
+    font-size: 0.82rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+}
+
+.nickname-display-value {
+    font-size: 1.1rem;
+    line-height: 1.3;
+    color: var(--forest-950);
+    word-break: break-word;
+}
+
 .nickname-editor {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
@@ -122,6 +153,12 @@
 .nickname-suggestion-btn:focus-visible {
     border-color: rgba(93, 133, 104, 0.42);
     background: rgba(93, 133, 104, 0.12);
+}
+
+.nickname-display[hidden],
+.nickname-editor[hidden],
+.nickname-suggestions[hidden] {
+    display: none !important;
 }
 
 .dashboard-grid {
@@ -357,6 +394,11 @@
 }
 
 @media (max-width: 640px) {
+    .nickname-display {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
     .nickname-editor {
         grid-template-columns: 1fr;
     }

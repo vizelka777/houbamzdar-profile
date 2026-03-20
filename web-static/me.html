@@ -72,8 +72,16 @@
                 </p>
             </div>
 
-            <label class="sr-only" for="nickname-input">Veřejný nick</label>
-            <div class="nickname-editor">
+            <div id="nickname-display" class="nickname-display" hidden>
+                <div class="nickname-display-copy">
+                    <span class="nickname-display-label">Aktuální nick</span>
+                    <strong id="nickname-display-value" class="nickname-display-value"></strong>
+                </div>
+                <button id="edit-nickname-btn" type="button" class="btn btn-secondary">Změnit</button>
+            </div>
+
+            <div id="nickname-editor" class="nickname-editor">
+                <label class="sr-only" for="nickname-input">Veřejný nick</label>
                 <input id="nickname-input" type="text" maxlength="12" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="Např. Standa420">
                 <button id="save-nickname-btn" type="button" class="btn btn-primary">Uložit nick</button>
             </div>
