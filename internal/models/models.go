@@ -277,7 +277,6 @@ type AdminOverview struct {
 type AdminUserSummary struct {
 	ID                       int64     `json:"id"`
 	PreferredUsername        string    `json:"preferred_username"`
-	Email                    string    `json:"email"`
 	Picture                  string    `json:"picture"`
 	IsModerator              bool      `json:"is_moderator"`
 	IsAdmin                  bool      `json:"is_admin"`

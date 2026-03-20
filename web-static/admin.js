@@ -212,7 +212,7 @@ function renderAdminUsers() {
                         <img src="${escapeHtml(avatarURL)}" alt="${escapeHtml(user.preferred_username || "Uživatel")}" class="admin-user-avatar" loading="lazy">
                         <div>
                             <h3>${escapeHtml(user.preferred_username || "Bez jména")}</h3>
-                            <p class="muted-copy">#${escapeHtml(String(user.id))}${user.email ? ` · ${escapeHtml(user.email)}` : ""}</p>
+                            <p class="muted-copy">#${escapeHtml(String(user.id))}</p>
                         </div>
                     </div>
                     <div class="admin-user-actions">

@@ -105,11 +105,10 @@ func buildAdminUsersWhereClause(filters models.AdminUserListFilters) (string, []
 	query := strings.TrimSpace(filters.Query)
 	if query != "" {
 		searchClauses := []string{
-			"lower(COALESCE(preferred_username, '')) LIKE ?",
-			"lower(COALESCE(email, '')) LIKE ?",
+			"COALESCE(preferred_username_norm, '') LIKE ?",
 		}
 		searchValue := "%" + strings.ToLower(query) + "%"
-		params = append(params, searchValue, searchValue)
+		params = append(params, searchValue)
 		if numericID, err := strconv.ParseInt(query, 10, 64); err == nil && numericID > 0 {
 			searchClauses = append(searchClauses, "id = ?")
 			params = append(params, numericID)
@@ -162,7 +161,6 @@ func scanAdminUserSummary(rows scanner) (*models.AdminUserSummary, error) {
 	if err := rows.Scan(
 		&user.ID,
 		&user.PreferredUsername,
-		&user.Email,
 		&user.Picture,
 		&user.IsModerator,
 		&user.IsAdmin,
@@ -191,7 +189,6 @@ func (db *DB) ListAdminUsers(filters models.AdminUserListFilters) ([]*models.Adm
 		SELECT
 			id,
 			COALESCE(preferred_username, ''),
-			COALESCE(email, ''),
 			COALESCE(picture, ''),
 			COALESCE(is_moderator, 0),
 			COALESCE(is_admin, 0),
@@ -221,7 +218,7 @@ func (db *DB) ListAdminUsers(filters models.AdminUserListFilters) ([]*models.Adm
 	` + whereClause + `
 		ORDER BY COALESCE(is_admin, 0) DESC,
 			COALESCE(is_moderator, 0) DESC,
-			lower(COALESCE(preferred_username, '')) ASC,
+			COALESCE(preferred_username_norm, '') ASC,
 			id ASC
 		LIMIT ? OFFSET ?
 	`

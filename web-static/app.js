@@ -637,14 +637,16 @@ function getPreviousProfileVisit() {
 function buildProfileInsights(user) {
     const alerts = [];
 
-    if (!user.email_verified) {
-        alerts.push("Ověřte e-mail, ať účet působí důvěryhodněji.");
+    if (!user.preferred_username) {
+        alerts.push("Nastavte si krátký veřejný nick, ať vás komunita snadno pozná.");
     }
 
-    if (!user.phone_number) {
-        alerts.push("Doplňte telefon, ať vás ostatní snadno poznají.");
-    } else if (!user.phone_number_verified) {
-        alerts.push("Ověřte telefon, ať se profil posune výš.");
+    if (!user.email_verified) {
+        alerts.push("Potvrďte e-mail v AHOJ420 pro důvěryhodnější profil.");
+    }
+
+    if (!user.phone_number_verified) {
+        alerts.push("Potvrďte telefon v AHOJ420, ať se profil posune výš.");
     }
 
     if (!user.picture) {
@@ -656,20 +658,19 @@ function buildProfileInsights(user) {
     }
 
     const bonuses = [
+        Boolean(user.preferred_username),
         Boolean(user.picture),
         Boolean(user.about_me),
         Boolean(user.email_verified),
-        Boolean(user.phone_number && user.phone_number_verified)
+        Boolean(user.phone_number_verified)
     ];
 
     const score =
-        (user.preferred_username ? 15 : 0) +
-        (user.email ? 10 : 0) +
+        (user.preferred_username ? 20 : 0) +
         (user.email_verified ? 20 : 0) +
-        (user.phone_number ? 10 : 0) +
         (user.phone_number_verified ? 20 : 0) +
-        (user.picture ? 15 : 0) +
-        (user.about_me ? 10 : 0);
+        (user.picture ? 20 : 0) +
+        (user.about_me ? 20 : 0);
 
     let statusLabel = "Rozpracovaný";
     let trustLabel = "Buduje se";
@@ -694,6 +695,122 @@ function buildProfileInsights(user) {
         bonusCount: bonuses.filter(Boolean).length,
         bonusTotal: bonuses.length
     };
+}
+
+function isNicknameFormatValid(value) {
+    const nickname = String(value || "").trim();
+    if (!nickname) {
+        return false;
+    }
+    if (Array.from(nickname).length > 12) {
+        return false;
+    }
+    return /^[\p{L}\p{N}]+$/u.test(nickname);
+}
+
+function renderNicknameSuggestions(suggestions, onPick) {
+    const node = document.getElementById("nickname-suggestions");
+    if (!node) {
+        return;
+    }
+
+    const items = Array.isArray(suggestions)
+        ? suggestions.filter((item) => typeof item === "string" && item.trim())
+        : [];
+
+    if (!items.length) {
+        node.innerHTML = "";
+        node.hidden = true;
+        return;
+    }
+
+    node.hidden = false;
+    node.innerHTML = items.map((suggestion) => `
+        <button type="button" class="nickname-suggestion-btn" data-nickname-suggestion="${escapeHtml(suggestion)}">
+            ${escapeHtml(suggestion)}
+        </button>
+    `).join("");
+
+    node.querySelectorAll("[data-nickname-suggestion]").forEach((button) => {
+        button.addEventListener("click", () => {
+            if (typeof onPick === "function") {
+                onPick(button.getAttribute("data-nickname-suggestion") || "");
+            }
+        });
+    });
+}
+
+function applyPreferredUsernameUpdate(me, preferredUsername) {
+    if (!me) {
+        return;
+    }
+
+    me.preferred_username = preferredUsername;
+    if (window.appMe) {
+        window.appMe.preferred_username = preferredUsername;
+    }
+    if (window.appSession && window.appSession.user) {
+        window.appSession.user.preferred_username = preferredUsername;
+    }
+
+    setText("account-name", preferredUsername || "Bez uživatelského jména");
+    renderHeader(window.appSession, window.appMe || me);
+}
+
+function setupNicknameEditor(me) {
+    const input = document.getElementById("nickname-input");
+    const saveBtn = document.getElementById("save-nickname-btn");
+    const statusNode = document.getElementById("nickname-status");
+
+    if (!input || !saveBtn || !me) {
+        return;
+    }
+
+    input.value = me.preferred_username || "";
+
+    const selectSuggestion = (suggestion) => {
+        input.value = suggestion;
+        input.focus();
+        setStatusMessage(statusNode, "Návrh je vložený. Uložte ho tlačítkem.", "success");
+    };
+
+    saveBtn.addEventListener("click", async () => {
+        const nextNickname = String(input.value || "").trim();
+        if (!isNicknameFormatValid(nextNickname)) {
+            renderNicknameSuggestions([], null);
+            setStatusMessage(statusNode, "Nick musí mít 1 až 12 znaků a obsahovat jen písmena nebo číslice.", "error");
+            return;
+        }
+
+        saveBtn.disabled = true;
+        renderNicknameSuggestions([], null);
+        setStatusMessage(statusNode, "Ukládám nick...");
+
+        try {
+            const response = await fetch(`${API_URL}/api/me/nickname`, {
+                method: "POST",
+                credentials: "include",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ preferred_username: nextNickname })
+            });
+            const payload = await response.json().catch(() => null);
+            if (!response.ok) {
+                renderNicknameSuggestions(payload?.preferred_suggestions || [], selectSuggestion);
+                setStatusMessage(statusNode, payload?.message || "Nick se nepodařilo uložit.", "error");
+                return;
+            }
+
+            applyPreferredUsernameUpdate(me, payload?.preferred_username || nextNickname);
+            renderNicknameSuggestions([], null);
+            setStatusMessage(statusNode, "Nick byl uložen.", "success");
+        } catch (error) {
+            console.error("Failed to update nickname", error);
+            renderNicknameSuggestions([], null);
+            setStatusMessage(statusNode, "Nick se nepodařilo uložit.", "error");
+        } finally {
+            saveBtn.disabled = false;
+        }
+    });
 }
 
 function renderProfilePicture(elementId, picture, altText) {
@@ -958,9 +1075,10 @@ async function initMePage() {
     setText("metric-bonuses", `${insights.bonusCount} / ${insights.bonusTotal}`);
     setText("metric-notifications", String(insights.alerts.length));
     refreshHoubickaBalanceViews();
-    setText("account-email-chip", me.email ? `E-mail · ${me.email_verified ? "ověřen" : "čeká na ověření"}` : "E-mail chybí");
-    setText("account-phone-chip", me.phone_number ? `Telefon · ${me.phone_number_verified ? "ověřen" : "čeká na ověření"}` : "Telefon chybí");
+    setText("account-email-chip", me.email_verified ? "E-mail · ověřen" : "E-mail · čeká na ověření");
+    setText("account-phone-chip", me.phone_number_verified ? "Telefon · ověřen" : "Telefon · čeká na ověření");
     setText("account-sync-chip", "Synchronizováno přes AHOJ420");
+    setupNicknameEditor(me);
 
     const statusPill = document.getElementById("account-status-pill");
     if (statusPill) {

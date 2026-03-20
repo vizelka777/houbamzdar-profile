@@ -73,6 +73,7 @@ func (s *Server) setupRoutes() {
 		r.Delete("/api/me", s.handleDeleteMe)
 		r.Get("/api/me/viewed-captures", s.handleListViewedCaptures)
 		r.Post("/api/me/about", s.handlePostMeAbout)
+		r.Post("/api/me/nickname", s.handlePostMeNickname)
 		r.Get("/api/moderation/ai-models", s.handleListModeratorAIModels)
 		r.Get("/api/moderation/users/{userID}", s.handleGetModerationUser)
 		r.Get("/api/moderation/users/{userID}/actions", s.handleListModerationUserActions)

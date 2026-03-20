@@ -59,7 +59,7 @@ Backend (BFF) и Frontend статика для сайта houbamzdar.cz.
 ## Структура БД
 Схема базы данных автоматически создается при старте бэкенда (`internal/db/db.go`).
 Таблицы:
-- `users`: Хранение профилей, синхронизация claims (preferred_username, email, phone_number, picture).
+- `users`: Хранение локального ника, флагов верификации, аватара и служебных токенов без сохранения e-mail/телефона.
 - `sessions`: Управление HTTPOnly куками для BFF-сессий.
 - `oidc_login_state`: Временное хранение state, nonce, PKCE challenge для OIDC.
 - `photo_captures`: Приватные снимки пользователя, их метаданные, статус публикации и ключи в Bunny storage.

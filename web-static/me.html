@@ -61,6 +61,29 @@
            
         </div>
 
+        <section class="card nickname-card">
+            <div class="about-head">
+                <div>
+                    <p class="section-label">Veřejný nick</p>
+                    <h2>Jméno, které uvidí ostatní</h2>
+                </div>
+                <p class="muted-copy">
+                    Tento nick používá Houbam Zdar ve feedu, komentářích, mapě i na veřejném profilu. Může mít maximálně 12 znaků a obsahovat jen písmena a číslice.
+                </p>
+            </div>
+
+            <label class="sr-only" for="nickname-input">Veřejný nick</label>
+            <div class="nickname-editor">
+                <input id="nickname-input" type="text" maxlength="12" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="Např. Standa420">
+                <button id="save-nickname-btn" type="button" class="btn btn-primary">Uložit nick</button>
+            </div>
+            <p class="subtle-note">
+                Povolená jsou jen písmena včetně českých znaků a číslice. Pokud je nick obsazený, navrhneme volné varianty.
+            </p>
+            <div id="nickname-suggestions" class="nickname-suggestions" hidden></div>
+            <span id="nickname-status" class="status-message" aria-live="polite"></span>
+        </section>
+
         <section class="card account-danger-zone">
             <div class="about-head">
                 <div>

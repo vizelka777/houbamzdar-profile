@@ -45,7 +45,6 @@ func buildAdminUserSummaryPayload(user *models.AdminUserSummary) map[string]inte
 	return map[string]interface{}{
 		"id":                         user.ID,
 		"preferred_username":         user.PreferredUsername,
-		"email":                      user.Email,
 		"picture":                    user.Picture,
 		"is_moderator":               user.IsModerator,
 		"is_admin":                   user.IsAdmin,

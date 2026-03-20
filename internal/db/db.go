@@ -54,6 +54,8 @@ const migrationEnableHoubamzdarAdminBootstrapID = "20260316_enable_houbamzdar_ad
 const migrationContentModerationColumnsID = "20260316_add_content_moderation_columns"
 const migrationModerationActionsTableID = "20260316_create_moderation_actions_table"
 const migrationAdminBackupsTableID = "20260316_create_admin_backups_table"
+const migrationUsersPreferredUsernameNormID = "20260320_add_users_preferred_username_norm"
+const migrationUsersClearContactDataID = "20260320_clear_user_contact_data"
 
 var ErrInsufficientHoubickaBalance = errors.New("insufficient houbicka balance")
 var ErrCaptureHasNoCoordinates = errors.New("capture has no coordinates")
@@ -626,6 +628,36 @@ func migrate(db *sql.DB) error {
 			},
 		},
 		{
+			id: migrationUsersPreferredUsernameNormID,
+			apply: func(tx *sql.Tx) error {
+				if err := ensureColumnExists(tx, "users", "preferred_username_norm", "TEXT"); err != nil {
+					return err
+				}
+				if err := backfillPreferredUsernameNormTx(tx); err != nil {
+					return err
+				}
+				_, err := tx.Exec(`
+					CREATE UNIQUE INDEX IF NOT EXISTS idx_users_preferred_username_norm
+					ON users(preferred_username_norm)
+				`)
+				return err
+			},
+		},
+		{
+			id: migrationUsersClearContactDataID,
+			apply: func(tx *sql.Tx) error {
+				_, err := tx.Exec(`
+					UPDATE users
+					SET email = NULL,
+						phone_number = NULL,
+						updated_at = datetime('now')
+					WHERE COALESCE(email, '') != ''
+						OR COALESCE(phone_number, '') != ''
+				`)
+				return err
+			},
+		},
+		{
 			id: migrationModerationActionsTableID,
 			apply: func(tx *sql.Tx) error {
 				queries := []string{
@@ -726,8 +758,17 @@ func tableColumns(tx *sql.Tx, tableName string) (map[string]struct{}, error) {
 }
 
 func (db *DB) UpsertUser(claims *models.OIDCClaims, token *oauth2.Token) (*models.User, bool, error) {
-	var user models.User
-	var exists bool
+	tx, err := db.Begin()
+	if err != nil {
+		return nil, false, err
+	}
+	defer tx.Rollback()
+
+	var (
+		userID                   int64
+		exists                   bool
+		currentPreferredUsername string
+	)
 	isModerator := 0
 	if isModeratorUsername(claims.PreferredUsername) {
 		isModerator = 1
@@ -737,7 +778,11 @@ func (db *DB) UpsertUser(claims *models.OIDCClaims, token *oauth2.Token) (*model
 		isAdmin = 1
 	}
 
-	err := db.QueryRow("SELECT id, COALESCE(about_me, '') FROM users WHERE idp_issuer = ? AND idp_sub = ?", claims.Iss, claims.Sub).Scan(&user.ID, &user.AboutMe)
+	err = tx.QueryRow(`
+		SELECT id, COALESCE(preferred_username, '')
+		FROM users
+		WHERE idp_issuer = ? AND idp_sub = ?
+	`, claims.Iss, claims.Sub).Scan(&userID, &currentPreferredUsername)
 	if err == sql.ErrNoRows {
 		exists = false
 	} else if err != nil {
@@ -761,25 +806,61 @@ func (db *DB) UpsertUser(claims *models.OIDCClaims, token *oauth2.Token) (*model
 	}
 
 	if !exists {
-		res, err := db.Exec(`
-			INSERT INTO users (idp_issuer, idp_sub, preferred_username, is_moderator, is_admin, email, email_verified, phone_number, phone_number_verified, picture, access_token, refresh_token, token_expires_at, last_idp_sync_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-		`, claims.Iss, claims.Sub, claims.PreferredUsername, isModerator, isAdmin, claims.Email, ev, claims.PhoneNumber, pv, claims.Picture, token.AccessToken, token.RefreshToken, expiry)
-		if err != nil {
-			return nil, false, err
+		for attempt := 0; attempt < 5000; attempt++ {
+			preferredUsername := preferredUsernameCandidate(claims.PreferredUsername, attempt)
+			res, insertErr := tx.Exec(`
+				INSERT INTO users (
+					idp_issuer,
+					idp_sub,
+					preferred_username,
+					preferred_username_norm,
+					is_moderator,
+					is_admin,
+					email,
+					email_verified,
+					phone_number,
+					phone_number_verified,
+					picture,
+					access_token,
+					refresh_token,
+					token_expires_at,
+					last_idp_sync_at
+				)
+				VALUES (?, ?, ?, ?, ?, ?, NULL, ?, NULL, ?, ?, ?, ?, ?, datetime('now'))
+			`, claims.Iss, claims.Sub, preferredUsername, normalizedPreferredUsername(preferredUsername), isModerator, isAdmin, ev, pv, claims.Picture, token.AccessToken, token.RefreshToken, expiry)
+			if insertErr != nil {
+				if isPreferredUsernameUniqueConstraintError(insertErr) {
+					continue
+				}
+				return nil, false, insertErr
+			}
+
+			id, lastInsertErr := res.LastInsertId()
+			if lastInsertErr != nil {
+				return nil, false, lastInsertErr
+			}
+			userID = id
+			break
 		}
-		id, err := res.LastInsertId()
-		if err != nil {
-			return nil, false, err
+		if userID == 0 {
+			return nil, false, ErrPreferredUsernameTaken
 		}
-		user.ID = id
 	} else {
-		_, err := db.Exec(`
+		preferredUsername := strings.TrimSpace(currentPreferredUsername)
+		if preferredUsername == "" {
+			preferredUsername, err = findAvailablePreferredUsernameTx(tx, claims.PreferredUsername, userID)
+			if err != nil {
+				return nil, false, err
+			}
+		}
+
+		_, err := tx.Exec(`
 			UPDATE users SET
 				preferred_username = ?,
-				email = ?,
+				preferred_username_norm = ?,
+				email = NULL,
 				email_verified = ?,
-				phone_number = ?,
+				phone_number = NULL,
 				phone_number_verified = ?,
 				picture = ?,
 				access_token = ?,
@@ -796,14 +877,17 @@ func (db *DB) UpsertUser(claims *models.OIDCClaims, token *oauth2.Token) (*model
 					ELSE 0
 				END
 			WHERE id = ?
-		`, claims.PreferredUsername, claims.Email, ev, claims.PhoneNumber, pv, claims.Picture, token.AccessToken, token.RefreshToken, expiry, isModerator, isAdmin, user.ID)
+		`, preferredUsername, normalizedPreferredUsername(preferredUsername), ev, pv, claims.Picture, token.AccessToken, token.RefreshToken, expiry, isModerator, isAdmin, userID)
 		if err != nil {
 			return nil, false, err
 		}
 	}
 
-	// Fetch updated user
-	updated, err := db.GetUser(user.ID)
+	if err := tx.Commit(); err != nil {
+		return nil, false, err
+	}
+
+	updated, err := db.GetUser(userID)
 	return updated, !exists, err
 }
 
@@ -923,17 +1007,17 @@ func (db *DB) GetUser(id int64) (*models.User, error) {
 }
 
 func (db *DB) GetUserByPreferredUsername(username string) (*models.User, error) {
-	username = strings.TrimSpace(username)
-	if username == "" {
+	normalized := normalizedPreferredUsername(username)
+	if normalized == "" {
 		return nil, sql.ErrNoRows
 	}
 
 	rows, err := db.Query(`
 		SELECT id
 		FROM users
-		WHERE lower(COALESCE(preferred_username, '')) = lower(?)
+		WHERE preferred_username_norm = ?
 		ORDER BY id
-	`, username)
+	`, normalized)
 	if err != nil {
 		return nil, err
 	}

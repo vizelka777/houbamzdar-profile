@@ -305,6 +305,70 @@ func TestGetUserByPreferredUsername(t *testing.T) {
 	}
 }
 
+func TestUpsertUserDoesNotPersistContactValues(t *testing.T) {
+	t.Parallel()
+
+	rawDB := openTestDB(t)
+	if err := migrate(rawDB); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	wrapped := &DB{rawDB}
+	user, _, err := wrapped.UpsertUser(&models.OIDCClaims{
+		Iss:                 "https://ahoj420.eu",
+		Sub:                 "privacy-123",
+		PreferredUsername:   "atlas-sberac_2026",
+		Email:               "atlas@example.test",
+		EmailVerified:       true,
+		PhoneNumber:         "+420777000111",
+		PhoneNumberVerified: true,
+	}, &oauth2.Token{
+		AccessToken:  "privacy-access",
+		RefreshToken: "privacy-refresh",
+		Expiry:       time.Now().Add(time.Hour).UTC(),
+	})
+	if err != nil {
+		t.Fatalf("upsert user: %v", err)
+	}
+
+	if _, err := ValidatePreferredUsername(user.PreferredUsername); err != nil {
+		t.Fatalf("expected generated nickname to be valid, got %q: %v", user.PreferredUsername, err)
+	}
+
+	var (
+		email                 string
+		phoneNumber           string
+		emailVerified         bool
+		phoneNumberVerified   bool
+		preferredUsernameNorm string
+	)
+	if err := rawDB.QueryRow(`
+		SELECT
+			COALESCE(email, ''),
+			COALESCE(phone_number, ''),
+			COALESCE(email_verified, 0),
+			COALESCE(phone_number_verified, 0),
+			COALESCE(preferred_username_norm, '')
+		FROM users
+		WHERE id = ?
+	`, user.ID).Scan(&email, &phoneNumber, &emailVerified, &phoneNumberVerified, &preferredUsernameNorm); err != nil {
+		t.Fatalf("load stored user row: %v", err)
+	}
+
+	if email != "" {
+		t.Fatalf("expected email to stay empty in storage, got %q", email)
+	}
+	if phoneNumber != "" {
+		t.Fatalf("expected phone_number to stay empty in storage, got %q", phoneNumber)
+	}
+	if !emailVerified || !phoneNumberVerified {
+		t.Fatalf("expected verification flags to persist, got email=%v phone=%v", emailVerified, phoneNumberVerified)
+	}
+	if preferredUsernameNorm == "" {
+		t.Fatalf("expected preferred_username_norm to be stored")
+	}
+}
+
 func TestMigrateCreatesPhotoCapturesTableAndSupportsCRUD(t *testing.T) {
 	t.Parallel()
 

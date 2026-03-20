@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	dbpkg "github.com/houbamzdar/bff/internal/db"
 	"github.com/houbamzdar/bff/internal/models"
 	"golang.org/x/oauth2"
 )
@@ -296,5 +297,65 @@ func (s *Server) handlePostMeAbout(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"ok":       true,
 		"about_me": aboutMe,
+	})
+}
+
+func (s *Server) handlePostMeNickname(w http.ResponseWriter, r *http.Request) {
+	user := r.Context().Value("user").(*models.User)
+
+	var req struct {
+		PreferredUsername string `json:"preferred_username"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+
+	preferredUsername, err := s.DB.UpdatePreferredUsername(user.ID, req.PreferredUsername)
+	if err != nil {
+		status := http.StatusInternalServerError
+		message := "failed to update preferred_username"
+		code := "preferred_username_update_failed"
+		var suggestions []string
+
+		switch err {
+		case dbpkg.ErrPreferredUsernameRequired:
+			status = http.StatusBadRequest
+			message = "nickname is required"
+			code = "preferred_username_required"
+		case dbpkg.ErrPreferredUsernameTooLong:
+			status = http.StatusBadRequest
+			message = "nickname must be at most 12 characters"
+			code = "preferred_username_too_long"
+		case dbpkg.ErrPreferredUsernameInvalid:
+			status = http.StatusBadRequest
+			message = "nickname may contain only letters and digits"
+			code = "preferred_username_invalid"
+		case dbpkg.ErrPreferredUsernameTaken:
+			status = http.StatusConflict
+			message = "nickname is already taken"
+			code = "preferred_username_taken"
+		}
+
+		if status == http.StatusBadRequest || status == http.StatusConflict {
+			suggestions, _ = s.DB.SuggestPreferredUsernames(req.PreferredUsername, user.ID, 3)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"ok":                    false,
+			"code":                  code,
+			"message":               message,
+			"preferred_username":    strings.TrimSpace(req.PreferredUsername),
+			"preferred_suggestions": suggestions,
+		})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"ok":                 true,
+		"preferred_username": preferredUsername,
 	})
 }
