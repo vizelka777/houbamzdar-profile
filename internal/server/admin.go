@@ -265,7 +265,7 @@ func (s *Server) deleteUserAccountData(ctx context.Context, userID int64) (*mode
 		if captureRef == nil {
 			continue
 		}
-		if captureRef.PublicStorageKey != "" {
+		if s.Media.PublicObjectNeedsDelete(captureRef.PrivateStorageKey, captureRef.PublicStorageKey) {
 			if err := s.Media.DeletePublic(ctx, captureRef.PublicStorageKey); err != nil && !isMissingStorageObjectError(err) {
 				return nil, 0, err
 			}

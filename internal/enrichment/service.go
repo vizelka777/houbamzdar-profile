@@ -119,7 +119,9 @@ func (s *Service) processCapture(ctx context.Context, capture *models.Capture) e
 	}
 
 	if err := s.db.FinalizeCapturePublicationApproved(capture.ID, capture.UserID, publicKey, analysis, species, geoResult); err != nil {
-		_ = s.media.DeletePublic(ctx, publicKey)
+		if s.media.PublicObjectNeedsDelete(capture.PrivateStorageKey, publicKey) {
+			_ = s.media.DeletePublic(ctx, publicKey)
+		}
 		return s.handleRetry(capture, fmt.Errorf("finalize publication: %w", err))
 	}
 

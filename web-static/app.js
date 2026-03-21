@@ -957,7 +957,7 @@ function renderHeader(session, profile = null) {
             { href: "/create-post.html", label: "Vytvořit publikaci", icon: "✍️" },
             { type: "file-input", label: "Vyfotit nový nález", handler: handleDirectCameraSelection, icon: "📷" },
             { href: "/capture.html", label: "Zpracování fotek", note: "lokální snímky, výběr a nahrání na server", icon: "🧺" },
-            { href: "/server-storage.html", label: "Serverový archiv", note: "to, co už je uložené v Bunny", icon: "🗂️" },
+            { href: "/server-storage.html", label: "Nahrané fotky", note: "to, co už je uložené v Bunny", icon: "🗂️" },
             { href: "/feed.html", label: "Zeď úlovků", icon: "📰" },
             { href: "/gallery.html", label: "Galerie", icon: "🖼️" },
             { href: "/map.html", label: "Mapa", icon: "🗺️" },

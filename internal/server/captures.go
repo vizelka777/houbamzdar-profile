@@ -312,7 +312,9 @@ func (s *Server) handlePublishCapture(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if err := s.DB.PublishCapture(capture.ID, user.ID, publicKey); err != nil {
-			_ = s.Media.DeletePublic(r.Context(), publicKey)
+			if s.Media.PublicObjectNeedsDelete(capture.PrivateStorageKey, publicKey) {
+				_ = s.Media.DeletePublic(r.Context(), publicKey)
+			}
 			http.Error(w, "failed to update capture state", http.StatusInternalServerError)
 			return
 		}
@@ -840,7 +842,7 @@ func (s *Server) handleUnpublishCapture(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if capture.PublicStorageKey != "" {
+	if s.Media.PublicObjectNeedsDelete(capture.PrivateStorageKey, capture.PublicStorageKey) {
 		if err := s.Media.DeletePublic(r.Context(), capture.PublicStorageKey); err != nil {
 			http.Error(w, "failed to remove public capture", http.StatusBadGateway)
 			return
@@ -880,7 +882,7 @@ func (s *Server) handleDeleteCapture(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if capture.PublicStorageKey != "" {
+	if s.Media.PublicObjectNeedsDelete(capture.PrivateStorageKey, capture.PublicStorageKey) {
 		if err := s.Media.DeletePublic(r.Context(), capture.PublicStorageKey); err != nil {
 			http.Error(w, "failed to delete public capture", http.StatusBadGateway)
 			return

@@ -148,7 +148,7 @@ function renderStorageSummary() {
 
 function buildStorageStatusBadge(capture) {
     if (capture.status === "published") {
-        return '<span class="status-badge verified">Veřejné</span>';
+        return '<span class="status-badge verified">Publikované</span>';
     }
 
     switch (capture.publication_review_status) {
@@ -161,7 +161,7 @@ function buildStorageStatusBadge(capture) {
     case "approved":
         return '<span class="status-badge verified">Schváleno</span>';
     default:
-        return '<span class="status-badge unverified">Soukromé</span>';
+        return '<span class="status-badge unverified">Nepublikované</span>';
     }
 }
 
@@ -278,7 +278,7 @@ function renderServerStorageGrid() {
                 </label>
                 ${buildStorageStatusBadge(capture)}
             </div>
-            <img src="${escapeHtml(previewUrl)}" alt="Soukromý náhled nálezu" class="capture-thumb" loading="lazy">
+            <img src="${escapeHtml(previewUrl)}" alt="Náhled nahrané fotografie" class="capture-thumb" loading="lazy">
             <div class="capture-meta">
                 <h3>${escapeHtml(capture.original_file_name || "Nález")}</h3>
                 <p>${escapeHtml(formatDateTime(capture.captured_at))}</p>
@@ -372,9 +372,9 @@ async function performStorageBulkAction(action) {
     if (!applicable.length) {
         throw new Error(
             action === "publish"
-                ? "Vybrané fotky už čekají na kontrolu nebo nejsou soukromé."
+                ? "Vybrané fotky už čekají na kontrolu nebo už jsou publikované."
                 : action === "unpublish"
-                    ? "Vybrané fotky už nejsou veřejné."
+                    ? "Vybrané fotky už nejsou publikované."
                     : "Vybrané fotky nejde zpracovat."
         );
     }
@@ -431,7 +431,7 @@ function buildStorageActionMessage(action, summary) {
             parts.push(`Ke kontrole odesláno: ${summary.queued}.`);
         }
         if (summary.published) {
-            parts.push(`Okamžitě zveřejněno: ${summary.published}.`);
+            parts.push(`Okamžitě publikováno: ${summary.published}.`);
         }
         if (summary.errors.length) {
             parts.push(`Chyby: ${summary.errors.join(" | ")}`);
@@ -440,7 +440,7 @@ function buildStorageActionMessage(action, summary) {
     }
 
     if (action === "unpublish") {
-        const parts = [`Staženo z webu: ${summary.unpublished}.`];
+        const parts = [`Publikace zrušena: ${summary.unpublished}.`];
         if (summary.errors.length) {
             parts.push(`Chyby: ${summary.errors.join(" | ")}`);
         }
@@ -644,11 +644,11 @@ async function initServerStoragePage() {
     });
 
     publishButton.addEventListener("click", async () => {
-        await runStorageAction("publish", "Předávám vybrané fotografie ke kontrole před zveřejněním...");
+        await runStorageAction("publish", "Spouštím publikaci vybraných fotografií...");
     });
 
     unpublishButton.addEventListener("click", async () => {
-        await runStorageAction("unpublish", "Stahuji vybrané fotografie z webu...");
+        await runStorageAction("unpublish", "Ruším publikaci vybraných fotografií...");
     });
 
     deleteButton.addEventListener("click", async () => {

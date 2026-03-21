@@ -2,11 +2,14 @@ package media
 
 import (
 	"bytes"
+	"context"
 	"image"
 	"image/color"
 	"image/jpeg"
 	"testing"
 	"time"
+
+	"github.com/houbamzdar/bff/internal/models"
 )
 
 func TestNormalizeImageJPEG(t *testing.T) {
@@ -63,5 +66,41 @@ func TestCaptureKeys(t *testing.T) {
 	publicKey := PublicCaptureKey(42, "capture-123", capturedAt, ".jpg")
 	if publicKey != "captures/published/42/2026/03/capture-123.jpg" {
 		t.Fatalf("unexpected public key: %q", publicKey)
+	}
+}
+
+func TestPublishCaptureUsesSameObjectInSharedZone(t *testing.T) {
+	t.Parallel()
+
+	storage := &BunnyStorage{
+		privateZone:   "shared-zone",
+		privateKey:    "shared-key",
+		publicZone:    "shared-zone",
+		publicKey:     "shared-key",
+		publicBaseURL: "https://foto.houbamzdar.cz",
+	}
+
+	capture := &models.Capture{
+		ID:                "capture-123",
+		UserID:            42,
+		CapturedAt:        time.Date(2026, time.March, 8, 14, 15, 16, 0, time.UTC),
+		PrivateStorageKey: "captures/42/2026/03/capture-123.jpg",
+	}
+
+	publicKey, publicURL, err := storage.PublishCapture(context.Background(), capture)
+	if err != nil {
+		t.Fatalf("publish capture in shared zone: %v", err)
+	}
+	if publicKey != capture.PrivateStorageKey {
+		t.Fatalf("expected shared public key %q, got %q", capture.PrivateStorageKey, publicKey)
+	}
+	if publicURL != "https://foto.houbamzdar.cz/captures/42/2026/03/capture-123.jpg" {
+		t.Fatalf("unexpected shared public url: %q", publicURL)
+	}
+	if !storage.UsesSharedPublishedObject(capture.PrivateStorageKey, publicKey) {
+		t.Fatalf("expected shared object detection to be true")
+	}
+	if storage.PublicObjectNeedsDelete(capture.PrivateStorageKey, publicKey) {
+		t.Fatalf("expected shared published object to skip public deletion")
 	}
 }

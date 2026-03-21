@@ -66,6 +66,31 @@ func (b *BunnyStorage) CanReadPrivate() bool {
 	return b != nil && b.httpClient != nil && b.host != "" && b.privateZone != "" && b.privateKey != ""
 }
 
+func (b *BunnyStorage) usesSharedZone() bool {
+	return b != nil &&
+		b.privateZone != "" &&
+		b.privateKey != "" &&
+		b.privateZone == b.publicZone &&
+		b.privateKey == b.publicKey
+}
+
+func (b *BunnyStorage) UsesSharedPublishedObject(privateKey, publicKey string) bool {
+	if !b.usesSharedZone() {
+		return false
+	}
+	privateKey = strings.TrimSpace(privateKey)
+	publicKey = strings.TrimSpace(publicKey)
+	return privateKey != "" && privateKey == publicKey
+}
+
+func (b *BunnyStorage) PublicObjectNeedsDelete(privateKey, publicKey string) bool {
+	publicKey = strings.TrimSpace(publicKey)
+	if publicKey == "" {
+		return false
+	}
+	return !b.UsesSharedPublishedObject(privateKey, publicKey)
+}
+
 func NormalizeImage(raw []byte, contentType string) (*NormalizedAsset, error) {
 	if len(raw) == 0 {
 		return nil, fmt.Errorf("empty image payload")
@@ -133,6 +158,14 @@ func (b *BunnyStorage) StorePrivateCapture(ctx context.Context, userID int64, ca
 }
 
 func (b *BunnyStorage) PublishCapture(ctx context.Context, capture *models.Capture) (string, string, error) {
+	if b.usesSharedZone() {
+		publicKey := strings.TrimSpace(capture.PrivateStorageKey)
+		if publicKey == "" {
+			return "", "", fmt.Errorf("capture has no storage key")
+		}
+		return publicKey, fmt.Sprintf("%s/%s", b.publicBaseURL, publicKey), nil
+	}
+
 	content, contentType, err := b.ReadPrivateCapture(ctx, capture.PrivateStorageKey)
 	if err != nil {
 		return "", "", err

@@ -310,18 +310,18 @@ function renderRemoteCaptures(captures) {
             ? `<a href="${escapeHtml(capture.public_url)}" target="_blank" rel="noreferrer" class="capture-link">Otevřít veřejnou verzi</a>`
             : "";
         const privatePreview = `${API_URL}/api/captures/${encodeURIComponent(capture.id)}/preview`;
-        const actionLabel = capture.status === "published" ? "Stáhnout z veřejného webu" : "Zveřejnit";
+        const actionLabel = capture.status === "published" ? "Zrušit publikaci" : "Publikovat";
         const actionName = capture.status === "published" ? "unpublish" : "publish";
 
         card.innerHTML = `
-            <img src="${escapeHtml(privatePreview)}" alt="Soukromý náhled nálezu" class="capture-thumb" loading="lazy">
+            <img src="${escapeHtml(privatePreview)}" alt="Náhled nahrané fotografie" class="capture-thumb" loading="lazy">
             <div class="capture-meta">
                 <h3>${escapeHtml(capture.original_file_name || "Nález")}</h3>
                 <p>${escapeHtml(formatDateTime(capture.captured_at))}</p>
                 <p>${escapeHtml(formatCoords(capture.latitude, capture.longitude))}</p>
                 <p>${escapeHtml(`${Math.round((capture.size_bytes || 0) / 1024)} KB`)}</p>
                 <span class="status-badge ${capture.status === "published" ? "verified" : "unverified"}">
-                    ${escapeHtml(capture.status === "published" ? "Veřejné" : "Soukromé")}
+                    ${escapeHtml(capture.status === "published" ? "Publikované" : "Nepublikované")}
                 </span>
                 ${publicLink}
             </div>
@@ -528,10 +528,10 @@ async function handleRemoteAction(event) {
 
     try {
         if (action === "publish") {
-            setStatusMessage(statusNode, "Zveřejňuji snímek...");
+            setStatusMessage(statusNode, "Publikuji snímek...");
             await apiPostCaptureAction(captureID, "publish");
         } else if (action === "unpublish") {
-            setStatusMessage(statusNode, "Stahuji snímek z veřejného webu...");
+            setStatusMessage(statusNode, "Ruším publikaci snímku...");
             await apiPostCaptureAction(captureID, "unpublish");
         } else if (action === "delete") {
             setStatusMessage(statusNode, "Mažu snímek ze serveru...");

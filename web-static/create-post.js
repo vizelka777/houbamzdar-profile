@@ -34,7 +34,7 @@ async function loadCapturesForSelection(append = false) {
     }
 
     try {
-        const result = await apiGet(`/api/captures?page_size=10&page=${state.page}`);
+        const result = await apiGet(`/api/captures?status=published&page_size=10&page=${state.page}`);
         if (result && result.ok) {
             state.totalPages = result.total_pages || 1;
             const newCaptures = result.captures || [];
@@ -47,7 +47,7 @@ async function loadCapturesForSelection(append = false) {
             }
 
             if (state.captures.length === 0) {
-                grid.innerHTML = '<p class="muted-copy">Žádné fotografie k dispozici.</p>';
+                grid.innerHTML = '<p class="muted-copy">Zatím nemáte žádné publikované fotografie.</p>';
                 if (loadMoreBtn) loadMoreBtn.style.display = "none";
                 return;
             }

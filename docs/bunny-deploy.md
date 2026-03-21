@@ -20,6 +20,7 @@
 
 - `GEMINI_API_KEY`
 - `CAPTURE_AI_VALIDATOR_TOKEN`
+- `BUNNY_PRIVATE_STORAGE_ZONE`
 - `BUNNY_PRIVATE_STORAGE_KEY`
 - `PUBLISH_GEMINI_MODEL`
   Обычная publish validation. Обязательная переменная.
