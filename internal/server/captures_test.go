@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -310,6 +311,222 @@ func TestCaptureCoordinateUnlockFlow(t *testing.T) {
 	}
 	if viewedPayload.Captures[0].UnlockedAt.IsZero() {
 		t.Fatalf("expected unlock timestamp in viewed captures payload")
+	}
+}
+
+func TestProfileMapEndpointsUseDedicatedWholeMapPayloads(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{
+		DBURL:             "file:" + filepath.Join(t.TempDir(), "profile-map.db"),
+		FrontOrigin:       "https://houbamzdar.cz",
+		SessionCookieName: "hzd_session",
+	}
+
+	database, err := db.New(cfg)
+	if err != nil {
+		t.Fatalf("open test database: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = database.Close()
+	})
+
+	author, _, err := database.UpsertUser(&models.OIDCClaims{
+		Iss:               "https://ahoj420.eu",
+		Sub:               "profile-map-author",
+		PreferredUsername: "mapar",
+		Email:             "profile-map-author@example.test",
+		EmailVerified:     true,
+	}, &oauth2.Token{
+		AccessToken:  "author-access",
+		RefreshToken: "author-refresh",
+		Expiry:       time.Now().Add(time.Hour).UTC(),
+	})
+	if err != nil {
+		t.Fatalf("create author: %v", err)
+	}
+
+	viewer, _, err := database.UpsertUser(&models.OIDCClaims{
+		Iss:               "https://ahoj420.eu",
+		Sub:               "profile-map-viewer",
+		PreferredUsername: "mapviewer",
+		Email:             "profile-map-viewer@example.test",
+	}, &oauth2.Token{
+		AccessToken:  "viewer-access",
+		RefreshToken: "viewer-refresh",
+		Expiry:       time.Now().Add(time.Hour).UTC(),
+	})
+	if err != nil {
+		t.Fatalf("create viewer: %v", err)
+	}
+
+	if err := database.GrantAuthBonuses(viewer.ID, true, false, false); err != nil {
+		t.Fatalf("grant viewer signup bonus: %v", err)
+	}
+
+	makeCapture := func(id string, status string, free bool, lat, lon *float64, capturedAt time.Time) *models.Capture {
+		capture := &models.Capture{
+			ID:                id,
+			UserID:            author.ID,
+			OriginalFileName:  id + ".jpg",
+			ContentType:       "image/jpeg",
+			SizeBytes:         2048,
+			Width:             1200,
+			Height:            800,
+			CapturedAt:        capturedAt,
+			UploadedAt:        capturedAt,
+			Latitude:          lat,
+			Longitude:         lon,
+			CoordinatesFree:   free,
+			Status:            status,
+			PrivateStorageKey: "captures/" + id + ".jpg",
+		}
+		if status == "published" {
+			capture.PublicStorageKey = "captures/published/" + id + ".jpg"
+			capture.PublishedAt = capturedAt
+		}
+		return capture
+	}
+
+	privateLat, privateLon := 49.1201, 16.6011
+	paidLat, paidLon := 49.2202, 16.7022
+	freeLat, freeLon := 49.3203, 16.8033
+	privateCapture := makeCapture("profile-map-private", "private", false, &privateLat, &privateLon, time.Date(2026, time.March, 10, 10, 0, 0, 0, time.UTC))
+	paidPublicCapture := makeCapture("profile-map-paid", "published", false, &paidLat, &paidLon, time.Date(2026, time.March, 11, 11, 0, 0, 0, time.UTC))
+	freePublicCapture := makeCapture("profile-map-free", "published", true, &freeLat, &freeLon, time.Date(2026, time.March, 12, 12, 0, 0, 0, time.UTC))
+	noCoordsCapture := makeCapture("profile-map-no-coords", "published", true, nil, nil, time.Date(2026, time.March, 13, 13, 0, 0, 0, time.UTC))
+
+	for _, capture := range []*models.Capture{privateCapture, paidPublicCapture, freePublicCapture, noCoordsCapture} {
+		if err := database.CreateCapture(capture); err != nil {
+			t.Fatalf("create capture %s: %v", capture.ID, err)
+		}
+	}
+
+	if _, _, err := database.UnlockCaptureCoordinates(viewer.ID, paidPublicCapture.ID); err != nil {
+		t.Fatalf("unlock paid capture: %v", err)
+	}
+
+	authorSession := "profile-map-author-session"
+	if err := database.CreateSession(&models.Session{
+		SessionID: authorSession,
+		UserID:    author.ID,
+		ExpiresAt: time.Now().Add(time.Hour).UTC(),
+	}); err != nil {
+		t.Fatalf("create author session: %v", err)
+	}
+
+	viewerSession := "profile-map-viewer-session"
+	if err := database.CreateSession(&models.Session{
+		SessionID: viewerSession,
+		UserID:    viewer.ID,
+		ExpiresAt: time.Now().Add(time.Hour).UTC(),
+	}); err != nil {
+		t.Fatalf("create viewer session: %v", err)
+	}
+
+	srv := New(cfg, database, nil, nil)
+
+	authorOwnMapReq := httptest.NewRequest(http.MethodGet, "/api/me/map-captures", nil)
+	authorOwnMapReq.AddCookie(&http.Cookie{Name: cfg.SessionCookieName, Value: authorSession})
+	authorOwnMapRec := httptest.NewRecorder()
+	srv.Router.ServeHTTP(authorOwnMapRec, authorOwnMapReq)
+	if authorOwnMapRec.Code != http.StatusOK {
+		t.Fatalf("expected status 200 for own map captures, got %d: %s", authorOwnMapRec.Code, authorOwnMapRec.Body.String())
+	}
+
+	var authorOwnMapPayload struct {
+		OK       bool              `json:"ok"`
+		Captures []*models.Capture `json:"captures"`
+	}
+	if err := json.NewDecoder(authorOwnMapRec.Body).Decode(&authorOwnMapPayload); err != nil {
+		t.Fatalf("decode own map captures: %v", err)
+	}
+	if len(authorOwnMapPayload.Captures) != 3 {
+		t.Fatalf("expected 3 captures on own map, got %d", len(authorOwnMapPayload.Captures))
+	}
+
+	authorOwnIDs := make(map[string]bool, len(authorOwnMapPayload.Captures))
+	for _, capture := range authorOwnMapPayload.Captures {
+		authorOwnIDs[capture.ID] = true
+		if capture.Latitude == nil || capture.Longitude == nil {
+			t.Fatalf("expected own map capture %s to include coordinates", capture.ID)
+		}
+	}
+	if !authorOwnIDs[privateCapture.ID] || !authorOwnIDs[paidPublicCapture.ID] || !authorOwnIDs[freePublicCapture.ID] {
+		t.Fatalf("unexpected own map capture ids: %+v", authorOwnIDs)
+	}
+	if authorOwnIDs[noCoordsCapture.ID] {
+		t.Fatalf("did not expect no-coordinates capture on own map")
+	}
+
+	viewedMapReq := httptest.NewRequest(http.MethodGet, "/api/me/viewed-map-captures", nil)
+	viewedMapReq.AddCookie(&http.Cookie{Name: cfg.SessionCookieName, Value: viewerSession})
+	viewedMapRec := httptest.NewRecorder()
+	srv.Router.ServeHTTP(viewedMapRec, viewedMapReq)
+	if viewedMapRec.Code != http.StatusOK {
+		t.Fatalf("expected status 200 for viewed map captures, got %d: %s", viewedMapRec.Code, viewedMapRec.Body.String())
+	}
+
+	var viewedMapPayload struct {
+		OK       bool              `json:"ok"`
+		Captures []*models.Capture `json:"captures"`
+	}
+	if err := json.NewDecoder(viewedMapRec.Body).Decode(&viewedMapPayload); err != nil {
+		t.Fatalf("decode viewed map captures: %v", err)
+	}
+	if len(viewedMapPayload.Captures) != 1 || viewedMapPayload.Captures[0].ID != paidPublicCapture.ID {
+		t.Fatalf("expected only unlocked paid capture on viewed map, got %+v", viewedMapPayload.Captures)
+	}
+
+	guestPublicMapReq := httptest.NewRequest(http.MethodGet, "/api/public/users/"+strconv.FormatInt(author.ID, 10)+"/map-captures", nil)
+	guestPublicMapRec := httptest.NewRecorder()
+	srv.Router.ServeHTTP(guestPublicMapRec, guestPublicMapReq)
+	if guestPublicMapRec.Code != http.StatusOK {
+		t.Fatalf("expected status 200 for guest public user map, got %d: %s", guestPublicMapRec.Code, guestPublicMapRec.Body.String())
+	}
+
+	var guestPublicMapPayload struct {
+		OK       bool              `json:"ok"`
+		Captures []*models.Capture `json:"captures"`
+	}
+	if err := json.NewDecoder(guestPublicMapRec.Body).Decode(&guestPublicMapPayload); err != nil {
+		t.Fatalf("decode guest public user map: %v", err)
+	}
+	if len(guestPublicMapPayload.Captures) != 1 || guestPublicMapPayload.Captures[0].ID != freePublicCapture.ID {
+		t.Fatalf("expected only free published capture on guest public map, got %+v", guestPublicMapPayload.Captures)
+	}
+
+	viewerPublicMapReq := httptest.NewRequest(http.MethodGet, "/api/public/users/"+strconv.FormatInt(author.ID, 10)+"/map-captures", nil)
+	viewerPublicMapReq.AddCookie(&http.Cookie{Name: cfg.SessionCookieName, Value: viewerSession})
+	viewerPublicMapRec := httptest.NewRecorder()
+	srv.Router.ServeHTTP(viewerPublicMapRec, viewerPublicMapReq)
+	if viewerPublicMapRec.Code != http.StatusOK {
+		t.Fatalf("expected status 200 for unlocked public user map, got %d: %s", viewerPublicMapRec.Code, viewerPublicMapRec.Body.String())
+	}
+
+	var viewerPublicMapPayload struct {
+		OK       bool              `json:"ok"`
+		Captures []*models.Capture `json:"captures"`
+	}
+	if err := json.NewDecoder(viewerPublicMapRec.Body).Decode(&viewerPublicMapPayload); err != nil {
+		t.Fatalf("decode unlocked public user map: %v", err)
+	}
+	if len(viewerPublicMapPayload.Captures) != 2 {
+		t.Fatalf("expected 2 captures on unlocked public map, got %d", len(viewerPublicMapPayload.Captures))
+	}
+
+	viewerPublicIDs := make(map[string]bool, len(viewerPublicMapPayload.Captures))
+	for _, capture := range viewerPublicMapPayload.Captures {
+		viewerPublicIDs[capture.ID] = true
+		if capture.Latitude == nil || capture.Longitude == nil {
+			t.Fatalf("expected viewer public map capture %s to include coordinates", capture.ID)
+		}
+	}
+	if !viewerPublicIDs[paidPublicCapture.ID] || !viewerPublicIDs[freePublicCapture.ID] {
+		t.Fatalf("unexpected unlocked public map capture ids: %+v", viewerPublicIDs)
+	}
+	if viewerPublicIDs[privateCapture.ID] || viewerPublicIDs[noCoordsCapture.ID] {
+		t.Fatalf("unexpected non-public captures on public map: %+v", viewerPublicIDs)
 	}
 }
 

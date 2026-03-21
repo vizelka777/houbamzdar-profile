@@ -1251,6 +1251,101 @@ func (db *DB) ListCapturesPage(userID int64, filters CaptureListFilters) (*Captu
 	}, nil
 }
 
+func (db *DB) ListMapCapturesByUser(userID int64) ([]*models.Capture, error) {
+	rows, err := db.Query(`
+		SELECT
+			c.id,
+			c.user_id,
+			COALESCE(u.preferred_username, ''),
+			COALESCE(u.picture, ''),
+			COALESCE(c.client_local_id, ''),
+			c.original_file_name,
+			c.content_type,
+			c.size_bytes,
+			c.width,
+			c.height,
+			c.captured_at,
+			c.uploaded_at,
+			c.latitude,
+			c.longitude,
+			c.accuracy_meters,
+			c.status,
+			c.private_storage_key,
+			COALESCE(c.public_storage_key, ''),
+			COALESCE(c.published_at, ''),
+			COALESCE(c.coordinates_free, 0)
+		FROM photo_captures c
+		JOIN users u ON u.id = c.user_id
+		WHERE c.user_id = ? AND c.latitude IS NOT NULL AND c.longitude IS NOT NULL
+		ORDER BY c.captured_at DESC
+	`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var captures []*models.Capture
+	for rows.Next() {
+		var capture models.Capture
+		var capturedAtRaw, uploadedAtRaw string
+		var latitude, longitude, accuracyMeters sql.NullFloat64
+		var publicStorageKey, publishedAtRaw sql.NullString
+		var coordinatesFree int
+
+		if err := rows.Scan(
+			&capture.ID,
+			&capture.UserID,
+			&capture.AuthorName,
+			&capture.AuthorAvatar,
+			&capture.ClientLocalID,
+			&capture.OriginalFileName,
+			&capture.ContentType,
+			&capture.SizeBytes,
+			&capture.Width,
+			&capture.Height,
+			&capturedAtRaw,
+			&uploadedAtRaw,
+			&latitude,
+			&longitude,
+			&accuracyMeters,
+			&capture.Status,
+			&capture.PrivateStorageKey,
+			&publicStorageKey,
+			&publishedAtRaw,
+			&coordinatesFree,
+		); err != nil {
+			return nil, err
+		}
+
+		capture.AuthorUserID = capture.UserID
+		capture.CapturedAt, _ = time.Parse(time.RFC3339, capturedAtRaw)
+		capture.UploadedAt, _ = time.Parse(time.RFC3339, uploadedAtRaw)
+		if latitude.Valid {
+			value := latitude.Float64
+			capture.Latitude = &value
+		}
+		if longitude.Valid {
+			value := longitude.Float64
+			capture.Longitude = &value
+		}
+		if accuracyMeters.Valid {
+			value := accuracyMeters.Float64
+			capture.AccuracyMeters = &value
+		}
+		capture.PublicStorageKey = publicStorageKey.String
+		if publishedAtRaw.Valid && publishedAtRaw.String != "" {
+			capture.PublishedAt, _ = time.Parse(time.RFC3339, publishedAtRaw.String)
+		}
+		capture.CoordinatesFree = coordinatesFree == 1
+		captures = append(captures, &capture)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return captures, nil
+}
+
 func (db *DB) GetCaptureForUser(id string, userID int64) (*models.Capture, error) {
 	row := db.QueryRow(captureSelectColumns+` WHERE id = ? AND user_id = ? LIMIT 1`, id, userID)
 	return scanCaptureRow(row)
@@ -1940,6 +2035,57 @@ func (db *DB) ListPublicCapturesByUser(userID int64, limit, offset int, viewerUs
 	return captures, nil
 }
 
+func (db *DB) ListPublicMapCapturesByUser(userID int64, viewerUserID int64) ([]*models.Capture, error) {
+	now := moderationNowRFC3339()
+	rows, err := db.Query(fmt.Sprintf(`
+		SELECT c.id, c.user_id, COALESCE(u.preferred_username, ''), COALESCE(u.picture, ''), COALESCE(c.client_local_id, ''), c.original_file_name, c.content_type, c.size_bytes, c.width, c.height,
+			c.captured_at, c.uploaded_at, c.latitude, c.longitude, c.accuracy_meters, c.status, c.private_storage_key,
+			COALESCE(c.public_storage_key, ''), COALESCE(c.published_at, ''), COALESCE(c.coordinates_free, 0)
+		FROM photo_captures c
+		JOIN users u ON c.user_id = u.id
+		WHERE c.user_id = ? AND c.status = 'published' AND COALESCE(c.moderator_hidden, 0) = 0
+			AND COALESCE(c.private_storage_key, '') != '' AND c.latitude IS NOT NULL AND c.longitude IS NOT NULL AND %s
+		ORDER BY c.published_at DESC, c.captured_at DESC
+	`, publicUserNotBannedClause("u")), userID, now)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var captures []*models.Capture
+	for rows.Next() {
+		var c models.Capture
+		var capturedAt, uploadedAt, publishedAt string
+		var coordinatesFree int
+		if err := rows.Scan(
+			&c.ID, &c.UserID, &c.AuthorName, &c.AuthorAvatar, &c.ClientLocalID, &c.OriginalFileName, &c.ContentType, &c.SizeBytes, &c.Width, &c.Height,
+			&capturedAt, &uploadedAt, &c.Latitude, &c.Longitude, &c.AccuracyMeters, &c.Status, &c.PrivateStorageKey,
+			&c.PublicStorageKey, &publishedAt, &coordinatesFree,
+		); err != nil {
+			return nil, err
+		}
+		c.AuthorUserID = c.UserID
+		c.CapturedAt, _ = time.Parse(time.RFC3339, capturedAt)
+		if uploadedAt != "" {
+			c.UploadedAt, _ = time.Parse(time.RFC3339, uploadedAt)
+		}
+		if publishedAt != "" {
+			c.PublishedAt, _ = time.Parse(time.RFC3339, publishedAt)
+		}
+		c.CoordinatesFree = coordinatesFree == 1
+		captures = append(captures, &c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	if err := db.maskCaptureCoordinatesForViewer(viewerUserID, captures); err != nil {
+		return nil, err
+	}
+
+	return filterCapturesWithCoordinates(captures), nil
+}
+
 func (db *DB) getCapturesForPost(postID string, viewerUserID int64, includeModerated bool) ([]*models.Capture, error) {
 	var (
 		query string
@@ -2128,6 +2274,17 @@ func (db *DB) maskCaptureCoordinatesForViewer(viewerUserID int64, captures []*mo
 		capture.CoordinatesLocked = true
 	}
 	return nil
+}
+
+func filterCapturesWithCoordinates(captures []*models.Capture) []*models.Capture {
+	filtered := make([]*models.Capture, 0, len(captures))
+	for _, capture := range captures {
+		if capture == nil || capture.Latitude == nil || capture.Longitude == nil {
+			continue
+		}
+		filtered = append(filtered, capture)
+	}
+	return filtered
 }
 
 func (db *DB) ensureWalletTx(tx *sql.Tx, userID int64) error {
@@ -2431,6 +2588,104 @@ func (db *DB) ListViewedCapturesByUser(viewerUserID int64, limit, offset int) ([
 		ORDER BY cu.unlocked_at DESC
 		LIMIT ? OFFSET ?
 	`, viewerUserID, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var captures []*models.Capture
+	for rows.Next() {
+		var capture models.Capture
+		var capturedAtRaw, uploadedAtRaw, unlockedAtRaw string
+		var latitude, longitude, accuracyMeters sql.NullFloat64
+		var publicStorageKey, publishedAtRaw sql.NullString
+		var coordinatesFree int
+
+		if err := rows.Scan(
+			&capture.ID,
+			&capture.UserID,
+			&capture.AuthorName,
+			&capture.AuthorAvatar,
+			&capture.ClientLocalID,
+			&capture.OriginalFileName,
+			&capture.ContentType,
+			&capture.SizeBytes,
+			&capture.Width,
+			&capture.Height,
+			&capturedAtRaw,
+			&uploadedAtRaw,
+			&latitude,
+			&longitude,
+			&accuracyMeters,
+			&capture.Status,
+			&capture.PrivateStorageKey,
+			&publicStorageKey,
+			&publishedAtRaw,
+			&coordinatesFree,
+			&unlockedAtRaw,
+		); err != nil {
+			return nil, err
+		}
+
+		capture.PublicStorageKey = publicStorageKey.String
+		capture.AuthorUserID = capture.UserID
+		capture.CapturedAt, _ = time.Parse(time.RFC3339, capturedAtRaw)
+		capture.UploadedAt, _ = time.Parse(time.RFC3339, uploadedAtRaw)
+		capture.UnlockedAt, _ = time.Parse(time.RFC3339, unlockedAtRaw)
+		if latitude.Valid {
+			value := latitude.Float64
+			capture.Latitude = &value
+		}
+		if longitude.Valid {
+			value := longitude.Float64
+			capture.Longitude = &value
+		}
+		if accuracyMeters.Valid {
+			value := accuracyMeters.Float64
+			capture.AccuracyMeters = &value
+		}
+		if publishedAtRaw.Valid && publishedAtRaw.String != "" {
+			capture.PublishedAt, _ = time.Parse(time.RFC3339, publishedAtRaw.String)
+		}
+		capture.CoordinatesFree = coordinatesFree == 1
+		captures = append(captures, &capture)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return captures, nil
+}
+
+func (db *DB) ListViewedMapCapturesByUser(viewerUserID int64) ([]*models.Capture, error) {
+	rows, err := db.Query(`
+		SELECT
+			c.id,
+			c.user_id,
+			COALESCE(u.preferred_username, ''),
+			COALESCE(u.picture, ''),
+			COALESCE(c.client_local_id, ''),
+			c.original_file_name,
+			c.content_type,
+			c.size_bytes,
+			c.width,
+			c.height,
+			c.captured_at,
+			c.uploaded_at,
+			c.latitude,
+			c.longitude,
+			c.accuracy_meters,
+			c.status,
+			c.private_storage_key,
+			COALESCE(c.public_storage_key, ''),
+			COALESCE(c.published_at, ''),
+			COALESCE(c.coordinates_free, 0),
+			cu.unlocked_at
+		FROM capture_coordinate_unlocks cu
+		JOIN photo_captures c ON c.id = cu.capture_id
+		JOIN users u ON u.id = c.user_id
+		WHERE cu.viewer_user_id = ? AND c.latitude IS NOT NULL AND c.longitude IS NOT NULL
+		ORDER BY cu.unlocked_at DESC
+	`, viewerUserID)
 	if err != nil {
 		return nil, err
 	}

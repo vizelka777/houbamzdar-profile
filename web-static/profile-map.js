@@ -1,4 +1,3 @@
-const PROFILE_MAP_PAGE_SIZE = 60;
 const profileMapState = {
     initialized: false,
     source: "own",
@@ -7,18 +6,13 @@ const profileMapState = {
     datasets: {
         own: {
             items: [],
-            page: 0,
-            total: 0,
-            totalPages: 0,
-            hasMore: true,
-            loading: false
+            loading: false,
+            loaded: false
         },
         viewed: {
             items: [],
-            offset: 0,
-            total: 0,
-            hasMore: true,
-            loading: false
+            loading: false,
+            loaded: false
         }
     }
 };
@@ -27,14 +21,14 @@ function profileMapLabels(source) {
     if (source === "viewed") {
         return {
             title: "Prohlédnuté za houbičky",
-            note: "Mapa slučuje blízké body do animovaných clusterů. Kliknutím cluster rozbalíte a z popupu otevřete fotku.",
+            note: "Mapa slučuje blízké body do animovaných clusterů. Kliknutím cluster rozbalíte a kliknutím na miniaturu otevřete fotku.",
             empty: "Zatím jste si za houbičky neodemkli žádné souřadnice."
         };
     }
 
     return {
         title: "Kde jsem hledal(a)",
-        note: "Vaše vlastní fotografie s polohou. Blízké body se seskupují a po přiblížení se plynule rozpadnou na jednotlivé značky.",
+        note: "Vaše vlastní fotografie s polohou. Blízké body se seskupují a po přiblížení se plynule rozpadnou na jednotlivé miniatury.",
         empty: "Zatím nemáte žádné fotografie s uloženou polohou."
     };
 }
@@ -45,7 +39,6 @@ function profileMapNodes() {
         map: document.getElementById("profile-activity-map"),
         empty: document.getElementById("profile-activity-empty"),
         summary: document.getElementById("profile-activity-summary"),
-        loadMore: document.getElementById("profile-activity-load-more-btn"),
         title: document.getElementById("profile-activity-title"),
         note: document.getElementById("profile-activity-note")
     };
@@ -164,10 +157,6 @@ function renderProfileActivitySummary() {
     if (nodes.summary) {
         nodes.summary.textContent = `Na mapě je ${withCoordinates} z ${dataset.items.length} načtených fotografií.`;
     }
-    if (nodes.loadMore) {
-        nodes.loadMore.style.display = dataset.hasMore ? "inline-flex" : "none";
-        nodes.loadMore.disabled = dataset.loading;
-    }
 
     document.querySelectorAll(".profile-activity-toggle").forEach((button) => {
         button.classList.toggle("is-active", button.dataset.source === profileMapState.source);
@@ -227,7 +216,7 @@ function renderProfileActivityMap() {
 
 async function loadOwnProfileActivityPage() {
     const dataset = profileMapState.datasets.own;
-    if (dataset.loading || !dataset.hasMore) {
+    if (dataset.loading || dataset.loaded) {
         return;
     }
 
@@ -235,17 +224,13 @@ async function loadOwnProfileActivityPage() {
     renderProfileActivitySummary();
 
     try {
-        const nextPage = dataset.page + 1;
-        const result = await apiGet(`/api/captures?page=${nextPage}&page_size=${PROFILE_MAP_PAGE_SIZE}`);
+        const result = await apiGet("/api/me/map-captures");
         if (!result || !result.ok) {
             throw new Error("Nepodařilo se načíst soukromou mapu.");
         }
 
-        dataset.page = result.page || nextPage;
-        dataset.total = result.total || dataset.total;
-        dataset.totalPages = result.total_pages || dataset.totalPages;
-        dataset.items = dataset.items.concat(result.captures || []);
-        dataset.hasMore = dataset.page < dataset.totalPages;
+        dataset.items = Array.isArray(result.captures) ? result.captures : [];
+        dataset.loaded = true;
     } catch (error) {
         console.error("Failed to load own profile activity map", error);
     } finally {
@@ -256,7 +241,7 @@ async function loadOwnProfileActivityPage() {
 
 async function loadViewedProfileActivityPage() {
     const dataset = profileMapState.datasets.viewed;
-    if (dataset.loading || !dataset.hasMore) {
+    if (dataset.loading || dataset.loaded) {
         return;
     }
 
@@ -264,16 +249,13 @@ async function loadViewedProfileActivityPage() {
     renderProfileActivitySummary();
 
     try {
-        const result = await apiGet(`/api/me/viewed-captures?limit=${PROFILE_MAP_PAGE_SIZE}&offset=${dataset.offset}`);
+        const result = await apiGet("/api/me/viewed-map-captures");
         if (!result || !result.ok) {
             throw new Error("Nepodařilo se načíst odemčené souřadnice.");
         }
 
-        const captures = result.captures || [];
-        dataset.items = dataset.items.concat(captures);
-        dataset.offset += captures.length;
-        dataset.total = result.total || dataset.total;
-        dataset.hasMore = Boolean(result.has_more);
+        dataset.items = Array.isArray(result.captures) ? result.captures : [];
+        dataset.loaded = true;
     } catch (error) {
         console.error("Failed to load viewed activity map", error);
     } finally {
@@ -290,7 +272,7 @@ async function switchProfileActivitySource(source) {
     profileMapState.source = source;
     const dataset = currentProfileDataset();
 
-    if (!dataset.items.length && dataset.hasMore) {
+    if (!dataset.loaded && !dataset.loading) {
         if (source === "viewed") {
             await loadViewedProfileActivityPage();
             return;
@@ -300,14 +282,6 @@ async function switchProfileActivitySource(source) {
     }
 
     renderProfileActivityMap();
-}
-
-async function loadMoreProfileActivity() {
-    if (profileMapState.source === "viewed") {
-        await loadViewedProfileActivityPage();
-        return;
-    }
-    await loadOwnProfileActivityPage();
 }
 
 async function initProfileActivityMap() {
@@ -327,12 +301,6 @@ async function initProfileActivityMap() {
             switchProfileActivitySource(button.dataset.source || "own");
         });
     });
-
-    if (nodes.loadMore) {
-        nodes.loadMore.addEventListener("click", () => {
-            loadMoreProfileActivity();
-        });
-    }
 
     await Promise.all([
         loadOwnProfileActivityPage(),

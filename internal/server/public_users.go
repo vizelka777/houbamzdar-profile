@@ -149,3 +149,39 @@ func (s *Server) handleListPublicUserCaptures(w http.ResponseWriter, r *http.Req
 		"has_more": offset+len(captures) < total,
 	})
 }
+
+func (s *Server) handleListPublicUserMapCaptures(w http.ResponseWriter, r *http.Request) {
+	userID, err := parseURLInt64Param(r, "userID")
+	if err != nil || userID <= 0 {
+		http.Error(w, "invalid user id", http.StatusBadRequest)
+		return
+	}
+
+	if _, err := s.DB.GetPublicUserProfile(userID); err != nil {
+		if err == sql.ErrNoRows {
+			http.Error(w, "user not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "failed to load user", http.StatusInternalServerError)
+		return
+	}
+
+	currentUserID := s.currentUserIDFromOptionalSession(r)
+	captures, err := s.DB.ListPublicMapCapturesByUser(userID, currentUserID)
+	if err != nil {
+		http.Error(w, "failed to list public map captures", http.StatusInternalServerError)
+		return
+	}
+
+	if captures == nil {
+		captures = []*models.Capture{}
+	} else {
+		attachPublicURLs(captures, s.Media)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"ok":       true,
+		"captures": captures,
+	})
+}

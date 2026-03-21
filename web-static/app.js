@@ -1757,11 +1757,8 @@ const publicProfileState = {
     posts: [],
     captures: [],
     postsLimit: 6,
-    capturesLimit: 60,
     postsOffset: 0,
-    capturesOffset: 0,
     postsHasMore: false,
-    capturesHasMore: false,
     map: null,
     markerLayer: null
 };
@@ -2009,14 +2006,10 @@ function renderPublicProfileMap() {
     const map = ensurePublicProfileMap();
     const emptyNode = document.getElementById("public-map-empty");
     const summaryNode = document.getElementById("public-map-summary");
-    const loadMoreButton = document.getElementById("public-map-load-more-btn");
     const captures = publicProfileState.captures.filter((capture) => captureHasCoordinates(capture));
 
     if (summaryNode) {
         summaryNode.textContent = `${captures.length} z ${publicProfileState.captures.length} načtených fotografií má souřadnice.`;
-    }
-    if (loadMoreButton) {
-        loadMoreButton.style.display = publicProfileState.capturesHasMore ? "inline-flex" : "none";
     }
 
     if (!map || !emptyNode) {
@@ -2133,17 +2126,14 @@ async function loadPublicProfilePosts(append = false) {
     }
 }
 
-async function loadPublicProfileCaptures(append = false) {
+async function loadPublicProfileCaptures() {
     if (!publicProfileState.requestedUserID) {
         return;
     }
 
-    if (!append) {
-        publicProfileState.captures = [];
-        publicProfileState.capturesOffset = 0;
-    }
+    publicProfileState.captures = [];
 
-    const result = await apiGet(`/api/public/users/${encodeURIComponent(publicProfileState.requestedUserID)}/captures?limit=${publicProfileState.capturesLimit}&offset=${publicProfileState.capturesOffset}`);
+    const result = await apiGet(`/api/public/users/${encodeURIComponent(publicProfileState.requestedUserID)}/map-captures`);
     if (!result || !result.ok) {
         const emptyNode = document.getElementById("public-map-empty");
         if (emptyNode) {
@@ -2153,10 +2143,7 @@ async function loadPublicProfileCaptures(append = false) {
         return;
     }
 
-    const captures = result.captures || [];
-    publicProfileState.captures = publicProfileState.captures.concat(captures);
-    publicProfileState.capturesOffset += captures.length;
-    publicProfileState.capturesHasMore = Boolean(result.has_more);
+    publicProfileState.captures = Array.isArray(result.captures) ? result.captures : [];
     renderPublicProfileMap();
 }
 
@@ -2231,14 +2218,9 @@ async function initPublicProfilePage() {
         postsLoadMore.addEventListener("click", () => loadPublicProfilePosts(true));
     }
 
-    const mapLoadMore = document.getElementById("public-map-load-more-btn");
-    if (mapLoadMore) {
-        mapLoadMore.addEventListener("click", () => loadPublicProfileCaptures(true));
-    }
-
     await Promise.all([
         loadPublicProfilePosts(false),
-        loadPublicProfileCaptures(false)
+        loadPublicProfileCaptures()
     ]);
 
     await loadPublicModerationUser();

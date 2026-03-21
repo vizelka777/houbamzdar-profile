@@ -125,6 +125,28 @@ func (s *Server) handleListCaptures(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) handleListMyMapCaptures(w http.ResponseWriter, r *http.Request) {
+	user := r.Context().Value("user").(*models.User)
+
+	captures, err := s.DB.ListMapCapturesByUser(user.ID)
+	if err != nil {
+		http.Error(w, "failed to load map captures", http.StatusInternalServerError)
+		return
+	}
+
+	if captures == nil {
+		captures = []*models.Capture{}
+	} else {
+		attachPublicURLs(captures, s.Media)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"ok":       true,
+		"captures": captures,
+	})
+}
+
 func (s *Server) handleListPublicCaptures(w http.ResponseWriter, r *http.Request) {
 	currentUserID := s.currentUserIDFromOptionalSession(r)
 	filters := parsePublicCaptureFilters(r)
@@ -933,6 +955,28 @@ func (s *Server) handleListViewedCaptures(w http.ResponseWriter, r *http.Request
 		"limit":    limit,
 		"offset":   offset,
 		"has_more": offset+len(captures) < total,
+	})
+}
+
+func (s *Server) handleListViewedMapCaptures(w http.ResponseWriter, r *http.Request) {
+	user := r.Context().Value("user").(*models.User)
+
+	captures, err := s.DB.ListViewedMapCapturesByUser(user.ID)
+	if err != nil {
+		http.Error(w, "failed to list viewed map captures", http.StatusInternalServerError)
+		return
+	}
+
+	if captures == nil {
+		captures = []*models.Capture{}
+	} else {
+		attachPublicURLs(captures, s.Media)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"ok":       true,
+		"captures": captures,
 	})
 }
 
