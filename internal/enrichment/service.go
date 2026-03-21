@@ -100,12 +100,12 @@ func (s *Service) processCapture(ctx context.Context, capture *models.Capture) e
 		return s.db.RejectCapturePublication(capture.ID, db.CapturePublicationRejectOutsideCzechia)
 	}
 
-	inlineImage, inlineErr := PrepareValidatorInlineImage(ctx, s.media, capture, AIReviewModePublishValidation)
-	if inlineErr != nil && s.logger != nil {
-		s.logger.Printf("capture enrichment inline validator image fallback for %s: %v", capture.ID, inlineErr)
+	imageSource, sourceErr := PrepareValidatorImageSource(s.media, capture, AIReviewModePublishValidation)
+	if sourceErr != nil && s.logger != nil {
+		s.logger.Printf("capture enrichment validator image source fallback for %s: %v", capture.ID, sourceErr)
 	}
 
-	analysis, species, aiErr := s.aiClient.AnalyzeCaptureWithModeAndImage(ctx, capture, AIReviewModePublishValidation, "", inlineImage)
+	analysis, species, aiErr := s.aiClient.AnalyzeCaptureWithModeAndImageSource(ctx, capture, AIReviewModePublishValidation, "", imageSource)
 	if aiErr != nil {
 		return s.handleRetry(capture, fmt.Errorf("analyze mushrooms: %w", aiErr))
 	}
@@ -175,6 +175,7 @@ func (c *AIValidatorClient) Enabled() bool {
 type aiValidatorRequest struct {
 	CaptureID         string `json:"capture_id"`
 	PrivateStorageKey string `json:"private_storage_key"`
+	ImageURL          string `json:"image_url,omitempty"`
 	InlineImageData   string `json:"inline_image_data,omitempty"`
 	InlineImageMime   string `json:"inline_image_mime_type,omitempty"`
 	ReviewMode        string `json:"review_mode,omitempty"`
@@ -200,19 +201,20 @@ type moderatorModelsResponse struct {
 }
 
 func (c *AIValidatorClient) AnalyzeCapture(ctx context.Context, capture *models.Capture) (*models.CaptureMushroomAnalysis, []*models.CaptureMushroomSpecies, error) {
-	return c.AnalyzeCaptureWithModeAndImage(ctx, capture, AIReviewModePublishValidation, "", nil)
+	return c.AnalyzeCaptureWithModeAndImageSource(ctx, capture, AIReviewModePublishValidation, "", nil)
 }
 
 func (c *AIValidatorClient) AnalyzeCaptureWithMode(ctx context.Context, capture *models.Capture, reviewMode AIReviewMode, modelCode string) (*models.CaptureMushroomAnalysis, []*models.CaptureMushroomSpecies, error) {
-	return c.AnalyzeCaptureWithModeAndImage(ctx, capture, reviewMode, modelCode, nil)
+	return c.AnalyzeCaptureWithModeAndImageSource(ctx, capture, reviewMode, modelCode, nil)
 }
 
-type AIValidatorInlineImage struct {
+type AIValidatorImageSource struct {
+	URL      string
 	Data     string
 	MimeType string
 }
 
-func (c *AIValidatorClient) AnalyzeCaptureWithModeAndImage(ctx context.Context, capture *models.Capture, reviewMode AIReviewMode, modelCode string, inlineImage *AIValidatorInlineImage) (*models.CaptureMushroomAnalysis, []*models.CaptureMushroomSpecies, error) {
+func (c *AIValidatorClient) AnalyzeCaptureWithModeAndImageSource(ctx context.Context, capture *models.Capture, reviewMode AIReviewMode, modelCode string, imageSource *AIValidatorImageSource) (*models.CaptureMushroomAnalysis, []*models.CaptureMushroomSpecies, error) {
 	if !c.Enabled() {
 		return nil, nil, fmt.Errorf("AI validator is not configured")
 	}
@@ -223,9 +225,10 @@ func (c *AIValidatorClient) AnalyzeCaptureWithModeAndImage(ctx context.Context, 
 		ReviewMode:        strings.TrimSpace(string(reviewMode)),
 		ModelCode:         strings.TrimSpace(modelCode),
 	}
-	if inlineImage != nil {
-		payload.InlineImageData = strings.TrimSpace(inlineImage.Data)
-		payload.InlineImageMime = strings.TrimSpace(inlineImage.MimeType)
+	if imageSource != nil {
+		payload.ImageURL = strings.TrimSpace(imageSource.URL)
+		payload.InlineImageData = strings.TrimSpace(imageSource.Data)
+		payload.InlineImageMime = strings.TrimSpace(imageSource.MimeType)
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {

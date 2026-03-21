@@ -23,10 +23,10 @@
       "id": "pdZdipupoFrUKG4-4iqd",
       "name": "houbamzdar",
       "packageId": "d2c1b95e-65e7-42a3-adb3-d27d9d1a4f72",
-      "image": "houbamzdar/bff:v44",
+      "image": "houbamzdar/bff:v45",
       "imageName": "bff",
       "imageNamespace": "houbamzdar",
-      "imageTag": "v44",
+      "imageTag": "v45",
       "imageRegistryId": "2725",
       "imageDigest": "",
       "imagePullPolicy": "always",
@@ -152,7 +152,7 @@
         },
         {
           "name": "BUNNY_PRIVATE_STORAGE_ZONE",
-          "value": "houbamzdarprivateedge"
+          "value": "houbamzdarfoto"
         },
         {
           "name": "BUNNY_PRIVATE_STORAGE_KEY",
@@ -169,6 +169,14 @@
         {
           "name": "BUNNY_PUBLIC_BASE_URL",
           "value": "https://foto.houbamzdar.cz"
+        },
+        {
+          "name": "BUNNY_BACKUP_STORAGE_ZONE",
+          "value": "houbamzdarprivateedge"
+        },
+        {
+          "name": "BUNNY_BACKUP_STORAGE_KEY",
+          "value": "__SET_IN_BUNNY_BACKUP_STORAGE_KEY__"
         },
         {
           "name": "CAPTURE_AI_VALIDATOR_URL",

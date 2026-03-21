@@ -832,6 +832,7 @@ func TestHandleModeratorRecheckCaptureUpdatesPublishedAnalysis(t *testing.T) {
 		var body struct {
 			CaptureID         string `json:"capture_id"`
 			PrivateStorageKey string `json:"private_storage_key"`
+			ImageURL          string `json:"image_url"`
 			ReviewMode        string `json:"review_mode"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -839,6 +840,9 @@ func TestHandleModeratorRecheckCaptureUpdatesPublishedAnalysis(t *testing.T) {
 		}
 		if body.ReviewMode != "moderator_recheck" {
 			t.Fatalf("expected moderator_recheck mode, got %q", body.ReviewMode)
+		}
+		if body.ImageURL == "" {
+			t.Fatalf("expected optimizer image_url in validator request")
 		}
 
 		w.Header().Set("Content-Type", "application/json")

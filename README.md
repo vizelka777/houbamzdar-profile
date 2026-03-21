@@ -41,6 +41,10 @@ Backend (BFF) и Frontend статика для сайта houbamzdar.cz.
 4. **Хранилище фото**:
    - Можно использовать одну и ту же Bunny Storage Zone для загруженных и опубликованных фото.
    - Если используете single-zone режим, задайте одинаковые значения для `BUNNY_PRIVATE_*` и `BUNNY_PUBLIC_*`.
+   - Если бэкапы БД должны оставаться в отдельной приватной zone, задайте дополнительно:
+     - `BUNNY_BACKUP_STORAGE_ZONE`
+     - `BUNNY_BACKUP_STORAGE_KEY`
+     В этом случае фото будут жить в `BUNNY_PRIVATE_*` / `BUNNY_PUBLIC_*`, а backup-service будет писать только в `BUNNY_BACKUP_*`.
    - `foto.houbamzdar.cz` остаётся доменом, по которому приложение строит ссылки на опубликованные фото.
    - Заполните в Magic Container переменные:
      - `BUNNY_PRIVATE_STORAGE_ZONE`
@@ -48,6 +52,7 @@ Backend (BFF) и Frontend статика для сайта houbamzdar.cz.
      - `BUNNY_PUBLIC_STORAGE_ZONE`
      - `BUNNY_PUBLIC_STORAGE_KEY`
      - `BUNNY_PUBLIC_BASE_URL`
+     - `BUNNY_BACKUP_STORAGE_ZONE` и `BUNNY_BACKUP_STORAGE_KEY` при отдельной зоне для backup
    - Загрузка на сервер означает, что файл уже считается shared. Публикация только добавляет ссылки из галереи и публикаций.
    - Точные координаты в файле не хранятся. Координаты и точность лежат только в БД.
 
@@ -74,6 +79,7 @@ Backend (BFF) и Frontend статика для сайта houbamzdar.cz.
 4. Координаты, точность и статус (`private` / `published`) сохраняются в `photo_captures`.
 5. В single-zone конфигурации публикация просто начинает отдавать ссылку на тот же объект через `foto.houbamzdar.cz`; в legacy two-zone конфигурации backend по-прежнему может копировать файл в public zone.
 6. При снятии с публикации ссылки из продукта исчезают, но сам загруженный файл может оставаться в storage до явного удаления.
+7. AI-проверка больше не уменьшает картинку локально в backend. Validator получает Optimizer URL от `foto.houbamzdar.cz` и анализирует уменьшенную JPEG-версию через Bunny CDN.
 
 ## Синхронизация данных
 Upsert логика находится в `internal/db/db.go` метод `UpsertUser`. 

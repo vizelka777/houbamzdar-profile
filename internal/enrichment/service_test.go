@@ -148,7 +148,7 @@ func TestNominatimResolverCacheExpiry(t *testing.T) {
 	}
 }
 
-func TestAIValidatorClientAnalyzeCaptureWithInlineImage(t *testing.T) {
+func TestAIValidatorClientAnalyzeCaptureWithOptimizerURL(t *testing.T) {
 	t.Parallel()
 
 	var got aiValidatorRequest
@@ -184,9 +184,8 @@ func TestAIValidatorClientAnalyzeCaptureWithInlineImage(t *testing.T) {
 		PrivateStorageKey: "captures/private/capture-inline.jpg",
 	}
 
-	analysis, species, err := client.AnalyzeCaptureWithModeAndImage(context.Background(), capture, AIReviewModePublishValidation, "", &AIValidatorInlineImage{
-		Data:     "ZmFrZS1pbWFnZS1ieXRlcw==",
-		MimeType: "image/jpeg",
+	analysis, species, err := client.AnalyzeCaptureWithModeAndImageSource(context.Background(), capture, AIReviewModePublishValidation, "", &AIValidatorImageSource{
+		URL: "https://foto.houbamzdar.cz/captures/private/capture-inline.jpg?format=jpeg&height=384&quality=70&width=384",
 	})
 	if err != nil {
 		t.Fatalf("analyze capture: %v", err)
@@ -203,7 +202,10 @@ func TestAIValidatorClientAnalyzeCaptureWithInlineImage(t *testing.T) {
 	if got.PrivateStorageKey != capture.PrivateStorageKey {
 		t.Fatalf("expected private storage key %q, got %q", capture.PrivateStorageKey, got.PrivateStorageKey)
 	}
-	if got.InlineImageData == "" || got.InlineImageMime != "image/jpeg" {
-		t.Fatalf("expected inline image payload, got %+v", got)
+	if got.ImageURL == "" {
+		t.Fatalf("expected optimizer image url, got %+v", got)
+	}
+	if got.InlineImageData != "" || got.InlineImageMime != "" {
+		t.Fatalf("expected no inline image payload, got %+v", got)
 	}
 }

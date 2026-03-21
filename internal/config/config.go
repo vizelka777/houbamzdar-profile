@@ -32,6 +32,8 @@ type Config struct {
 	BunnyPublicZone        string
 	BunnyPublicStorageKey  string
 	BunnyPublicBaseURL     string
+	BunnyBackupZone        string
+	BunnyBackupStorageKey  string
 
 	CaptureAIValidatorURL   string
 	CaptureAIValidatorToken string
@@ -92,6 +94,8 @@ func Load() *Config {
 		BunnyPublicZone:        os.Getenv("BUNNY_PUBLIC_STORAGE_ZONE"),
 		BunnyPublicStorageKey:  os.Getenv("BUNNY_PUBLIC_STORAGE_KEY"),
 		BunnyPublicBaseURL:     os.Getenv("BUNNY_PUBLIC_BASE_URL"),
+		BunnyBackupZone:        os.Getenv("BUNNY_BACKUP_STORAGE_ZONE"),
+		BunnyBackupStorageKey:  os.Getenv("BUNNY_BACKUP_STORAGE_KEY"),
 
 		CaptureAIValidatorURL:   os.Getenv("CAPTURE_AI_VALIDATOR_URL"),
 		CaptureAIValidatorToken: os.Getenv("CAPTURE_AI_VALIDATOR_TOKEN"),

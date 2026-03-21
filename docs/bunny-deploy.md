@@ -30,6 +30,8 @@
 Если нужно экспериментировать с model selection без правки кода, менять надо именно `PUBLISH_GEMINI_MODEL` и `MODERATOR_DEFAULT_GEMINI_MODEL` в Bunny Edge Script env, потом перепубликовать script.
 В коде fallback больше нет: если одна из этих переменных пуста, `/config` и рабочие endpoint validator вернут явную ошибку конфигурации.
 
+Validator теперь в первую очередь читает `image_url`, который backend строит через `foto.houbamzdar.cz` + Bunny Optimizer. `BUNNY_PRIVATE_STORAGE_ZONE` и `BUNNY_PRIVATE_STORAGE_KEY` в Edge Script нужны только как fallback для старого потока без `image_url`.
+
 Полезные read-only endpoint у validator:
 
 - `/health`

@@ -84,6 +84,19 @@ async function readPrivateCapture(privateStorageKey) {
     return response;
 }
 
+async function readValidatorImage({ imageURL = "", privateStorageKey = "" } = {}) {
+	const optimizerURL = String(imageURL || "").trim();
+	if (optimizerURL) {
+		const response = await fetch(optimizerURL);
+		if (!response.ok) {
+			throw new Error(`Failed to fetch optimizer image: ${response.status}`);
+		}
+		return response;
+	}
+
+	return readPrivateCapture(privateStorageKey);
+}
+
 function normalizeSpecies(items) {
 	if (!Array.isArray(items)) {
 		return [];
@@ -242,7 +255,7 @@ function buildPrompt(reviewMode) {
 	].join(" ");
 }
 
-async function analyzeCapture({ privateStorageKey = "", inlineImageData = "", inlineImageMimeType = "", reviewMode = REVIEW_MODE_PUBLISH_VALIDATION, requestedModel = "" } = {}) {
+async function analyzeCapture({ privateStorageKey = "", imageURL = "", inlineImageData = "", inlineImageMimeType = "", reviewMode = REVIEW_MODE_PUBLISH_VALIDATION, requestedModel = "" } = {}) {
 	if (!GEMINI_API_KEY) {
 		throw new Error("Missing GEMINI_API_KEY");
 	}
@@ -250,7 +263,7 @@ async function analyzeCapture({ privateStorageKey = "", inlineImageData = "", in
 	let mimeType = String(inlineImageMimeType || "").trim() || "image/jpeg";
 	let inlineImage = String(inlineImageData || "").trim();
 	if (!inlineImage) {
-		const imageResponse = await readPrivateCapture(privateStorageKey);
+		const imageResponse = await readValidatorImage({ imageURL, privateStorageKey });
 		const imageBuffer = await imageResponse.arrayBuffer();
 		mimeType = imageResponse.headers.get("content-type") || "image/jpeg";
 		inlineImage = arrayBufferToBase64(imageBuffer);
@@ -349,17 +362,19 @@ BunnySDK.net.http.serve(async (request) => {
 		const body = await request.json();
 		const captureID = String(body?.capture_id || "").trim();
 		const privateStorageKey = String(body?.private_storage_key || "").trim();
+		const imageURL = String(body?.image_url || "").trim();
 		const inlineImageData = String(body?.inline_image_data || "").trim();
 		const inlineImageMimeType = String(body?.inline_image_mime_type || "").trim();
 		const reviewMode = String(body?.review_mode || REVIEW_MODE_PUBLISH_VALIDATION).trim() || REVIEW_MODE_PUBLISH_VALIDATION;
         const requestedModel = String(body?.model_code || "").trim();
 
-		if (!captureID || (!privateStorageKey && !inlineImageData)) {
+		if (!captureID || (!privateStorageKey && !imageURL && !inlineImageData)) {
 			return json({ error: "Missing capture_id or image payload" }, 400);
 		}
 
 		const result = await analyzeCapture({
 			privateStorageKey,
+			imageURL,
 			inlineImageData,
 			inlineImageMimeType,
 			reviewMode,

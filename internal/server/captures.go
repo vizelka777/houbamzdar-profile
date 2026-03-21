@@ -415,8 +415,8 @@ func (s *Server) handleModeratorRecheckCapture(w http.ResponseWriter, r *http.Re
 	}
 
 	validator := enrichment.NewAIValidatorClient(s.Config)
-	inlineImage, _ := enrichment.PrepareValidatorInlineImage(r.Context(), s.Media, capture, enrichment.AIReviewModeModeratorRecheck)
-	analysis, species, err := validator.AnalyzeCaptureWithModeAndImage(r.Context(), capture, enrichment.AIReviewModeModeratorRecheck, strings.TrimSpace(req.ModelCode), inlineImage)
+	imageSource, _ := enrichment.PrepareValidatorImageSource(s.Media, capture, enrichment.AIReviewModeModeratorRecheck)
+	analysis, species, err := validator.AnalyzeCaptureWithModeAndImageSource(r.Context(), capture, enrichment.AIReviewModeModeratorRecheck, strings.TrimSpace(req.ModelCode), imageSource)
 	if err != nil {
 		http.Error(w, "failed to recheck capture: "+err.Error(), http.StatusBadGateway)
 		return

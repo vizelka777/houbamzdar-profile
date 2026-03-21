@@ -104,3 +104,47 @@ func TestPublishCaptureUsesSameObjectInSharedZone(t *testing.T) {
 		t.Fatalf("expected shared published object to skip public deletion")
 	}
 }
+
+func TestBackupTargetFallsBackToPrivateZone(t *testing.T) {
+	t.Parallel()
+
+	storage := &BunnyStorage{
+		privateZone: "photo-zone",
+		privateKey:  "photo-key",
+	}
+
+	zone, accessKey := storage.backupTarget()
+	if zone != "photo-zone" || accessKey != "photo-key" {
+		t.Fatalf("expected backup target to fall back to private zone, got %q / %q", zone, accessKey)
+	}
+}
+
+func TestBackupTargetUsesDedicatedBackupZoneWhenConfigured(t *testing.T) {
+	t.Parallel()
+
+	storage := &BunnyStorage{
+		privateZone: "photo-zone",
+		privateKey:  "photo-key",
+		backupZone:  "backup-zone",
+		backupKey:   "backup-key",
+	}
+
+	zone, accessKey := storage.backupTarget()
+	if zone != "backup-zone" || accessKey != "backup-key" {
+		t.Fatalf("expected dedicated backup target, got %q / %q", zone, accessKey)
+	}
+}
+
+func TestOptimizerURL(t *testing.T) {
+	t.Parallel()
+
+	storage := &BunnyStorage{
+		publicBaseURL: "https://foto.houbamzdar.cz",
+	}
+
+	got := storage.OptimizerURL("captures/42/2026/03/capture-123.jpg", 384, 384, 70, "jpeg")
+	want := "https://foto.houbamzdar.cz/captures/42/2026/03/capture-123.jpg?format=jpeg&height=384&quality=70&width=384"
+	if got != want {
+		t.Fatalf("unexpected optimizer url: %q", got)
+	}
+}

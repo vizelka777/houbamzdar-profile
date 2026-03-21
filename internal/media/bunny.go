@@ -8,6 +8,7 @@ import (
 	"image/png"
 	"io"
 	"net/http"
+	"net/url"
 	"path"
 	"strings"
 	"time"
@@ -37,6 +38,8 @@ type BunnyStorage struct {
 	publicZone    string
 	publicKey     string
 	publicBaseURL string
+	backupZone    string
+	backupKey     string
 	httpClient    *http.Client
 }
 
@@ -52,6 +55,8 @@ func NewBunnyStorage(cfg *config.Config) *BunnyStorage {
 		publicZone:    cfg.BunnyPublicZone,
 		publicKey:     cfg.BunnyPublicStorageKey,
 		publicBaseURL: strings.TrimRight(cfg.BunnyPublicBaseURL, "/"),
+		backupZone:    strings.TrimSpace(cfg.BunnyBackupZone),
+		backupKey:     strings.TrimSpace(cfg.BunnyBackupStorageKey),
 		httpClient: &http.Client{
 			Timeout: 60 * time.Second,
 		},
@@ -193,12 +198,17 @@ func (b *BunnyStorage) DeletePrivate(ctx context.Context, key string) error {
 }
 
 func (b *BunnyStorage) DeletePrivateObject(ctx context.Context, key string) error {
-	return b.DeletePrivate(ctx, key)
+	zone, accessKey := b.backupTarget()
+	if key == "" {
+		return nil
+	}
+	return b.deleteObject(ctx, zone, accessKey, key)
 }
 
 func (b *BunnyStorage) StorePrivateObject(ctx context.Context, key string, payload []byte, contentType string) error {
-	if !b.CanReadPrivate() {
-		return fmt.Errorf("private Bunny storage is not configured")
+	zone, accessKey := b.backupTarget()
+	if zone == "" || accessKey == "" {
+		return fmt.Errorf("backup Bunny storage is not configured")
 	}
 	if strings.TrimSpace(key) == "" {
 		return fmt.Errorf("object key is required")
@@ -206,7 +216,7 @@ func (b *BunnyStorage) StorePrivateObject(ctx context.Context, key string, paylo
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
-	return b.putObject(ctx, b.privateZone, b.privateKey, key, payload, contentType)
+	return b.putObject(ctx, zone, accessKey, key, payload, contentType)
 }
 
 func (b *BunnyStorage) DeletePublic(ctx context.Context, key string) error {
@@ -221,6 +231,38 @@ func (b *BunnyStorage) PublicURL(key string) string {
 		return ""
 	}
 	return fmt.Sprintf("%s/%s", b.publicBaseURL, key)
+}
+
+func (b *BunnyStorage) OptimizerURL(key string, width int, height int, quality int, format string) string {
+	if b == nil {
+		return ""
+	}
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return ""
+	}
+
+	baseURL := strings.TrimRight(b.publicBaseURL, "/") + "/" + strings.TrimLeft(key, "/")
+	parsed, err := url.Parse(baseURL)
+	if err != nil {
+		return baseURL
+	}
+
+	query := parsed.Query()
+	if width > 0 {
+		query.Set("width", fmt.Sprintf("%d", width))
+	}
+	if height > 0 {
+		query.Set("height", fmt.Sprintf("%d", height))
+	}
+	if quality > 0 {
+		query.Set("quality", fmt.Sprintf("%d", quality))
+	}
+	if strings.TrimSpace(format) != "" {
+		query.Set("format", strings.TrimSpace(format))
+	}
+	parsed.RawQuery = query.Encode()
+	return parsed.String()
 }
 
 func PrivateCaptureKey(userID int64, captureID string, capturedAt time.Time, extension string) string {
@@ -251,6 +293,16 @@ func extensionFromContentType(contentType string) string {
 	default:
 		return ".jpg"
 	}
+}
+
+func (b *BunnyStorage) backupTarget() (string, string) {
+	if b == nil {
+		return "", ""
+	}
+	if b.backupZone != "" && b.backupKey != "" {
+		return b.backupZone, b.backupKey
+	}
+	return b.privateZone, b.privateKey
 }
 
 func (b *BunnyStorage) putObject(ctx context.Context, zone, accessKey, objectKey string, payload []byte, contentType string) error {
