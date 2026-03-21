@@ -431,6 +431,12 @@ const CAPTURE_IMAGE_VARIANTS = {
         widths: [192, 256, 320, 384, 512, 640, 768],
         sizes: "(max-width: 720px) 50vw, (max-width: 1200px) 33vw, 384px"
     },
+    mapMarker: {
+        width: "128",
+        quality: "60",
+        widths: [64, 96, 128, 160, 192, 256],
+        sizes: "56px"
+    },
     popup: {
         width: "640",
         quality: "72",
@@ -1814,6 +1820,88 @@ function buildCapturePopupPreviewHtml(capture, altText) {
     return imageHtml;
 }
 
+function buildCaptureMapMarkerLabel(capture, fallback = "Otevřít fotografii") {
+    if (!capture) {
+        return fallback;
+    }
+
+    const species = buildCaptureSpeciesLabel(capture);
+    const authorName = String(capture.author_name || capture.post_author_name || "").trim();
+    return species || authorName || fallback;
+}
+
+function buildCaptureMapMarkerTooltipHtml({ title = "", metaLines = [] } = {}) {
+    const safeTitle = escapeHtml(title || "Fotografie");
+    const details = (Array.isArray(metaLines) ? metaLines : [])
+        .map((line) => String(line || "").trim())
+        .filter(Boolean)
+        .join(" • ");
+
+    return `
+        <div class="hzd-map-marker-tooltip">
+            <strong>${safeTitle}</strong>
+            ${details ? `<span>${escapeHtml(details)}</span>` : ""}
+        </div>
+    `;
+}
+
+function createCaptureMapMarker(capture, {
+    title = "",
+    tooltipHtml = "",
+    onActivate = null
+} = {}) {
+    const lat = Number(capture?.latitude);
+    const lon = Number(capture?.longitude);
+    const label = title || buildCaptureMapMarkerLabel(capture);
+    const markerImageHtml = buildCaptureImageTag(capture, {
+        variant: "mapMarker",
+        alt: "",
+        loading: "lazy",
+        sizes: "56px",
+        extraAttrs: {
+            "aria-hidden": "true"
+        }
+    }) || '<span class="hzd-map-thumb-marker__placeholder" aria-hidden="true">?</span>';
+
+    const marker = L.marker([lat, lon], {
+        icon: L.divIcon({
+            className: "hzd-map-thumb-icon",
+            html: `
+                <div class="hzd-map-thumb-marker" role="button" aria-label="${escapeHtml(label)}">
+                    <span class="hzd-map-thumb-marker__frame">
+                        ${markerImageHtml}
+                    </span>
+                    <span class="hzd-map-thumb-marker__pin" aria-hidden="true"></span>
+                </div>
+            `,
+            iconSize: [58, 74],
+            iconAnchor: [29, 72],
+            tooltipAnchor: [0, -42],
+            popupAnchor: [0, -54]
+        }),
+        title: label,
+        alt: label,
+        riseOnHover: true
+    });
+
+    if (tooltipHtml) {
+        marker.bindTooltip(tooltipHtml, {
+            direction: "top",
+            offset: [0, -42],
+            opacity: 1,
+            className: "hzd-map-marker-tooltip-shell"
+        });
+    }
+
+    if (typeof onActivate === "function") {
+        marker.on("click", () => {
+            onActivate(capture);
+        });
+    }
+
+    return marker;
+}
+
 function buildSharedMapPopupHtml({
     authorName = "Neznámý houbař",
     authorUrl = "",
@@ -1870,7 +1958,9 @@ function bindMapPopupAction(marker, selector, handler) {
 
 window.HZDMapUI = {
     buildPopupHtml: buildSharedMapPopupHtml,
-    bindPopupAction: bindMapPopupAction
+    bindPopupAction: bindMapPopupAction,
+    buildMarkerTooltipHtml: buildCaptureMapMarkerTooltipHtml,
+    createCaptureMarker: createCaptureMapMarker
 };
 
 function buildPublicProfileMapPopupHtml(capture) {
@@ -1943,6 +2033,22 @@ function renderPublicProfileMap() {
 
     emptyNode.hidden = true;
     const markers = captures.map((capture) => {
+        const markerTitle = buildCaptureSpeciesLabel(capture) || capture.author_name || "Otevřít fotografii";
+        const markerTooltip = buildCaptureMapMarkerTooltipHtml({
+            title: markerTitle,
+            metaLines: [capture.author_name || "", formatDateTime(capture.captured_at)]
+        });
+
+        if (window.HZDMapUI?.createCaptureMarker) {
+            return window.HZDMapUI.createCaptureMarker(capture, {
+                title: markerTitle,
+                tooltipHtml: markerTooltip,
+                onActivate: () => {
+                    openPublicProfileMapLightbox(capture.id);
+                }
+            });
+        }
+
         const marker = L.marker([Number(capture.latitude), Number(capture.longitude)]);
         marker.bindPopup(buildPublicProfileMapPopupHtml(capture));
         if (window.HZDMapUI) {

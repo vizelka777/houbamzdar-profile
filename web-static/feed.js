@@ -509,6 +509,24 @@ function attachInlineMapToggle(card, post, mapId, mapCaptures) {
             }).addTo(postMap);
 
             const markers = mapCaptures.map((capture) => {
+                const markerTitle = buildCaptureSpeciesLabel(capture) || post.author_name || "Otevřít fotografii";
+                const markerTooltip = window.HZDMapUI?.buildMarkerTooltipHtml
+                    ? window.HZDMapUI.buildMarkerTooltipHtml({
+                        title: markerTitle,
+                        metaLines: [post.author_name || "", formatDateTime(capture.captured_at || post.created_at)]
+                    })
+                    : "";
+
+                if (window.HZDMapUI?.createCaptureMarker) {
+                    return window.HZDMapUI.createCaptureMarker(capture, {
+                        title: markerTitle,
+                        tooltipHtml: markerTooltip,
+                        onActivate: () => {
+                            openPostCaptureLightbox(post, capture.id);
+                        }
+                    });
+                }
+
                 const marker = L.marker([Number(capture.latitude), Number(capture.longitude)]);
                 marker.bindPopup(buildInlineMapPopupHtml(capture, post));
                 if (window.HZDMapUI) {

@@ -210,10 +210,27 @@ function renderGlobalMapMarkers() {
         }
 
         globalMapState.bounds.extend([lat, lon]);
-        const marker = L.marker([lat, lon]);
-        marker.on("click", () => {
-            openGlobalMapCaptureLightbox(capture.id);
-        });
+        const markerTitle = buildCaptureSpeciesLabel(capture) || capture.author_name || "Otevřít fotografii";
+        const markerTooltip = window.HZDMapUI?.buildMarkerTooltipHtml
+            ? window.HZDMapUI.buildMarkerTooltipHtml({
+                title: markerTitle,
+                metaLines: [capture.author_name || "", buildCaptureRegionLabel(capture)]
+            })
+            : "";
+        const marker = window.HZDMapUI?.createCaptureMarker
+            ? window.HZDMapUI.createCaptureMarker(capture, {
+                title: markerTitle,
+                tooltipHtml: markerTooltip,
+                onActivate: () => {
+                    openGlobalMapCaptureLightbox(capture.id);
+                }
+            })
+            : L.marker([lat, lon]);
+        if (!window.HZDMapUI?.createCaptureMarker) {
+            marker.on("click", () => {
+                openGlobalMapCaptureLightbox(capture.id);
+            });
+        }
         markers.push(marker);
     });
 

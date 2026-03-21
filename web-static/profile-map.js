@@ -121,6 +121,24 @@ function buildProfilePopupHtml(capture) {
 }
 
 function buildProfileMarker(capture) {
+    const markerTitle = buildCaptureSpeciesLabel(capture) || capture.author_name || "Otevřít fotografii";
+    const markerTooltip = window.HZDMapUI?.buildMarkerTooltipHtml
+        ? window.HZDMapUI.buildMarkerTooltipHtml({
+            title: markerTitle,
+            metaLines: [capture.coordinates_free ? "Souřadnice zdarma" : "Soukromý bod na mapě"]
+        })
+        : "";
+
+    if (window.HZDMapUI?.createCaptureMarker) {
+        return window.HZDMapUI.createCaptureMarker(capture, {
+            title: markerTitle,
+            tooltipHtml: markerTooltip,
+            onActivate: () => {
+                openProfileMapLightbox(capture.id);
+            }
+        });
+    }
+
     const marker = L.marker([Number(capture.latitude), Number(capture.longitude)]);
     marker.bindPopup(buildProfilePopupHtml(capture));
     if (window.HZDMapUI) {
