@@ -1,6 +1,9 @@
 package models
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 type User struct {
 	ID                       int64     `json:"id"`
@@ -138,6 +141,20 @@ type Post struct {
 type CreatePostRequest struct {
 	Content    string   `json:"content"`
 	CaptureIDs []string `json:"capture_ids"`
+}
+
+func (c *Capture) PublishedStorageKey() string {
+	if c == nil {
+		return ""
+	}
+	if key := strings.TrimSpace(c.PrivateStorageKey); key != "" {
+		return key
+	}
+	return strings.TrimSpace(c.PublicStorageKey)
+}
+
+func (c *Capture) IsPubliclyShared() bool {
+	return c != nil && c.Status == "published" && c.PublishedStorageKey() != ""
 }
 
 type Comment struct {

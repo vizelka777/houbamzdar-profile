@@ -854,8 +854,7 @@ func buildPublicCaptureQuerySpec(filters PublicCaptureFilters, viewerUserID int6
 		whereClauses = []string{
 			"c.status = 'published'",
 			"COALESCE(c.moderator_hidden, 0) = 0",
-			"c.public_storage_key IS NOT NULL",
-			"c.public_storage_key != ''",
+			"COALESCE(c.private_storage_key, '') != ''",
 			publicUserNotBannedClause("u"),
 		}
 		args = []interface{}{now}

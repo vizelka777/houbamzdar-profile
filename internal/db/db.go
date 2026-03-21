@@ -1105,7 +1105,7 @@ func (db *DB) GetPublicUserProfile(id int64) (*models.PublicUserProfile, error) 
 			phone_number_verified,
 			created_at,
 			(SELECT COUNT(*) FROM posts WHERE user_id = users.id AND status = 'published' AND COALESCE(moderator_hidden, 0) = 0),
-			(SELECT COUNT(*) FROM photo_captures WHERE user_id = users.id AND status = 'published' AND COALESCE(moderator_hidden, 0) = 0 AND public_storage_key IS NOT NULL AND public_storage_key != '')
+			(SELECT COUNT(*) FROM photo_captures WHERE user_id = users.id AND status = 'published' AND COALESCE(moderator_hidden, 0) = 0 AND COALESCE(private_storage_key, '') != '')
 		FROM users
 		WHERE id = ? AND %s
 	`, publicUserNotBannedClause("users")), id, now).Scan(
@@ -1836,7 +1836,7 @@ func (db *DB) ListPublicCaptures(limit, offset int, viewerUserID int64) ([]*mode
 			COALESCE(c.public_storage_key, ''), COALESCE(c.published_at, ''), COALESCE(c.coordinates_free, 0)
 		FROM photo_captures c
 		JOIN users u ON c.user_id = u.id
-		WHERE c.status = 'published' AND COALESCE(c.moderator_hidden, 0) = 0 AND c.public_storage_key IS NOT NULL AND c.public_storage_key != '' AND %s
+		WHERE c.status = 'published' AND COALESCE(c.moderator_hidden, 0) = 0 AND COALESCE(c.private_storage_key, '') != '' AND %s
 		ORDER BY c.published_at DESC, c.captured_at DESC
 		LIMIT ? OFFSET ?
 	`, publicUserNotBannedClause("u")), now, limit, offset)
@@ -1884,7 +1884,7 @@ func (db *DB) CountPublicCapturesByUser(userID int64) (int, error) {
 		SELECT COUNT(*)
 		FROM photo_captures c
 		JOIN users u ON c.user_id = u.id
-		WHERE c.user_id = ? AND c.status = 'published' AND COALESCE(c.moderator_hidden, 0) = 0 AND c.public_storage_key IS NOT NULL AND c.public_storage_key != '' AND %s
+		WHERE c.user_id = ? AND c.status = 'published' AND COALESCE(c.moderator_hidden, 0) = 0 AND COALESCE(c.private_storage_key, '') != '' AND %s
 	`, publicUserNotBannedClause("u")), userID, now).Scan(&total)
 	return total, err
 }
@@ -1897,7 +1897,7 @@ func (db *DB) ListPublicCapturesByUser(userID int64, limit, offset int, viewerUs
 			COALESCE(c.public_storage_key, ''), COALESCE(c.published_at, ''), COALESCE(c.coordinates_free, 0)
 		FROM photo_captures c
 		JOIN users u ON c.user_id = u.id
-		WHERE c.user_id = ? AND c.status = 'published' AND COALESCE(c.moderator_hidden, 0) = 0 AND c.public_storage_key IS NOT NULL AND c.public_storage_key != '' AND %s
+		WHERE c.user_id = ? AND c.status = 'published' AND COALESCE(c.moderator_hidden, 0) = 0 AND COALESCE(c.private_storage_key, '') != '' AND %s
 		ORDER BY c.published_at DESC, c.captured_at DESC
 		LIMIT ? OFFSET ?
 	`, publicUserNotBannedClause("u")), userID, now, limit, offset)
@@ -1967,8 +1967,7 @@ func (db *DB) getCapturesForPost(postID string, viewerUserID int64, includeModer
 		WHERE pc.post_id = ?
 			AND c.status = 'published'
 			AND COALESCE(c.moderator_hidden, 0) = 0
-			AND c.public_storage_key IS NOT NULL
-			AND c.public_storage_key != ''
+				AND COALESCE(c.private_storage_key, '') != ''
 			AND %s
 		ORDER BY pc.display_order ASC
 	`, publicUserNotBannedClause("u"))

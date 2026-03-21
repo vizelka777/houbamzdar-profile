@@ -294,8 +294,8 @@ func (s *Server) handlePublishCapture(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if capture.Status == "published" && capture.PublicStorageKey != "" {
-		capture.PublicURL = s.Media.PublicURL(capture.PublicStorageKey)
+	if capture.IsPubliclyShared() {
+		capture.PublicURL = s.Media.PublicURL(capture.PublishedStorageKey())
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"ok":      true,
@@ -399,7 +399,7 @@ func (s *Server) handleModeratorRecheckCapture(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	if capture.Status != "published" || strings.TrimSpace(capture.PublicStorageKey) == "" {
+	if !capture.IsPubliclyShared() {
 		http.Error(w, "capture is not publicly shared", http.StatusUnprocessableEntity)
 		return
 	}
@@ -496,7 +496,7 @@ func (s *Server) handleSetModerationCaptureTaxonomy(w http.ResponseWriter, r *ht
 		http.Error(w, "failed to load capture", http.StatusInternalServerError)
 		return
 	}
-	if capture.Status != "published" || strings.TrimSpace(capture.PublicStorageKey) == "" {
+	if !capture.IsPubliclyShared() {
 		http.Error(w, "capture is not publicly shared", http.StatusUnprocessableEntity)
 		return
 	}
@@ -598,7 +598,7 @@ func (s *Server) handleSetModerationCaptureGeo(w http.ResponseWriter, r *http.Re
 		http.Error(w, "failed to load capture", http.StatusInternalServerError)
 		return
 	}
-	if capture.Status != "published" || strings.TrimSpace(capture.PublicStorageKey) == "" {
+	if !capture.IsPubliclyShared() {
 		http.Error(w, "capture is not publicly shared", http.StatusUnprocessableEntity)
 		return
 	}
@@ -942,8 +942,8 @@ func attachPublicURLs(captures []*models.Capture, storage *media.BunnyStorage) {
 	}
 
 	for _, capture := range captures {
-		if capture.PublicStorageKey != "" {
-			capture.PublicURL = storage.PublicURL(capture.PublicStorageKey)
+		if capture.IsPubliclyShared() {
+			capture.PublicURL = storage.PublicURL(capture.PublishedStorageKey())
 		}
 	}
 }

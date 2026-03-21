@@ -127,7 +127,7 @@ func TestListPublicPostsIncludesCapturePublicURLs(t *testing.T) {
 		t.Fatalf("expected 1 capture, got %d", len(payload.Posts[0].Captures))
 	}
 
-	wantPublicURL := "https://foto.houbamzdar.cz/captures/published/1/2026/03/capture-001.jpg"
+	wantPublicURL := "https://foto.houbamzdar.cz/captures/1/2026/03/capture-001.jpg"
 	if got := payload.Posts[0].Captures[0].PublicURL; got != wantPublicURL {
 		t.Fatalf("expected public_url %q, got %q", wantPublicURL, got)
 	}

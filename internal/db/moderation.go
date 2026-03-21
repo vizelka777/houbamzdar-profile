@@ -159,22 +159,23 @@ func parseRFC3339Value(raw string) time.Time {
 
 func (db *DB) ListModerationHiddenCaptures(limit int, offset int) ([]*models.Capture, error) {
 	rows, err := db.Query(`
-		SELECT
-			c.id,
-			c.user_id,
-			COALESCE(u.preferred_username, ''),
-			COALESCE(u.picture, ''),
+			SELECT
+				c.id,
+				c.user_id,
+				COALESCE(u.preferred_username, ''),
+				COALESCE(u.picture, ''),
 			COALESCE(c.client_local_id, ''),
 			c.original_file_name,
 			c.content_type,
 			c.size_bytes,
 			c.width,
-			c.height,
-			c.captured_at,
-			c.uploaded_at,
-			c.status,
-			COALESCE(c.public_storage_key, ''),
-			COALESCE(c.published_at, ''),
+				c.height,
+				c.captured_at,
+				c.uploaded_at,
+				c.status,
+				c.private_storage_key,
+				COALESCE(c.public_storage_key, ''),
+				COALESCE(c.published_at, ''),
 			COALESCE(c.coordinates_free, 0),
 			COALESCE(gi.kraj_name, ''),
 			COALESCE(ma.primary_latin_name, ''),
@@ -197,10 +198,9 @@ func (db *DB) ListModerationHiddenCaptures(limit int, offset int) ([]*models.Cap
 		LEFT JOIN users mod ON mod.id = c.moderated_by_user_id
 		LEFT JOIN capture_geo_index gi ON gi.capture_id = c.id
 		LEFT JOIN capture_mushroom_analysis ma ON ma.capture_id = c.id
-		WHERE c.status = 'published'
-			AND c.public_storage_key IS NOT NULL
-			AND c.public_storage_key != ''
-			AND COALESCE(c.moderator_hidden, 0) = 1
+			WHERE c.status = 'published'
+				AND COALESCE(c.private_storage_key, '') != ''
+				AND COALESCE(c.moderator_hidden, 0) = 1
 		ORDER BY COALESCE(c.moderated_at, c.published_at, c.uploaded_at) DESC
 		LIMIT ? OFFSET ?
 	`, limit, offset)
@@ -233,6 +233,7 @@ func (db *DB) ListModerationHiddenCaptures(limit int, offset int) ([]*models.Cap
 			&capturedAtRaw,
 			&uploadedAtRaw,
 			&c.Status,
+			&c.PrivateStorageKey,
 			&c.PublicStorageKey,
 			&publishedAtRaw,
 			&coordinatesFree,
@@ -265,13 +266,12 @@ func (db *DB) ListModerationHiddenCaptures(limit int, offset int) ([]*models.Cap
 func (db *DB) CountModerationHiddenCaptures() (int, error) {
 	var total int
 	if err := db.QueryRow(`
-		SELECT COUNT(*)
-		FROM photo_captures
-		WHERE status = 'published'
-			AND public_storage_key IS NOT NULL
-			AND public_storage_key != ''
-			AND COALESCE(moderator_hidden, 0) = 1
-	`).Scan(&total); err != nil {
+			SELECT COUNT(*)
+			FROM photo_captures
+			WHERE status = 'published'
+				AND COALESCE(private_storage_key, '') != ''
+				AND COALESCE(moderator_hidden, 0) = 1
+		`).Scan(&total); err != nil {
 		return 0, err
 	}
 	return total, nil

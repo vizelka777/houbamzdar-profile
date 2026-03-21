@@ -35,14 +35,13 @@ func (db *DB) GetAdminOverview() (*models.AdminOverview, error) {
 				WHERE status = 'published'
 					AND COALESCE(moderator_hidden, 0) = 0
 			), 0),
-			COALESCE((
-				SELECT COUNT(*)
-				FROM photo_captures
-				WHERE status = 'published'
-					AND COALESCE(moderator_hidden, 0) = 0
-					AND public_storage_key IS NOT NULL
-					AND public_storage_key != ''
-			), 0),
+				COALESCE((
+					SELECT COUNT(*)
+					FROM photo_captures
+					WHERE status = 'published'
+						AND COALESCE(moderator_hidden, 0) = 0
+						AND COALESCE(private_storage_key, '') != ''
+				), 0),
 			COALESCE((
 				SELECT COUNT(*)
 				FROM posts
@@ -205,15 +204,14 @@ func (db *DB) ListAdminUsers(filters models.AdminUserListFilters) ([]*models.Adm
 					AND posts.status = 'published'
 					AND COALESCE(posts.moderator_hidden, 0) = 0
 			), 0),
-			COALESCE((
-				SELECT COUNT(*)
-				FROM photo_captures
-				WHERE photo_captures.user_id = users.id
-					AND photo_captures.status = 'published'
-					AND COALESCE(photo_captures.moderator_hidden, 0) = 0
-					AND photo_captures.public_storage_key IS NOT NULL
-					AND photo_captures.public_storage_key != ''
-			), 0)
+				COALESCE((
+					SELECT COUNT(*)
+					FROM photo_captures
+					WHERE photo_captures.user_id = users.id
+						AND photo_captures.status = 'published'
+						AND COALESCE(photo_captures.moderator_hidden, 0) = 0
+						AND COALESCE(photo_captures.private_storage_key, '') != ''
+				), 0)
 		FROM users
 	` + whereClause + `
 		ORDER BY COALESCE(is_admin, 0) DESC,
