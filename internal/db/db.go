@@ -57,6 +57,7 @@ const migrationAdminBackupsTableID = "20260316_create_admin_backups_table"
 const migrationUsersPreferredUsernameNormID = "20260320_add_users_preferred_username_norm"
 const migrationUsersClearContactDataID = "20260320_clear_user_contact_data"
 const migrationUsersClearStoredOIDCTokensID = "20260320_clear_user_oidc_tokens"
+const migrationBackfillPublishedCapturePrivateKeysID = "20260321_backfill_published_capture_private_keys"
 
 var ErrInsufficientHoubickaBalance = errors.New("insufficient houbicka balance")
 var ErrCaptureHasNoCoordinates = errors.New("capture has no coordinates")
@@ -708,6 +709,19 @@ func migrate(db *sql.DB) error {
 					}
 				}
 				return nil
+			},
+		},
+		{
+			id: migrationBackfillPublishedCapturePrivateKeysID,
+			apply: func(tx *sql.Tx) error {
+				_, err := tx.Exec(`
+						UPDATE photo_captures
+						SET private_storage_key = public_storage_key
+						WHERE status = 'published'
+							AND COALESCE(public_storage_key, '') != ''
+							AND private_storage_key != public_storage_key
+					`)
+				return err
 			},
 		},
 	}

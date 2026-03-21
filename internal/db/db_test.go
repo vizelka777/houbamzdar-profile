@@ -560,6 +560,85 @@ func TestMigrateCreatesPhotoCapturesTableAndSupportsCRUD(t *testing.T) {
 	}
 }
 
+func TestMigrateBackfillsPublishedCapturePrivateStorageKey(t *testing.T) {
+	t.Parallel()
+
+	rawDB := openTestDB(t)
+	if err := migrate(rawDB); err != nil {
+		t.Fatalf("initial migrate: %v", err)
+	}
+
+	database := &DB{rawDB}
+	token := &oauth2.Token{
+		AccessToken:  "capture-access",
+		RefreshToken: "capture-refresh",
+		Expiry:       time.Now().Add(2 * time.Hour).UTC(),
+	}
+	user, _, err := database.UpsertUser(&models.OIDCClaims{
+		Iss:               "https://ahoj420.eu",
+		Sub:               "capture-migration-user",
+		PreferredUsername: "migrace",
+		Email:             "migrace@example.test",
+		EmailVerified:     true,
+	}, token)
+	if err != nil {
+		t.Fatalf("create user for migration test: %v", err)
+	}
+
+	capturedAt := time.Date(2026, time.March, 21, 10, 11, 12, 0, time.UTC)
+	uploadedAt := capturedAt.Add(3 * time.Minute)
+	capture := &models.Capture{
+		ID:                "capture-published-legacy",
+		UserID:            user.ID,
+		OriginalFileName:  "legacy-published.jpg",
+		ContentType:       "image/jpeg",
+		SizeBytes:         2048,
+		Width:             1600,
+		Height:            1200,
+		CapturedAt:        capturedAt,
+		UploadedAt:        uploadedAt,
+		Status:            "private",
+		PrivateStorageKey: "captures/1/2026/03/capture-published-legacy.jpg",
+	}
+	if err := database.CreateCapture(capture); err != nil {
+		t.Fatalf("create legacy capture: %v", err)
+	}
+	if err := database.PublishCapture(capture.ID, user.ID, "captures/published/1/2026/03/capture-published-legacy.jpg"); err != nil {
+		t.Fatalf("publish legacy capture: %v", err)
+	}
+
+	before, err := database.GetCaptureForUser(capture.ID, user.ID)
+	if err != nil {
+		t.Fatalf("load capture before backfill: %v", err)
+	}
+	if before.PrivateStorageKey == before.PublicStorageKey {
+		t.Fatalf("expected legacy keys to differ before backfill")
+	}
+
+	if err := migrate(rawDB); err != nil {
+		t.Fatalf("rerun migrate for backfill: %v", err)
+	}
+
+	after, err := database.GetCaptureForUser(capture.ID, user.ID)
+	if err != nil {
+		t.Fatalf("load capture after backfill: %v", err)
+	}
+	if after.PrivateStorageKey != after.PublicStorageKey {
+		t.Fatalf("expected private key %q to match public key %q after backfill", after.PrivateStorageKey, after.PublicStorageKey)
+	}
+
+	var applied int
+	if err := rawDB.QueryRow(
+		`SELECT COUNT(*) FROM schema_migrations WHERE id = ?`,
+		migrationBackfillPublishedCapturePrivateKeysID,
+	).Scan(&applied); err != nil {
+		t.Fatalf("query backfill migration row: %v", err)
+	}
+	if applied != 1 {
+		t.Fatalf("expected backfill migration row once, got %d", applied)
+	}
+}
+
 func TestListCapturesPageSupportsStatusDateAndPagination(t *testing.T) {
 	t.Parallel()
 
