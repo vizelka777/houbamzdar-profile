@@ -60,9 +60,15 @@ async function loadCapturesForSelection(append = false) {
                 }
 
                 const imgUrl = `${API_URL}/api/captures/${encodeURIComponent(capture.id)}/preview`;
+                const imageHtml = buildCaptureImageTag(capture, {
+                    variant: "thumb",
+                    alt: "Fotografie",
+                    loading: "lazy",
+                    sizes: "(max-width: 720px) 50vw, (max-width: 1200px) 33vw, 200px"
+                }) || `<img src="${escapeHtml(imgUrl)}" alt="Fotografie" loading="lazy">`;
 
                 item.innerHTML = `
-                    <img src="${escapeHtml(imgUrl)}" alt="Fotografie" loading="lazy">
+                    ${imageHtml}
                     <div class="badge">✓</div>
                 `;
 

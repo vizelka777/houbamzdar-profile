@@ -101,7 +101,14 @@ function renderHiddenCaptures() {
     }
 
     container.innerHTML = items.map((capture) => {
-        const previewURL = capture.public_url ? buildCaptureImageURL(capture, "thumb") : "";
+        const previewHtml = capture.public_url
+            ? buildCaptureImageTag(capture, {
+                variant: "thumb",
+                alt: buildCaptureSpeciesLabel(capture) || "Skrytá fotografie",
+                loading: "lazy",
+                sizes: "(max-width: 720px) 50vw, 240px"
+            })
+            : "";
         const authorURL = buildPublicProfileURL(capture.author_user_id);
         const speciesLabel = buildCaptureSpeciesLabel(capture) || moderationExcerpt(capture.original_file_name, 80) || "Skrytá fotografie";
         const moderationMeta = [
@@ -113,7 +120,7 @@ function renderHiddenCaptures() {
         return `
             <article class="moderation-item-card">
                 <div class="moderation-capture-layout">
-                    ${previewURL ? `<img src="${escapeHtml(previewURL)}" alt="${escapeHtml(speciesLabel)}" loading="lazy">` : ""}
+                    ${previewHtml}
                     <div class="moderation-item-copy">
                         <div class="moderation-item-head">
                             <div>
@@ -188,11 +195,18 @@ function renderHiddenPosts() {
                 ${previews.length ? `
                     <div class="moderation-preview-grid">
                         ${previews.map((capture) => {
-                            const previewURL = capture.public_url ? buildCaptureImageURL(capture, "thumb") : "";
-                            if (!previewURL) {
+                            const previewHtml = capture.public_url
+                                ? buildCaptureImageTag(capture, {
+                                    variant: "thumb",
+                                    alt: "Náhled publikace",
+                                    loading: "lazy",
+                                    sizes: "(max-width: 720px) 33vw, 180px"
+                                })
+                                : "";
+                            if (!previewHtml) {
                                 return "";
                             }
-                            return `<img src="${escapeHtml(previewURL)}" alt="Náhled publikace" loading="lazy">`;
+                            return previewHtml;
                         }).join("")}
                     </div>
                 ` : ""}

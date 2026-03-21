@@ -101,7 +101,7 @@ function openProfileMapLightbox(captureID) {
     }
 
     window.HZDLightbox.openCollection(capturesToOpen, startIndex, {
-        imageBuilder: (capture) => profileCaptureImageURL(capture, "original")
+        imageBuilder: (capture) => profileCaptureImageURL(capture, "lightbox")
     });
 }
 
@@ -109,7 +109,8 @@ function buildProfilePopupHtml(capture) {
     const imageURL = profileCaptureImageURL(capture, "popup");
     return window.HZDMapUI.buildPopupHtml({
         authorName: capture.author_name || "Neznámý houbař",
-        previewUrl: imageURL,
+        previewUrl: capture.public_url ? "" : imageURL,
+        previewHtml: capture.public_url ? buildCapturePopupPreviewHtml(capture, capture.author_name || "Fotografie") : "",
         altText: capture.author_name || "Fotografie",
         dateValue: capture.unlocked_at || capture.captured_at,
         metaLines: [capture.coordinates_free ? "Souřadnice zdarma" : "Soukromý bod na mapě"],

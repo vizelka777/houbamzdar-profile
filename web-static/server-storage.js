@@ -270,6 +270,14 @@ function renderServerStorageGrid() {
             `
             : '<p class="capture-free-help">Bez GPS, není co zpřístupnit.</p>';
 
+        const previewHtml = buildCaptureImageTag(capture, {
+            variant: "thumb",
+            alt: "Náhled nahrané fotografie",
+            className: "capture-thumb",
+            loading: "lazy",
+            sizes: "(max-width: 720px) 100vw, 320px"
+        }) || `<img src="${escapeHtml(previewUrl)}" alt="Náhled nahrané fotografie" class="capture-thumb" loading="lazy">`;
+
         card.innerHTML = `
             <div class="capture-item-head">
                 <label class="capture-select">
@@ -278,7 +286,7 @@ function renderServerStorageGrid() {
                 </label>
                 ${buildStorageStatusBadge(capture)}
             </div>
-            <img src="${escapeHtml(previewUrl)}" alt="Náhled nahrané fotografie" class="capture-thumb" loading="lazy">
+            ${previewHtml}
             <div class="capture-meta">
                 <h3>${escapeHtml(capture.original_file_name || "Nález")}</h3>
                 <p>${escapeHtml(formatDateTime(capture.captured_at))}</p>

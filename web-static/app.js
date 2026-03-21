@@ -427,21 +427,35 @@ const CAPTURE_IMAGE_VARIANTS = {
     original: null,
     thumb: {
         width: "384",
-        quality: "68"
+        quality: "68",
+        widths: [192, 256, 320, 384, 512, 640, 768],
+        sizes: "(max-width: 720px) 50vw, (max-width: 1200px) 33vw, 384px"
     },
     popup: {
         width: "640",
-        quality: "72"
+        quality: "72",
+        widths: [320, 480, 640, 768, 960, 1280],
+        sizes: "(max-width: 720px) 82vw, 320px"
+    },
+    lightbox: {
+        width: "1600",
+        quality: "80",
+        widths: [640, 960, 1280, 1600, 2048],
+        sizes: "100vw"
     }
 };
+
+function getCaptureImageVariantPreset(variant = "original") {
+    return CAPTURE_IMAGE_VARIANTS[variant] || CAPTURE_IMAGE_VARIANTS.original;
+}
 
 function isOptimizerEligibleCaptureURL(url) {
     const hostname = String(url?.hostname || "").toLowerCase();
     return hostname === "foto.houbamzdar.cz" || hostname.endsWith(".b-cdn.net");
 }
 
-function applyCaptureImageVariant(urlString, variant = "original") {
-    const preset = CAPTURE_IMAGE_VARIANTS[variant] || CAPTURE_IMAGE_VARIANTS.original;
+function applyCaptureImageVariant(urlString, variant = "original", overrides = {}) {
+    const preset = getCaptureImageVariantPreset(variant);
     if (!preset) {
         return urlString;
     }
@@ -452,7 +466,17 @@ function applyCaptureImageVariant(urlString, variant = "original") {
             return urlString;
         }
 
-        Object.entries(preset).forEach(([key, value]) => {
+        const params = {
+            ...preset,
+            ...(overrides && typeof overrides === "object" ? overrides : {})
+        };
+        delete params.widths;
+        delete params.sizes;
+
+        Object.entries(params).forEach(([key, value]) => {
+            if (value === null || value === undefined || value === "") {
+                return;
+            }
             url.searchParams.set(key, value);
         });
         return url.toString();
@@ -468,6 +492,122 @@ function buildCaptureImageURL(capture, variant = "original") {
         return applyCaptureImageVariant(capture.public_url, variant);
     }
     return `${API_URL}/api/captures/${encodeURIComponent(capture.id)}/preview`;
+}
+
+function buildCaptureImageSrcSet(capture, variant = "original") {
+    if (!capture || !capture.public_url) {
+        return "";
+    }
+
+    const preset = getCaptureImageVariantPreset(variant);
+    const widths = Array.isArray(preset?.widths) ? preset.widths : [];
+    if (!widths.length) {
+        return "";
+    }
+
+    return [...new Set(widths.map((value) => Number(value)).filter((value) => value > 0))]
+        .sort((left, right) => left - right)
+        .map((width) => `${applyCaptureImageVariant(capture.public_url, variant, { width: String(width) })} ${width}w`)
+        .join(", ");
+}
+
+function buildCaptureImageSizes(variant = "original", override = "") {
+    const explicit = String(override || "").trim();
+    if (explicit) {
+        return explicit;
+    }
+    return String(getCaptureImageVariantPreset(variant)?.sizes || "").trim();
+}
+
+function buildCaptureImageTag(capture, {
+    variant = "original",
+    alt = "",
+    className = "",
+    loading = "lazy",
+    sizes = "",
+    fetchPriority = "",
+    extraAttrs = {}
+} = {}) {
+    const src = buildCaptureImageURL(capture, variant);
+    if (!src) {
+        return "";
+    }
+
+    const attrs = [
+        `src="${escapeHtml(src)}"`,
+        `alt="${escapeHtml(alt)}"`,
+        className ? `class="${escapeHtml(className)}"` : "",
+        loading ? `loading="${escapeHtml(loading)}"` : "",
+        'decoding="async"',
+        fetchPriority ? `fetchpriority="${escapeHtml(fetchPriority)}"` : ""
+    ];
+
+    const srcset = buildCaptureImageSrcSet(capture, variant);
+    const resolvedSizes = buildCaptureImageSizes(variant, sizes);
+    if (srcset) {
+        attrs.push(`srcset="${escapeHtml(srcset)}"`);
+        if (resolvedSizes) {
+            attrs.push(`sizes="${escapeHtml(resolvedSizes)}"`);
+        }
+    }
+
+    Object.entries(extraAttrs || {}).forEach(([name, value]) => {
+        if (!name || value === null || value === undefined || value === "") {
+            return;
+        }
+        attrs.push(`${name}="${escapeHtml(value)}"`);
+    });
+
+    return `<img ${attrs.filter(Boolean).join(" ")}>`;
+}
+
+function setCaptureImageElement(img, capture, {
+    variant = "original",
+    alt = "",
+    loading = "",
+    sizes = "",
+    fetchPriority = ""
+} = {}) {
+    if (!img) {
+        return;
+    }
+
+    const src = buildCaptureImageURL(capture, variant);
+    if (!src) {
+        img.removeAttribute("src");
+        img.removeAttribute("srcset");
+        img.removeAttribute("sizes");
+        img.removeAttribute("fetchpriority");
+        img.alt = alt || "";
+        return;
+    }
+
+    img.src = src;
+    img.alt = alt || "";
+    img.decoding = "async";
+
+    if (loading) {
+        img.loading = loading;
+    }
+    if (fetchPriority) {
+        img.setAttribute("fetchpriority", fetchPriority);
+    } else {
+        img.removeAttribute("fetchpriority");
+    }
+
+    const srcset = buildCaptureImageSrcSet(capture, variant);
+    if (srcset) {
+        img.srcset = srcset;
+        const resolvedSizes = buildCaptureImageSizes(variant, sizes);
+        if (resolvedSizes) {
+            img.sizes = resolvedSizes;
+        } else {
+            img.removeAttribute("sizes");
+        }
+    } else {
+        img.removeAttribute("srcset");
+        img.removeAttribute("sizes");
+    }
 }
 
 function captureHasCoordinates(capture) {
@@ -1093,11 +1233,16 @@ function renderViewedCaptures(captures) {
     }
 
     container.innerHTML = items.map((capture) => {
-        const imageUrl = buildCaptureImageURL(capture, "thumb");
         const badge = buildCaptureAccessBadgeHtml(capture);
         const unlockedAtLabel = hasMeaningfulDateTime(capture.unlocked_at) ? formatDateTime(capture.unlocked_at, "") : "";
         const imageHtml = capture.public_url
-            ? `<img src="${escapeHtml(imageUrl)}" alt="Odemčená fotografie" class="viewed-capture-thumb" loading="lazy">`
+            ? buildCaptureImageTag(capture, {
+                variant: "thumb",
+                alt: "Odemčená fotografie",
+                className: "viewed-capture-thumb",
+                loading: "lazy",
+                sizes: "(max-width: 720px) 100vw, 320px"
+            })
             : `<div class="viewed-capture-thumb viewed-capture-thumb-placeholder">Náhled už není veřejný</div>`;
 
         return `
@@ -1655,27 +1800,36 @@ function buildPublicTrustProfile(profile) {
 }
 
 function buildCapturePopupPreviewHtml(capture, altText) {
-    const imageUrl = capture?.public_url ? buildCaptureImageURL(capture, "popup") : "";
-    if (!imageUrl) {
+    const imageHtml = capture?.public_url
+        ? buildCaptureImageTag(capture, {
+            variant: "popup",
+            alt: altText,
+            loading: "lazy"
+        })
+        : "";
+    if (!imageHtml) {
         return '<div class="map-popup-placeholder">Bez veřejného náhledu</div>';
     }
 
-    return `<img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(altText)}" loading="lazy">`;
+    return imageHtml;
 }
 
 function buildSharedMapPopupHtml({
     authorName = "Neznámý houbař",
     authorUrl = "",
     previewUrl = "",
+    previewHtml = "",
     altText = "",
     dateValue = "",
     metaLines = [],
     actionHtml = ""
-} = {}) {
+    } = {}) {
     const safeAuthor = escapeHtml(authorName || "Neznámý houbař");
-    const previewHtml = previewUrl
-        ? `<img src="${escapeHtml(previewUrl)}" alt="${escapeHtml(altText || authorName || "Fotografie")}" loading="lazy">`
-        : '<div class="map-popup-placeholder">Bez veřejného náhledu</div>';
+    const resolvedPreviewHtml = previewHtml
+        || (previewUrl
+            ? `<img src="${escapeHtml(previewUrl)}" alt="${escapeHtml(altText || authorName || "Fotografie")}" loading="lazy" decoding="async">`
+            : "")
+        || '<div class="map-popup-placeholder">Bez veřejného náhledu</div>';
     const titleHtml = authorUrl
         ? `<h4><a href="${escapeHtml(authorUrl)}">${safeAuthor}</a></h4>`
         : `<h4>${safeAuthor}</h4>`;
@@ -1686,7 +1840,7 @@ function buildSharedMapPopupHtml({
 
     return `
         <div class="map-popup-content">
-            ${previewHtml}
+            ${resolvedPreviewHtml}
             ${titleHtml}
             ${dateValue ? `<p>${escapeHtml(formatDateTime(dateValue))}</p>` : ""}
             ${detailsHtml}
@@ -1724,7 +1878,8 @@ function buildPublicProfileMapPopupHtml(capture) {
     const canOpenLightbox = Boolean(capture.public_url || publicProfileState.isOwner);
     return buildSharedMapPopupHtml({
         authorName,
-        previewUrl: capture.public_url ? buildCaptureImageURL(capture, "popup") : "",
+        previewUrl: !capture.public_url && publicProfileState.isOwner ? buildCaptureImageURL(capture, "popup") : "",
+        previewHtml: capture.public_url ? buildCapturePopupPreviewHtml(capture, authorName) : "",
         altText: authorName,
         dateValue: capture.captured_at,
         actionHtml: canOpenLightbox
@@ -1996,7 +2151,7 @@ function openSharedLightboxCollection(captures, startIndex = 0, options = {}) {
     const index = Number(startIndex);
     const imageBuilder = typeof options.imageBuilder === "function"
         ? options.imageBuilder
-        : (capture) => buildCaptureImageURL(capture, "original");
+        : (capture) => buildCaptureImageURL(capture, "lightbox");
     const mapBuilder = typeof options.mapBuilder === "function"
         ? options.mapBuilder
         : (capture) => buildCaptureMapData(capture);
@@ -2040,7 +2195,24 @@ function setLightboxMessage(text, kind = "") {
 function syncLightboxImage() {
     const img = document.getElementById("lightbox-img");
     if (!img || window.lightboxImages.length === 0) return;
+    const capture = currentLightboxCapture();
+    if (capture?.public_url) {
+        const altText = buildCaptureSpeciesLabel(capture) || capture.author_name || "Detail fotky";
+        setCaptureImageElement(img, capture, {
+            variant: "lightbox",
+            alt: altText,
+            fetchPriority: "high"
+        });
+        window.lightboxImages[window.currentLightboxIndex] = buildCaptureImageURL(capture, "lightbox");
+        return;
+    }
+
     img.src = window.lightboxImages[window.currentLightboxIndex];
+    img.alt = capture?.author_name || "Detail fotky";
+    img.decoding = "async";
+    img.setAttribute("fetchpriority", "high");
+    img.removeAttribute("srcset");
+    img.removeAttribute("sizes");
 }
 
 function ensureCaptureMapViewer() {
@@ -2163,7 +2335,7 @@ async function unlockCurrentLightboxCapture() {
 
         const updatedCapture = payload.capture;
         window.lightboxCaptureData[window.currentLightboxIndex] = updatedCapture;
-        window.lightboxImages[window.currentLightboxIndex] = buildCaptureImageURL(updatedCapture, "original");
+        window.lightboxImages[window.currentLightboxIndex] = buildCaptureImageURL(updatedCapture, "lightbox");
         window.lightboxMapData[window.currentLightboxIndex] = buildCaptureMapData(updatedCapture);
 
         if (window.appMe && typeof payload.balance === "number") {

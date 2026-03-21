@@ -310,11 +310,18 @@ function renderRemoteCaptures(captures) {
             ? `<a href="${escapeHtml(capture.public_url)}" target="_blank" rel="noreferrer" class="capture-link">Otevřít veřejnou verzi</a>`
             : "";
         const privatePreview = `${API_URL}/api/captures/${encodeURIComponent(capture.id)}/preview`;
+        const previewHtml = buildCaptureImageTag(capture, {
+            variant: "thumb",
+            alt: "Náhled nahrané fotografie",
+            className: "capture-thumb",
+            loading: "lazy",
+            sizes: "(max-width: 720px) 100vw, 320px"
+        }) || `<img src="${escapeHtml(privatePreview)}" alt="Náhled nahrané fotografie" class="capture-thumb" loading="lazy">`;
         const actionLabel = capture.status === "published" ? "Zrušit publikaci" : "Publikovat";
         const actionName = capture.status === "published" ? "unpublish" : "publish";
 
         card.innerHTML = `
-            <img src="${escapeHtml(privatePreview)}" alt="Náhled nahrané fotografie" class="capture-thumb" loading="lazy">
+            ${previewHtml}
             <div class="capture-meta">
                 <h3>${escapeHtml(capture.original_file_name || "Nález")}</h3>
                 <p>${escapeHtml(formatDateTime(capture.captured_at))}</p>

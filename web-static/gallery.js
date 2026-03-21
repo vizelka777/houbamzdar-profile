@@ -335,8 +335,12 @@ function syncGalleryModerationModal() {
         region ? `<span>${escapeHtml(region)}</span>` : "",
         capture.id ? `<span>ID ${escapeHtml(capture.id)}</span>` : ""
     ].filter(Boolean).join(" • ");
-    preview.src = buildCaptureImageURL(capture, "thumb");
-    preview.alt = escapeHtml(authorName || "Fotografie");
+    setCaptureImageElement(preview, capture, {
+        variant: "thumb",
+        alt: authorName || "Fotografie",
+        loading: "lazy",
+        sizes: "384px"
+    });
     body.innerHTML = renderGalleryModerationBody(capture);
 
     aiButton.dataset.captureId = capture.id;
@@ -832,12 +836,17 @@ function renderGallery(container) {
     }
 
     container.innerHTML = state.captures.map((capture, idx) => {
-        const url = escapeHtml(buildCaptureImageURL(capture, "thumb"));
         const avatarUrl = capture.author_avatar || "/default-avatar.png";
         const authorName = capture.author_name || "Neznámý houbař";
         const accessBadge = buildCaptureAccessBadgeHtml(capture);
         const authorURL = buildPublicProfileURL(capture.author_user_id);
         const region = buildCaptureKrajLabel(capture);
+        const imageHtml = buildCaptureImageTag(capture, {
+            variant: "thumb",
+            alt: "Houbařský úlovek",
+            loading: "lazy",
+            sizes: "(max-width: 720px) 50vw, (max-width: 1200px) 33vw, 384px"
+        });
         const speciesButton = buildGallerySpeciesButton(capture);
         const moderatorTrigger = canModeratorRecheck()
             ? `
@@ -857,7 +866,7 @@ function renderGallery(container) {
                     </a>
                 </div>
                 <div class="gallery-item-image">
-                    <img src="${url}" loading="lazy" alt="Houbařský úlovek">
+                    ${imageHtml}
                     ${accessBadge}
                 </div>
                 <div class="gallery-item-copy">

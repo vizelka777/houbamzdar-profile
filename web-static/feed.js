@@ -458,7 +458,7 @@ function buildInlineMapPopupHtml(capture, post) {
     const authorName = post.author_name || "Neznámý houbař";
     return window.HZDMapUI.buildPopupHtml({
         authorName,
-        previewUrl: capture.public_url ? buildCaptureImageURL(capture, "popup") : "",
+        previewHtml: capture.public_url ? buildCapturePopupPreviewHtml(capture, authorName) : "",
         altText: authorName,
         dateValue: capture.captured_at || post.created_at,
         actionHtml: `
@@ -666,11 +666,20 @@ function renderPosts(postsToRender, container, options = {}) {
         if (post.captures && post.captures.length > 0) {
             capturesHtml = '<div class="feed-gallery">';
             post.captures.forEach((capture, idx) => {
-                const url = escapeHtml(buildCaptureImageURL(capture, "thumb"));
                 const accessBadge = buildCaptureAccessBadgeHtml(capture);
+                const imageHtml = buildCaptureImageTag(capture, {
+                    variant: "thumb",
+                    alt: capture.author_name || authorName || "Fotografie",
+                    className: "feed-photo",
+                    loading: "lazy",
+                    sizes: "(max-width: 720px) 50vw, (max-width: 1200px) 33vw, 320px",
+                    extraAttrs: {
+                        "data-idx": idx
+                    }
+                });
                 capturesHtml += `
                     <div class="feed-photo-frame">
-                        <img src="${url}" class="feed-photo" loading="lazy" data-idx="${idx}">
+                        ${imageHtml}
                         ${accessBadge}
                     </div>
                 `;

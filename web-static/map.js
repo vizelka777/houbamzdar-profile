@@ -93,7 +93,7 @@ function buildGlobalMapPopupHtml(capture) {
     return window.HZDMapUI.buildPopupHtml({
         authorName: capture.author_name || "Neznámý houbař",
         authorUrl: buildPublicProfileURL(capture.author_user_id),
-        previewUrl: capture.public_url ? buildCaptureImageURL(capture, "popup") : "",
+        previewHtml: capture.public_url ? buildCapturePopupPreviewHtml(capture, capture.author_name || "Neznámý houbař") : "",
         altText: capture.author_name || "Neznámý houbař",
         dateValue: capture.captured_at,
         metaLines: [species, region],
