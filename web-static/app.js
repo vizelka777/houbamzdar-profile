@@ -1162,6 +1162,8 @@ function renderHeader(session, profile = null) {
 
     const loginButton = createIconLinkButton(`${API_URL}/auth/login`, "Přihlášení", loginIcon, "btn-primary");
     loginButton.classList.add("header-control-button");
+    const cameraButton = createDirectCameraButton("Přidat úlovek", cameraIcon, "btn-secondary");
+    cameraButton.classList.add("header-control-button");
 
     const menuButton = createHeaderMenuButton("Menu", menuIcon, "btn-secondary", menuItems, {
         hideLabel: true,
@@ -1172,6 +1174,7 @@ function renderHeader(session, profile = null) {
         }
     });
 
+    authButtons.appendChild(cameraButton);
     authButtons.appendChild(loginButton);
     authButtons.appendChild(menuButton);
 }

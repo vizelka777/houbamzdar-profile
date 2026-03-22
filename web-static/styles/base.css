@@ -122,7 +122,7 @@ img {
     border: 1px solid rgba(255, 255, 255, 0.5);
     box-shadow: var(--shadow-soft);
     backdrop-filter: blur(12px);
-    padding: 0.38rem;
+    padding: 0.05rem;
     border-radius: 1.2rem;
 }
 

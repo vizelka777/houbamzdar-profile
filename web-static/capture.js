@@ -3,6 +3,10 @@ const PHOTO_STORE_NAME = "captures";
 
 let captureObjectUrls = [];
 
+function captureUploadEnabled() {
+    return Boolean(window.appSession && window.appSession.logged_in);
+}
+
 function indexedDbAvailable() {
     return typeof window !== "undefined" && typeof window.indexedDB !== "undefined";
 }
@@ -271,6 +275,13 @@ function renderCaptureGrid(items) {
         const dateStr = escapeHtml(formatDateTime(item.capturedAt));
         const coordsStr = escapeHtml(formatCoords(item.latitude, item.longitude));
         const gpsIcon = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: text-bottom; margin-right: 4px;"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>`;
+        const uploadEnabled = captureUploadEnabled();
+        const sendLabel = uploadEnabled ? "Odeslat" : "Přihlásit se pro nahrání";
+        const sendDisabled = uploadEnabled ? "" : "disabled";
+        const sendTitle = uploadEnabled ? "" : 'title="Snímek zůstane uložený v telefonu. Pro nahrání na server se přihlaste později."';
+        const offlineNote = uploadEnabled
+            ? ""
+            : '<p style="font-size: 0.8rem; color: var(--text-muted); margin: 0.5rem 0 0 0;">Snímek zůstane uložený v telefonu a nahrajete ho až po přihlášení.</p>';
 
         card.innerHTML = `
             <img src="${previewUrl}" alt="Nález hub" loading="lazy" style="width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: var(--radius-sm);">
@@ -278,9 +289,10 @@ function renderCaptureGrid(items) {
                 <p style="font-size: 0.85rem; color: var(--text-muted); margin: 0 0 0.25rem 0;">${dateStr}</p>
                 <p style="font-size: 0.85rem; color: var(--text-muted); margin: 0 0 0.75rem 0;">${gpsIcon}${coordsStr}</p>
                 <div style="display: flex; gap: 0.5rem;">
-                    <button type="button" class="btn btn-primary btn-send-single" data-id="${escapeHtml(item.id)}" style="flex: 1; background: var(--success-color, #4CAF50); border-color: var(--success-color, #4CAF50);">Odeslat</button>
+                    <button type="button" class="btn btn-primary btn-send-single" data-id="${escapeHtml(item.id)}" style="flex: 1; background: var(--success-color, #4CAF50); border-color: var(--success-color, #4CAF50);" ${sendDisabled} ${sendTitle}>${sendLabel}</button>
                     <button type="button" class="btn btn-danger btn-delete-single" data-id="${escapeHtml(item.id)}" style="flex: 1;">Smazat</button>
                 </div>
+                ${offlineNote}
             </div>
         `;
 
@@ -558,22 +570,28 @@ async function initCapturePage() {
     if (document.body.dataset.page !== "capture") return;
 
     const session = await apiGet("/api/session");
-    if (!session || !session.logged_in) {
-        window.location.href = "/";
-        return;
-    }
-
-    const me = await apiGet("/api/me");
-    if (!me) return;
-
+    const me = session && session.logged_in ? await apiGet("/api/me") : null;
+    setAppIdentity(session, me);
     renderHeader(session, me);
 
     const statusNode = document.getElementById("capture-status");
     const gridNode = document.getElementById("capture-grid");
+    const footerLink = document.getElementById("capture-footer-link");
     const directCameraRequested = new URLSearchParams(window.location.search).get("source") === "camera";
     if (!indexedDbAvailable()) {
         setStatusMessage(statusNode, "Tento prohlížeč neumí IndexedDB. Zkuste moderní mobilní prohlížeč.", "error");
         return;
+    }
+
+    if (!captureUploadEnabled()) {
+        setStatusMessage(statusNode, "Fotky se teď ukládají jen do telefonu. Na server je nahrajete později po přihlášení.");
+        if (footerLink) {
+            footerLink.href = `${API_URL}/auth/login`;
+            footerLink.textContent = "Přihlásit se pro nahrání fotek";
+        }
+    } else if (footerLink) {
+        footerLink.href = "/server-storage.html";
+        footerLink.textContent = "Přejít k nahraným fotkám";
     }
 
     await refreshCaptureVault();
@@ -597,6 +615,10 @@ async function initCapturePage() {
         gridNode.addEventListener("click", async (event) => {
             const sendBtn = event.target.closest(".btn-send-single");
             if (sendBtn) {
+                if (!captureUploadEnabled()) {
+                    setStatusMessage(statusNode, "Snímek zůstává uložený v telefonu. Pro nahrání na server se přihlaste později.");
+                    return;
+                }
                 const id = sendBtn.dataset.id;
                 try {
                     setStatusMessage(statusNode, "Nahrávám snímek na server...");
