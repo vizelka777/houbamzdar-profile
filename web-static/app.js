@@ -187,6 +187,181 @@ async function apiJsonRequest(path, options = {}) {
     return payload;
 }
 
+const sharedPublicMapState = {
+    pageSize: 200,
+    captures: [],
+    loaded: false,
+    loadingPromise: null
+};
+
+const DEFAULT_CAPTURE_MAP_NEARBY_RADIUS_METERS = 200;
+
+let sharedMapLibrariesPromise = null;
+
+function ensureMapAssetStylesheet(href, assetId) {
+    if (!href || document.head.querySelector(`link[data-hzd-map-asset="${assetId}"]`)) {
+        return;
+    }
+
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.href = href;
+    link.dataset.hzdMapAsset = assetId;
+    document.head.appendChild(link);
+}
+
+function loadMapAssetScript(src, assetId) {
+    if (!src) {
+        return Promise.reject(new Error("Missing map asset source"));
+    }
+
+    const existing = document.head.querySelector(`script[data-hzd-map-asset="${assetId}"]`);
+    if (existing) {
+        if (existing.dataset.loaded === "1") {
+            return Promise.resolve();
+        }
+        return new Promise((resolve, reject) => {
+            existing.addEventListener("load", () => resolve(), { once: true });
+            existing.addEventListener("error", () => reject(new Error(`Failed to load ${assetId}`)), { once: true });
+        });
+    }
+
+    return new Promise((resolve, reject) => {
+        const script = document.createElement("script");
+        script.src = src;
+        script.async = true;
+        script.dataset.hzdMapAsset = assetId;
+        script.addEventListener("load", () => {
+            script.dataset.loaded = "1";
+            resolve();
+        }, { once: true });
+        script.addEventListener("error", () => reject(new Error(`Failed to load ${assetId}`)), { once: true });
+        document.head.appendChild(script);
+    });
+}
+
+async function ensureMapViewerLibraries() {
+    ensureMapAssetStylesheet("https://unpkg.com/leaflet/dist/leaflet.css", "leaflet-css");
+    ensureMapAssetStylesheet("/vendor/leaflet-markercluster/MarkerCluster.css", "markercluster-css");
+    ensureMapAssetStylesheet("/styles/page-map.css", "page-map-css");
+
+    const librariesReady = typeof L !== "undefined"
+        && typeof L.markerClusterGroup === "function"
+        && Boolean(window.HZDMapClusters);
+    if (librariesReady) {
+        return true;
+    }
+
+    if (sharedMapLibrariesPromise) {
+        return sharedMapLibrariesPromise;
+    }
+
+    sharedMapLibrariesPromise = (async () => {
+        if (typeof L === "undefined") {
+            await loadMapAssetScript("https://unpkg.com/leaflet/dist/leaflet.js", "leaflet-js");
+        }
+        if (typeof L.markerClusterGroup !== "function") {
+            await loadMapAssetScript("/vendor/leaflet-markercluster/leaflet.markercluster.js", "markercluster-js");
+        }
+        if (!window.HZDMapClusters) {
+            await loadMapAssetScript("/map-clusters.js", "map-clusters-js");
+        }
+        return true;
+    })();
+
+    try {
+        return await sharedMapLibrariesPromise;
+    } finally {
+        if (typeof L === "undefined") {
+            sharedMapLibrariesPromise = null;
+        }
+    }
+}
+
+async function loadSharedPublicMapCaptures({ force = false } = {}) {
+    if (sharedPublicMapState.loaded && !force) {
+        return sharedPublicMapState.captures;
+    }
+
+    if (sharedPublicMapState.loadingPromise) {
+        return sharedPublicMapState.loadingPromise;
+    }
+
+    sharedPublicMapState.loadingPromise = (async () => {
+        let offset = 0;
+        let hasMore = true;
+        const capturesByID = new Map();
+
+        while (hasMore) {
+            const query = new URLSearchParams({
+                limit: String(sharedPublicMapState.pageSize),
+                offset: String(offset)
+            });
+            const result = await apiGet(`/api/public/map-captures?${query.toString()}`);
+            if (!result || !result.ok || !Array.isArray(result.captures)) {
+                throw new Error("Nepodařilo se načíst veřejnou mapu.");
+            }
+
+            result.captures.forEach((capture) => {
+                if (capture?.id) {
+                    capturesByID.set(capture.id, capture);
+                }
+            });
+
+            offset += result.captures.length;
+            hasMore = result.captures.length === sharedPublicMapState.pageSize;
+        }
+
+        sharedPublicMapState.captures = Array.from(capturesByID.values());
+        sharedPublicMapState.loaded = true;
+        return sharedPublicMapState.captures;
+    })();
+
+    try {
+        return await sharedPublicMapState.loadingPromise;
+    } finally {
+        sharedPublicMapState.loadingPromise = null;
+    }
+}
+
+async function openHeaderGlobalMap() {
+    const loadingToast = showToast("Načítám veřejnou mapu...", { duration: 0 });
+
+    try {
+        if (typeof window.openGlobalMapViewer === "function") {
+            const openedFromPage = await window.openGlobalMapViewer();
+            if (openedFromPage) {
+                return;
+            }
+        }
+
+        await ensureMapViewerLibraries();
+        const captures = (await loadSharedPublicMapCaptures()).filter((capture) => captureHasCoordinates(capture));
+        if (!captures.length) {
+            showToast("Veřejná mapa zatím nemá žádné body.", { kind: "error" });
+            return;
+        }
+
+        window.HZDMapUI.openViewer(captures, null, {
+            title: "Veřejná mapa",
+            note: `Načteno ${captures.length} bodů na mapě.`,
+            onCaptureActivate: (capture) => {
+                closeCaptureMapViewer();
+                window.HZDMapUI.openLightboxCollection(captures, capture.id, {
+                    nearby: true,
+                    requirePublicUrl: true,
+                    radiusMeters: DEFAULT_CAPTURE_MAP_NEARBY_RADIUS_METERS
+                });
+            }
+        });
+    } catch (error) {
+        console.error("Failed to open header global map", error);
+        showToast(error.message || "Veřejnou mapu se nepodařilo otevřít.", { kind: "error" });
+    } finally {
+        loadingToast.dismiss();
+    }
+}
+
 function createLinkButton(label, href, className) {
     const link = document.createElement("a");
     link.className = `btn ${className}`;
@@ -713,6 +888,123 @@ function buildCaptureMapData(capture) {
     };
 }
 
+function isValidMapCoordinatePair(lat, lon) {
+    return Number.isFinite(Number(lat)) && Number.isFinite(Number(lon));
+}
+
+function degreesToRadians(value) {
+    return (value * Math.PI) / 180;
+}
+
+function getDistanceBetweenCapturesMeters(origin, candidate) {
+    const originLat = Number(origin?.latitude);
+    const originLon = Number(origin?.longitude);
+    const candidateLat = Number(candidate?.latitude);
+    const candidateLon = Number(candidate?.longitude);
+    if (
+        Number.isNaN(originLat)
+        || Number.isNaN(originLon)
+        || Number.isNaN(candidateLat)
+        || Number.isNaN(candidateLon)
+    ) {
+        return Number.POSITIVE_INFINITY;
+    }
+
+    const earthRadiusMeters = 6371000;
+    const latDelta = degreesToRadians(candidateLat - originLat);
+    const lonDelta = degreesToRadians(candidateLon - originLon);
+    const lat1 = degreesToRadians(originLat);
+    const lat2 = degreesToRadians(candidateLat);
+    const haversine =
+        Math.sin(latDelta / 2) * Math.sin(latDelta / 2)
+        + Math.cos(lat1) * Math.cos(lat2) * Math.sin(lonDelta / 2) * Math.sin(lonDelta / 2);
+    return 2 * earthRadiusMeters * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
+}
+
+function buildNearbyCaptureCollection(captures, captureID, options = {}) {
+    const list = Array.isArray(captures) ? captures.filter(Boolean) : [];
+    const requirePublicUrl = Boolean(options.requirePublicUrl);
+    const radiusMetersRaw = Number(options.radiusMeters);
+    const radiusMeters = Number.isFinite(radiusMetersRaw) && radiusMetersRaw >= 0
+        ? radiusMetersRaw
+        : DEFAULT_CAPTURE_MAP_NEARBY_RADIUS_METERS;
+    const targetCapture = list.find((capture) => {
+        if (!capture || capture.id !== captureID || !captureHasCoordinates(capture)) {
+            return false;
+        }
+        return !requirePublicUrl || Boolean(capture.public_url);
+    });
+    if (!targetCapture) {
+        return [];
+    }
+
+    return list
+        .filter((capture) => {
+            if (!captureHasCoordinates(capture)) {
+                return false;
+            }
+            return !requirePublicUrl || Boolean(capture.public_url);
+        })
+        .map((capture) => ({
+            capture,
+            distanceMeters: capture.id === captureID
+                ? 0
+                : getDistanceBetweenCapturesMeters(targetCapture, capture)
+        }))
+        .filter((entry) => entry.capture.id === captureID || entry.distanceMeters <= radiusMeters)
+        .sort((left, right) => {
+            if (left.capture.id === captureID) return -1;
+            if (right.capture.id === captureID) return 1;
+            if (left.distanceMeters !== right.distanceMeters) {
+                return left.distanceMeters - right.distanceMeters;
+            }
+            return String(right.capture.captured_at || "").localeCompare(String(left.capture.captured_at || ""));
+        })
+        .map((entry) => entry.capture);
+}
+
+function openCaptureLightboxCollection(captures, captureID, options = {}) {
+    const list = options.nearby
+        ? buildNearbyCaptureCollection(captures, captureID, options)
+        : (Array.isArray(captures) ? captures.filter(Boolean) : []);
+    const startIndex = list.findIndex((capture) => capture?.id === captureID);
+    if (startIndex === -1 || !window.HZDLightbox) {
+        return false;
+    }
+
+    return window.HZDLightbox.openCollection(list, startIndex, options.lightboxOptions || {});
+}
+
+function normalizeMapViewerEntries(input, fallbackCapture = null) {
+    const items = Array.isArray(input)
+        ? input
+        : Array.isArray(input?.captures)
+            ? input.captures
+            : Array.isArray(input?.items)
+                ? input.items
+                : [input];
+
+    return items
+        .map((item, index) => {
+            const capture = captureHasCoordinates(item)
+                ? item
+                : (index === 0 && captureHasCoordinates(fallbackCapture) ? fallbackCapture : null);
+            const lat = capture ? Number(capture.latitude) : Number(item?.lat);
+            const lon = capture ? Number(capture.longitude) : Number(item?.lon);
+
+            if (!isValidMapCoordinatePair(lat, lon)) {
+                return null;
+            }
+
+            return {
+                capture,
+                lat,
+                lon
+            };
+        })
+        .filter(Boolean);
+}
+
 function formatCaptureCoordinates(capture) {
     if (!captureHasCoordinates(capture)) {
         return "Souřadnice nejsou k dispozici.";
@@ -1195,7 +1487,7 @@ function renderHeader(session, profile = null) {
             { href: "/server-storage.html", label: "Nahrané fotky", note: "to, co už je uložené v Bunny", icon: "🗂️" },
             { href: "/feed.html", label: "Zeď úlovků", icon: "📰" },
             { href: "/gallery.html", label: "Galerie", icon: "🖼️" },
-            { href: "/map.html", label: "Mapa", icon: "🗺️" },
+            { type: "action", label: "Mapa", icon: "🗺️", handler: openHeaderGlobalMap },
         ];
 
         if (userCanModerateClient(identity)) {
@@ -1246,7 +1538,7 @@ function renderHeader(session, profile = null) {
     const menuItems = [
         { href: "/feed.html", label: "Zeď úlovků", icon: "📰" },
         { href: "/gallery.html", label: "Galerie", icon: "🖼️" },
-        { href: "/map.html", label: "Mapa", icon: "🗺️" },
+        { type: "action", label: "Mapa", icon: "🗺️", handler: openHeaderGlobalMap },
     ];
 
     const loginIcon = `
@@ -1939,6 +2231,7 @@ const publicProfileState = {
     postsLoading: false,
     capturesLoaded: false,
     capturesLoading: false,
+    capturesError: "",
     galleryLoaded: false,
     galleryLoading: false,
     map: null,
@@ -1997,8 +2290,8 @@ async function openPublicProfileSection(section) {
             await loadPublicProfileCaptures();
         } else {
             renderPublicProfileMap();
-            window.setTimeout(() => publicProfileState.map?.invalidateSize(), 0);
         }
+        openPublicProfileMapViewer();
     } else if (section === "posts") {
         if (!publicProfileState.postsLoaded && !publicProfileState.postsLoading) {
             await loadPublicProfilePosts(false);
@@ -2522,40 +2815,11 @@ window.HZDMapUI = {
     buildPopupHtml: buildSharedMapPopupHtml,
     bindPopupAction: bindMapPopupAction,
     buildMarkerTooltipHtml: buildCaptureMapMarkerTooltipHtml,
-    createCaptureMarker: createCaptureMapMarker
+    buildNearbyCollection: buildNearbyCaptureCollection,
+    createCaptureMarker: createCaptureMapMarker,
+    openLightboxCollection: openCaptureLightboxCollection,
+    openViewer: openCaptureMapViewer
 };
-
-function buildPublicProfileMapPopupHtml(capture) {
-    const authorName = capture.author_name || publicProfileState.user?.preferred_username || "Neznámý houbař";
-    const canOpenLightbox = Boolean(capture.public_url || publicProfileState.isOwner);
-    return buildSharedMapPopupHtml({
-        authorName,
-        previewUrl: !capture.public_url && publicProfileState.isOwner ? buildCaptureImageURL(capture, "popup") : "",
-        previewHtml: capture.public_url ? buildCapturePopupPreviewHtml(capture, authorName) : "",
-        altText: authorName,
-        dateValue: capture.captured_at,
-        actionHtml: canOpenLightbox
-            ? `<button type="button" class="btn btn-secondary map-popup-action public-profile-map-open-btn" data-capture-id="${escapeHtml(capture.id)}">Otevřít ve fotkách</button>`
-            : ""
-    });
-}
-
-function ensurePublicProfileMap() {
-    const mapNode = document.getElementById("public-map");
-    if (!mapNode || typeof L === "undefined") {
-        return null;
-    }
-
-    if (!publicProfileState.map) {
-        publicProfileState.map = L.map("public-map").setView([49.8, 15.5], 7);
-        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-            attribution: "&copy; OpenStreetMap"
-        }).addTo(publicProfileState.map);
-        publicProfileState.markerLayer = L.layerGroup().addTo(publicProfileState.map);
-    }
-
-    return publicProfileState.map;
-}
 
 function openPublicProfileMapLightbox(captureID) {
     const capturesToOpen = publicProfileState.captures.filter((capture) => capture && (capture.public_url || publicProfileState.isOwner));
@@ -2567,21 +2831,33 @@ function openPublicProfileMapLightbox(captureID) {
     window.HZDLightbox.openCollection(capturesToOpen, startIndex);
 }
 
-function renderPublicProfileMap() {
-    const map = ensurePublicProfileMap();
+function syncPublicProfileMapLaunchState() {
+    const button = document.getElementById("public-profile-open-map-viewer-btn");
     const emptyNode = document.getElementById("public-map-empty");
-    const summaryNode = document.getElementById("public-map-summary");
     const captures = publicProfileState.captures.filter((capture) => captureHasCoordinates(capture));
+    const loading = Boolean(publicProfileState.capturesLoading);
+    const errorMessage = String(publicProfileState.capturesError || "").trim();
 
-    if (summaryNode) {
-        summaryNode.textContent = `${captures.length} z ${publicProfileState.captures.length} načtených fotografií má souřadnice.`;
+    if (button) {
+        button.disabled = loading || captures.length === 0 || Boolean(errorMessage);
+        button.textContent = loading ? "Načítám mapu..." : "Otevřít mapu na celou obrazovku";
     }
 
-    if (!map || !emptyNode) {
+    if (!emptyNode) {
         return;
     }
 
-    publicProfileState.markerLayer?.clearLayers();
+    if (loading) {
+        emptyNode.hidden = false;
+        emptyNode.textContent = "Načítám veřejnou mapu...";
+        return;
+    }
+
+    if (errorMessage) {
+        emptyNode.hidden = false;
+        emptyNode.textContent = errorMessage;
+        return;
+    }
 
     if (!captures.length) {
         emptyNode.hidden = false;
@@ -2590,53 +2866,39 @@ function renderPublicProfileMap() {
     }
 
     emptyNode.hidden = true;
-    const markers = captures.map((capture) => {
-        const markerTitle = buildCaptureSpeciesLabel(capture) || capture.author_name || "Otevřít fotografii";
-        const markerTooltip = buildCaptureMapMarkerTooltipHtml({
-            title: markerTitle,
-            metaLines: [capture.author_name || "", formatDateTime(capture.captured_at)]
-        });
+    emptyNode.textContent = "";
+}
 
-        if (window.HZDMapUI?.createCaptureMarker) {
-            return window.HZDMapUI.createCaptureMarker(capture, {
-                title: markerTitle,
-                tooltipHtml: markerTooltip,
-                onActivate: () => {
-                    openPublicProfileMapLightbox(capture.id);
-                }
-            });
-        }
+function renderPublicProfileMap() {
+    const summaryNode = document.getElementById("public-map-summary");
+    const captures = publicProfileState.captures.filter((capture) => captureHasCoordinates(capture));
+    const errorMessage = String(publicProfileState.capturesError || "").trim();
 
-        const marker = L.marker([Number(capture.latitude), Number(capture.longitude)]);
-        marker.bindPopup(buildPublicProfileMapPopupHtml(capture));
-        if (window.HZDMapUI) {
-            window.HZDMapUI.bindPopupAction(marker, ".public-profile-map-open-btn", () => {
-                openPublicProfileMapLightbox(capture.id);
-            });
+    if (summaryNode) {
+        summaryNode.textContent = errorMessage
+            ? errorMessage
+            : `${captures.length} z ${publicProfileState.captures.length} načtených fotografií má souřadnice.`;
+    }
+
+    syncPublicProfileMapLaunchState();
+}
+
+function openPublicProfileMapViewer() {
+    const captures = publicProfileState.captures.filter((capture) => captureHasCoordinates(capture));
+    if (!captures.length || !window.HZDMapUI?.openViewer) {
+        syncPublicProfileMapLaunchState();
+        return false;
+    }
+
+    const authorName = publicProfileState.user?.preferred_username || "uživatele";
+    return window.HZDMapUI.openViewer(captures, null, {
+        title: `Mapa uživatele ${authorName}`,
+        note: `${captures.length} veřejných bodů na mapě.`,
+        onCaptureActivate: (capture) => {
+            closeCaptureMapViewer();
+            openPublicProfileMapLightbox(capture.id);
         }
-        return marker;
     });
-
-    if (window.HZDMapClusters) {
-        publicProfileState.markerLayer = window.HZDMapClusters.replaceLayer(
-            map,
-            publicProfileState.markerLayer,
-            markers,
-            {
-                clusterOptions: {
-                    maxClusterRadius: 56,
-                    spiderfyDistanceMultiplier: 1.24
-                }
-            }
-        );
-        window.HZDMapClusters.fitLayer(map, publicProfileState.markerLayer, { padding: [30, 30], maxZoom: 15 });
-        return;
-    }
-
-    publicProfileState.markerLayer = L.featureGroup(markers).addTo(map);
-    if (publicProfileState.markerLayer.getBounds().isValid()) {
-        map.fitBounds(publicProfileState.markerLayer.getBounds(), { padding: [30, 30], maxZoom: 15 });
-    }
 }
 
 async function loadPublicProfilePosts(append = false) {
@@ -2705,23 +2967,23 @@ async function loadPublicProfileCaptures() {
 
     publicProfileState.capturesLoading = true;
     publicProfileState.captures = [];
+    publicProfileState.capturesError = "";
+    syncPublicProfileMapLaunchState();
 
     try {
         const result = await apiGet(`/api/public/users/${encodeURIComponent(publicProfileState.requestedUserID)}/map-captures`);
         if (!result || !result.ok) {
-            const emptyNode = document.getElementById("public-map-empty");
-            if (emptyNode) {
-                emptyNode.hidden = false;
-                emptyNode.textContent = "Nepodařilo se načíst veřejnou mapu.";
-            }
+            publicProfileState.capturesError = "Nepodařilo se načíst veřejnou mapu.";
             return;
         }
 
         publicProfileState.captures = Array.isArray(result.captures) ? result.captures : [];
+        publicProfileState.capturesError = "";
         publicProfileState.capturesLoaded = true;
         renderPublicProfileMap();
     } finally {
         publicProfileState.capturesLoading = false;
+        renderPublicProfileMap();
     }
 }
 
@@ -2753,6 +3015,7 @@ async function initPublicProfilePage() {
     publicProfileState.postsLoading = false;
     publicProfileState.capturesLoaded = false;
     publicProfileState.capturesLoading = false;
+    publicProfileState.capturesError = "";
     publicProfileState.galleryLoaded = false;
     publicProfileState.galleryLoading = false;
     renderPublicModeratorPanel(false);
@@ -2840,6 +3103,13 @@ async function initPublicProfilePage() {
         sectionNodes.mapButton.dataset.bound = "1";
         sectionNodes.mapButton.addEventListener("click", () => {
             openPublicProfileSection("map");
+        });
+    }
+    const mapLaunchButton = document.getElementById("public-profile-open-map-viewer-btn");
+    if (mapLaunchButton && !mapLaunchButton.dataset.bound) {
+        mapLaunchButton.dataset.bound = "1";
+        mapLaunchButton.addEventListener("click", () => {
+            openPublicProfileMapViewer();
         });
     }
     if (sectionNodes.postsButton && !sectionNodes.postsButton.dataset.bound) {
@@ -2968,46 +3238,184 @@ function closeCaptureMapViewer() {
     viewer.hidden = true;
 }
 
+function buildCaptureMapViewerMarker(entry, options = {}) {
+    const lat = Number(entry?.lat);
+    const lon = Number(entry?.lon);
+    if (!isValidMapCoordinatePair(lat, lon)) {
+        return null;
+    }
+
+    const capture = entry?.capture || null;
+    const onCaptureActivate = typeof options.onCaptureActivate === "function"
+        ? options.onCaptureActivate
+        : null;
+    const usePlainMarker = Boolean(options.forcePlainMarker);
+
+    if (usePlainMarker || !capture || !window.HZDMapUI?.createCaptureMarker) {
+        const marker = L.marker([lat, lon]);
+        if (capture && onCaptureActivate) {
+            marker.on("click", () => {
+                onCaptureActivate(capture);
+            });
+        }
+        return marker;
+    }
+
+    const markerTitle = buildCaptureMapMarkerLabel(capture);
+    const markerMeta = [];
+    const regionLabel = buildCaptureRegionLabel(capture) || buildCaptureKrajLabel(capture);
+    if (capture.author_name) {
+        markerMeta.push(capture.author_name);
+    }
+    if (regionLabel) {
+        markerMeta.push(regionLabel);
+    } else if (capture.captured_at) {
+        markerMeta.push(formatDateTime(capture.captured_at));
+    }
+
+    return window.HZDMapUI.createCaptureMarker(capture, {
+        title: markerTitle,
+        tooltipHtml: buildCaptureMapMarkerTooltipHtml({
+            title: markerTitle,
+            metaLines: markerMeta
+        }),
+        onActivate: onCaptureActivate
+            ? () => {
+                onCaptureActivate(capture);
+            }
+            : null
+    });
+}
+
+function renderCaptureMapViewerEntries(map, entries, options = {}) {
+    const markerOptions = {
+        ...options,
+        forcePlainMarker: options.forcePlainMarker || entries.length === 1
+    };
+    const markers = entries
+        .map((entry) => buildCaptureMapViewerMarker(entry, markerOptions))
+        .filter(Boolean);
+
+    if (window.HZDMapClusters && options.useCluster !== false) {
+        captureMapViewerMarkerLayer = window.HZDMapClusters.replaceLayer(
+            map,
+            captureMapViewerMarkerLayer,
+            markers,
+            {
+                useCluster: true,
+                clusterOptions: {
+                    maxClusterRadius: 58,
+                    spiderfyDistanceMultiplier: 1.24
+                }
+            }
+        );
+        window.HZDMapClusters.fitLayer(map, captureMapViewerMarkerLayer, { padding: [30, 30], maxZoom: 15 });
+        return;
+    }
+
+    if (captureMapViewerMarkerLayer && map.hasLayer(captureMapViewerMarkerLayer)) {
+        map.removeLayer(captureMapViewerMarkerLayer);
+    }
+    captureMapViewerMarkerLayer = L.featureGroup(markers).addTo(map);
+    const bounds = captureMapViewerMarkerLayer.getBounds();
+    if (bounds.isValid()) {
+        map.fitBounds(bounds, { padding: [30, 30], maxZoom: 15 });
+    }
+}
+
+function fitCaptureMapViewerEntries(map, entries, options = {}) {
+    if (!map || !Array.isArray(entries) || entries.length === 0) {
+        return;
+    }
+
+    if (entries.length === 1) {
+        map.setView([entries[0].lat, entries[0].lon], options.zoom || 13);
+        return;
+    }
+
+    const bounds = L.latLngBounds();
+    entries.forEach((entry) => {
+        bounds.extend([entry.lat, entry.lon]);
+    });
+
+    if (bounds.isValid()) {
+        map.fitBounds(bounds, { padding: [30, 30], maxZoom: 15 });
+    }
+}
+
+function resolveCaptureMapViewerTitle(entries, options = {}) {
+    const customTitle = String(options.title || "").trim();
+    if (customTitle) {
+        return customTitle;
+    }
+    if (entries.length > 1) {
+        return "Mapa fotografií";
+    }
+    return "Mapa lokality";
+}
+
+function resolveCaptureMapViewerNote(entries, options = {}) {
+    const customNote = String(options.note || "").trim();
+    if (customNote) {
+        return customNote;
+    }
+
+    const [entry] = entries;
+    const capture = entry?.capture || null;
+    const locationLabel = buildCaptureRegionLabel(capture);
+
+    if (entries.length > 1) {
+        return `${entries.length} bodů na mapě.`;
+    }
+    if (capture?.coordinates_free) {
+        return locationLabel
+            ? `Veřejně sdílené souřadnice. ${locationLabel}.`
+            : "Veřejně sdílené souřadnice této fotografie.";
+    }
+    if (hasMeaningfulDateTime(capture?.unlocked_at)) {
+        return locationLabel
+            ? `Odemčené souřadnice. ${locationLabel}.`
+            : `Souřadnice odemčeny ${formatDateTime(capture.unlocked_at)}.`;
+    }
+    return locationLabel || "Přesná poloha fotografie.";
+}
+
 function openCaptureMapViewer(data, capture = null, options = {}) {
-    if (!data || Number.isNaN(data.lat) || Number.isNaN(data.lon)) {
+    const entries = normalizeMapViewerEntries(data, capture);
+    if (!entries.length) {
         return false;
     }
 
     const viewerState = ensureCaptureMapViewer();
+    const titleNode = document.getElementById("capture-map-viewer-title");
     const noteNode = document.getElementById("capture-map-viewer-note");
     if (!viewerState) {
         return false;
     }
 
-    const { viewer, map, markerLayer } = viewerState;
-    const locationLabel = buildCaptureRegionLabel(capture);
-    const customNote = String(options.note || "").trim();
+    const { viewer, map } = viewerState;
+    const resolvedTitle = resolveCaptureMapViewerTitle(entries, options);
+    const resolvedNote = resolveCaptureMapViewerNote(entries, options);
 
-    if (noteNode) {
-        if (customNote) {
-            noteNode.textContent = customNote;
-        } else if (capture?.coordinates_free) {
-            noteNode.textContent = locationLabel
-                ? `Veřejně sdílené souřadnice. ${locationLabel}.`
-                : "Veřejně sdílené souřadnice této fotografie.";
-        } else if (hasMeaningfulDateTime(capture?.unlocked_at)) {
-            noteNode.textContent = locationLabel
-                ? `Odemčené souřadnice. ${locationLabel}.`
-                : `Souřadnice odemčeny ${formatDateTime(capture.unlocked_at)}.`;
-        } else {
-            noteNode.textContent = locationLabel || "Přesná poloha fotografie.";
-        }
+    if (titleNode) {
+        titleNode.textContent = resolvedTitle;
     }
-
-    if (markerLayer && typeof markerLayer.clearLayers === "function") {
-        markerLayer.clearLayers();
-        L.marker([data.lat, data.lon]).addTo(markerLayer);
+    if (noteNode) {
+        noteNode.textContent = resolvedNote;
     }
 
     viewer.hidden = false;
     viewer.classList.add("active");
-    map.setView([data.lat, data.lon], 13);
-    window.setTimeout(() => map.invalidateSize(), 0);
+    renderCaptureMapViewerEntries(map, entries, options);
+    fitCaptureMapViewerEntries(map, entries, options);
+    window.setTimeout(() => {
+        map.invalidateSize();
+        fitCaptureMapViewerEntries(map, entries, options);
+    }, 0);
+    window.setTimeout(() => {
+        map.invalidateSize();
+        fitCaptureMapViewerEntries(map, entries, options);
+    }, 160);
     return true;
 }
 
@@ -3224,6 +3632,7 @@ document.addEventListener("DOMContentLoaded", () => {
             <button type="button" id="capture-map-viewer-close" class="capture-map-viewer-close" aria-label="Zavřít mapu">&times;</button>
             <div class="capture-map-viewer-head">
                 <p class="section-label">Mapa lokality</p>
+                <h2 id="capture-map-viewer-title">Mapa lokality</h2>
             </div>
             <p id="capture-map-viewer-note" class="capture-map-viewer-note muted-copy"></p>
             <div id="capture-map-viewer-map" class="capture-map-viewer-map"></div>

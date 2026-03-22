@@ -454,21 +454,6 @@ function attachCommentSectionHandlers(card, post, postsStore = state.posts) {
     attachCommentModerationHandlers(card, post, postsStore);
 }
 
-function buildInlineMapPopupHtml(capture, post) {
-    const authorName = post.author_name || "Neznámý houbař";
-    return window.HZDMapUI.buildPopupHtml({
-        authorName,
-        previewHtml: capture.public_url ? buildCapturePopupPreviewHtml(capture, authorName) : "",
-        altText: authorName,
-        dateValue: capture.captured_at || post.created_at,
-        actionHtml: `
-            <button type="button" class="btn btn-secondary map-popup-action feed-map-open-btn" data-capture-id="${escapeHtml(capture.id)}">
-                Otevřít ve fotkách
-            </button>
-        `
-    });
-}
-
 function openPostCaptureLightbox(post, captureID) {
     const startIndex = post.captures.findIndex((capture) => capture.id === captureID);
     if (startIndex === -1 || !window.HZDLightbox) {
@@ -478,96 +463,25 @@ function openPostCaptureLightbox(post, captureID) {
     window.HZDLightbox.openCollection(post.captures, startIndex);
 }
 
-function attachInlineMapToggle(card, post, mapId, mapCaptures) {
-    if (!mapCaptures.length || typeof L === "undefined") {
+function attachInlineMapToggle(card, post, mapCaptures) {
+    if (!mapCaptures.length || !window.HZDMapUI?.openViewer) {
         return;
     }
 
     const toggleBtn = card.querySelector(".map-toggle-btn");
-    const mapDiv = document.getElementById(mapId);
-    let mapInitialized = false;
-
-    if (!toggleBtn || !mapDiv) {
+    if (!toggleBtn) {
         return;
     }
 
     toggleBtn.addEventListener("click", () => {
-        if (mapDiv.style.display === "block") {
-            mapDiv.style.display = "none";
-            toggleBtn.textContent = "Zobrazit na mapě";
-            return;
-        }
-
-        mapDiv.style.display = "block";
-        toggleBtn.textContent = "Skrýt mapu";
-
-        if (!mapInitialized) {
-            const postMap = L.map(mapId).setView([Number(mapCaptures[0].latitude), Number(mapCaptures[0].longitude)], 13);
-            mapDiv._leaflet_map = postMap;
-            L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-                attribution: "&copy; OpenStreetMap"
-            }).addTo(postMap);
-
-            const markers = mapCaptures.map((capture) => {
-                const markerTitle = buildCaptureSpeciesLabel(capture) || post.author_name || "Otevřít fotografii";
-                const markerTooltip = window.HZDMapUI?.buildMarkerTooltipHtml
-                    ? window.HZDMapUI.buildMarkerTooltipHtml({
-                        title: markerTitle,
-                        metaLines: [post.author_name || "", formatDateTime(capture.captured_at || post.created_at)]
-                    })
-                    : "";
-
-                if (window.HZDMapUI?.createCaptureMarker) {
-                    return window.HZDMapUI.createCaptureMarker(capture, {
-                        title: markerTitle,
-                        tooltipHtml: markerTooltip,
-                        onActivate: () => {
-                            openPostCaptureLightbox(post, capture.id);
-                        }
-                    });
-                }
-
-                const marker = L.marker([Number(capture.latitude), Number(capture.longitude)]);
-                marker.bindPopup(buildInlineMapPopupHtml(capture, post));
-                if (window.HZDMapUI) {
-                    window.HZDMapUI.bindPopupAction(marker, ".feed-map-open-btn", () => {
-                        openPostCaptureLightbox(post, capture.id);
-                    });
-                }
-                return marker;
-            });
-
-            if (window.HZDMapClusters) {
-                mapDiv._leaflet_layer = window.HZDMapClusters.replaceLayer(
-                    postMap,
-                    mapDiv._leaflet_layer,
-                    markers,
-                    {
-                        clusterOptions: {
-                            maxClusterRadius: 42,
-                            spiderfyDistanceMultiplier: 1.12
-                        }
-                    }
-                );
-                window.HZDMapClusters.fitLayer(postMap, mapDiv._leaflet_layer, { padding: [10, 10], maxZoom: 15 });
-            } else {
-                const bounds = L.latLngBounds();
-                markers.forEach((marker) => {
-                    marker.addTo(postMap);
-                    bounds.extend(marker.getLatLng());
-                });
-                if (bounds.isValid()) {
-                    postMap.fitBounds(bounds, { padding: [10, 10], maxZoom: 15 });
-                }
+        window.HZDMapUI.openViewer(mapCaptures, null, {
+            title: "Mapa publikace",
+            note: `${mapCaptures.length} bodů v této publikaci.`,
+            onCaptureActivate: (capture) => {
+                closeCaptureMapViewer();
+                openPostCaptureLightbox(post, capture.id);
             }
-            mapInitialized = true;
-            return;
-        }
-
-        const existingMap = mapDiv._leaflet_map;
-        if (existingMap) {
-            existingMap.invalidateSize();
-        }
+        });
     });
 }
 
@@ -696,7 +610,7 @@ function renderPosts(postsToRender, container, options = {}) {
                     }
                 });
                 capturesHtml += `
-                    <div class="feed-photo-frame">
+                    <div class="feed-photo-frame" data-idx="${idx}" role="button" tabindex="0" aria-label="Zobrazit detail fotky">
                         ${imageHtml}
                         ${accessBadge}
                     </div>
@@ -708,12 +622,10 @@ function renderPosts(postsToRender, container, options = {}) {
             capturesHtml += "</div>";
         }
 
-        const mapId = `feed-map-${post.id}`;
         const hasCoords = mapCaptures.length > 0;
         const mapBtnHtml = hasCoords
-            ? `<button class="btn btn-secondary map-toggle-btn" data-target="${mapId}">Zobrazit na mapě</button>`
+            ? `<button class="btn btn-secondary map-toggle-btn">Zobrazit na mapě</button>`
             : "";
-        const mapDivHtml = hasCoords ? `<div id="${mapId}" class="feed-map-container"></div>` : "";
         const activeClass = post.is_liked_by_me ? "active" : "";
         const canManage = Boolean(options.allowPostManagement && me && Number(me.id) === Number(post.author_user_id));
         const canModerate = userCanModerateClient(me);
@@ -744,7 +656,6 @@ function renderPosts(postsToRender, container, options = {}) {
                 ${escapeHtml(post.content).replace(/\n/g, "<br>")}
             </div>
             ${capturesHtml}
-            ${mapDivHtml}
             ${managementHtml}
             ${moderationHtml}
             <div class="feed-actions">
@@ -805,14 +716,23 @@ function renderPosts(postsToRender, container, options = {}) {
             });
         }
 
-        attachInlineMapToggle(card, post, mapId, mapCaptures);
+        attachInlineMapToggle(card, post, mapCaptures);
 
-        card.querySelectorAll(".feed-photo").forEach((photo) => {
-            photo.addEventListener("click", (event) => {
+        card.querySelectorAll(".feed-photo-frame").forEach((frame) => {
+            const openFrameLightbox = () => {
                 if (!window.HZDLightbox) {
                     return;
                 }
-                window.HZDLightbox.openCollection(post.captures, parseInt(event.target.dataset.idx, 10));
+                window.HZDLightbox.openCollection(post.captures, parseInt(frame.dataset.idx || "0", 10));
+            };
+
+            frame.addEventListener("click", openFrameLightbox);
+            frame.addEventListener("keydown", (event) => {
+                if (event.key !== "Enter" && event.key !== " ") {
+                    return;
+                }
+                event.preventDefault();
+                openFrameLightbox();
             });
         });
 

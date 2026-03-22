@@ -26,11 +26,18 @@
     </header>
 
     <main class="content-main content-main-narrow">
-        
+        <div class="profile-shortcuts-row">
+            <a href="/server-storage.html" class="btn btn-secondary">Nahrané fotky</a>
+            <a href="#profile-activity-card" class="btn btn-secondary">Moje mapa</a>
+        </div>
 
         <section class="account-card card">
             <div class="account-overview">
-                <div id="profile-picture" class="profile-picture profile-picture-compact"></div>
+                <div class="account-avatar-stack">
+                    <strong id="houbicka-balance" class="houbicka-balance profile-houbicka-balance">0 houbiček</strong>
+                    <div id="profile-picture" class="profile-picture profile-picture-compact"></div>
+                    <a id="profile-public-link" href="/public-profile.html" class="btn btn-secondary profile-avatar-link">Veřejný profil</a>
+                </div>
                 <div class="account-summary">
                     <div class="account-summary-top">
                         <div>
@@ -55,23 +62,7 @@
             </div>
         </section>
 
-        <div class="link-action-row">
-            <a id="profile-public-link" href="/public-profile.html" class="btn btn-secondary">Veřejný profil</a>
-            <a href="/server-storage.html" class="btn btn-secondary">Nahrané fotky</a>
-           
-        </div>
-
         <section class="card nickname-card">
-            <div class="about-head">
-                <div>
-                    <p class="section-label">Veřejný nick</p>
-                    <h2>Jméno, které uvidí ostatní</h2>
-                </div>
-                <p class="muted-copy">
-                    Tento nick používá Houbam Zdar ve feedu, komentářích, mapě i na veřejném profilu. Může mít maximálně 12 znaků a obsahovat jen písmena a číslice.
-                </p>
-            </div>
-
             <div id="nickname-display" class="nickname-display" hidden>
                 <div class="nickname-display-copy">
                     <span class="nickname-display-label">Aktuální nick</span>
@@ -85,27 +76,8 @@
                 <input id="nickname-input" type="text" maxlength="12" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="Např. Standa420">
                 <button id="save-nickname-btn" type="button" class="btn btn-primary">Uložit nick</button>
             </div>
-            <p class="subtle-note">
-                Povolená jsou jen písmena včetně českých znaků a číslice. Pokud je nick obsazený, navrhneme volné varianty.
-            </p>
             <div id="nickname-suggestions" class="nickname-suggestions" hidden></div>
             <span id="nickname-status" class="status-message" aria-live="polite"></span>
-        </section>
-
-        <section class="card account-danger-zone">
-            <div class="about-head">
-                <div>
-                    <p class="section-label">Nebezpečná zóna</p>
-                    <h2>Smazání účtu</h2>
-                </div>
-                <p class="muted-copy">
-                    Tato operace smaže váš účet na Houbam Zdar včetně fotografií, příspěvků, komentářů a odemčených vazeb. Netýká se účtu v AHOJ420.
-                </p>
-            </div>
-            <div class="action-row">
-                <button id="self-delete-btn" type="button" class="btn btn-danger">Smazat můj účet</button>
-                <span id="self-delete-status" class="status-message" aria-live="polite"></span>
-            </div>
         </section>
 
         <section class="dashboard-grid">
@@ -146,7 +118,6 @@
                 <p class="section-label">Houbičky</p>
                 <h2>Stav bonusové měny</h2>
                 <div class="houbicka-panel">
-                    <strong id="houbicka-balance" class="houbicka-balance">0 houbiček</strong>
                     <p class="muted-copy">
                         Za odemčení cizích souřadnic utrácíte 1 houbičku. Autor fotografie současně 1 houbičku získá.
                     </p>
@@ -154,30 +125,29 @@
                 <ul id="houbicka-rules" class="dashboard-list"></ul>
             </article>
 
-            <article class="dashboard-card card profile-activity-card" style="grid-column: 1 / -1;">
-                <div class="profile-activity-head">
-                    <div>
-                        <p class="section-label">Moje mapa</p>
-                        <h2 id="profile-activity-title">Kde jsem hledal(a)</h2>
-                        <p id="profile-activity-note" class="muted-copy" style="margin-bottom: 0;">
-                            Vaše vlastní fotografie s polohou. Blízké body se seskupují do clusterů a po rozkliknutí ukážou jednotlivé značky.
-                        </p>
-                    </div>
-                    <div class="profile-activity-switch" role="tablist" aria-label="Přepínač mapy profilu">
-                        <button type="button" class="profile-activity-toggle is-active" data-source="own">Kde jsem hledal(a)</button>
-                        <button type="button" class="profile-activity-toggle" data-source="viewed">Prohlédnuté za houbičky</button>
-                    </div>
-                </div>
-
-                <div id="profile-activity-map-shell" class="profile-activity-map-shell">
-                    <div id="profile-activity-map"></div>
-                    <div id="profile-activity-empty" class="viewed-capture-empty" hidden></div>
-                </div>
-
-                <div class="server-summary">
-                    <span id="profile-activity-summary">Načítám mapu profilu...</span>
+            <article id="profile-activity-card" class="dashboard-card card profile-activity-card" style="grid-column: 1 / -1;">
+                <p class="section-label">Moje mapa</p>
+                <div class="profile-activity-launch-grid">
+                    <button id="profile-activity-own-btn" type="button" class="btn btn-secondary profile-activity-launch-btn">Kde jsem hledal(a) · 0</button>
+                    <button id="profile-activity-viewed-btn" type="button" class="btn btn-secondary profile-activity-launch-btn">Prohlédnuté za houbičky · 0</button>
                 </div>
             </article>
+        </section>
+
+        <section class="card account-danger-zone">
+            <div class="about-head">
+                <div>
+                    <p class="section-label">Nebezpečná zóna</p>
+                    <h2>Smazání účtu</h2>
+                </div>
+                <p class="muted-copy">
+                    Tato operace smaže váš účet na Houbam Zdar včetně fotografií, příspěvků, komentářů a odemčených vazeb. Netýká se účtu v AHOJ420.
+                </p>
+            </div>
+            <div class="action-row">
+                <button id="self-delete-btn" type="button" class="btn btn-danger">Smazat můj účet</button>
+                <span id="self-delete-status" class="status-message" aria-live="polite"></span>
+            </div>
         </section>
     </main>
 

@@ -8,11 +8,24 @@
     padding: 1rem 1.2rem;
 }
 
+.profile-shortcuts-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.7rem;
+}
+
 .account-overview {
     display: grid;
     grid-template-columns: 5.5rem minmax(0, 1fr);
     gap: 1rem;
-    align-items: center;
+    align-items: start;
+}
+
+.account-avatar-stack {
+    display: grid;
+    gap: 0.45rem;
+    width: 5.5rem;
+    justify-items: stretch;
 }
 
 .profile-picture-compact {
@@ -28,6 +41,32 @@
 .account-summary {
     display: grid;
     gap: 0.65rem;
+}
+
+.profile-houbicka-balance {
+    display: grid;
+    place-items: center;
+    width: 100%;
+    min-height: 2.25rem;
+    margin: 0;
+    padding: 0.35rem;
+    border-radius: 1rem;
+    background: linear-gradient(135deg, rgba(238, 177, 109, 0.2), rgba(255, 255, 255, 0.7));
+    border: 1px solid rgba(200, 116, 47, 0.18);
+    font-size: 0.72rem;
+    line-height: 1.15;
+    text-align: center;
+}
+
+.profile-avatar-link {
+    width: 100%;
+    max-width: 100%;
+    min-height: 2.3rem;
+    padding: 0.45rem 0.35rem;
+    font-size: 0.74rem;
+    line-height: 1.15;
+    text-align: center;
+    white-space: normal;
 }
 
 .account-summary-top {
@@ -86,7 +125,7 @@
 
 .nickname-card {
     display: grid;
-    gap: 0.9rem;
+    gap: 0.65rem;
 }
 
 .nickname-display {
@@ -170,6 +209,10 @@
     padding: 1.25rem;
     display: grid;
     gap: 0.9rem;
+}
+
+#profile-activity-card {
+    scroll-margin-top: 1rem;
 }
 
 .dashboard-card h2,
@@ -421,6 +464,29 @@
 }
 
 @media (max-width: 640px) {
+    .profile-shortcuts-row .btn {
+        flex: 1 1 calc(50% - 0.35rem);
+        justify-content: center;
+        text-align: center;
+    }
+
+    .account-avatar-stack {
+        width: 4.3rem;
+        gap: 0.35rem;
+    }
+
+    .profile-houbicka-balance {
+        min-height: 2rem;
+        font-size: 0.64rem;
+        padding: 0.28rem;
+    }
+
+    .profile-avatar-link {
+        min-height: 2.05rem;
+        padding: 0.32rem 0.22rem;
+        font-size: 0.62rem;
+    }
+
     .nickname-display {
         flex-direction: column;
         align-items: stretch;

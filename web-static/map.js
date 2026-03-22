@@ -7,34 +7,14 @@ const globalMapState = {
     internalAdminView: false,
     isLoading: false,
     hasPendingReload: false,
+    hasLoadedOnce: false,
     results: [],
     filters: {
         species: ""
-    },
-    map: null,
-    markerLayer: null,
-    bounds: null
+    }
 };
 
 const GLOBAL_MAP_NEARBY_RADIUS_METERS = 200;
-
-function ensureGlobalMap() {
-    const mapContainer = document.getElementById("global-map");
-    if (!mapContainer || typeof L === "undefined") {
-        return null;
-    }
-
-    if (!globalMapState.map) {
-        globalMapState.map = L.map("global-map").setView([49.8, 15.5], 7);
-        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-        }).addTo(globalMapState.map);
-        globalMapState.markerLayer = L.layerGroup().addTo(globalMapState.map);
-        globalMapState.bounds = L.latLngBounds();
-    }
-
-    return globalMapState.map;
-}
 
 function readGlobalMapFiltersFromQuery() {
     const query = new URLSearchParams(window.location.search);
@@ -42,14 +22,10 @@ function readGlobalMapFiltersFromQuery() {
 }
 
 function syncGlobalMapFilterInputs() {
-    const setValue = (id, value) => {
-        const input = document.getElementById(id);
-        if (input) {
-            input.value = value;
-        }
-    };
-
-    setValue("global-filter-species", globalMapState.filters.species);
+    const input = document.getElementById("global-filter-species");
+    if (input) {
+        input.value = globalMapState.filters.species;
+    }
 }
 
 function syncGlobalMapQueryString() {
@@ -69,6 +45,21 @@ function buildGlobalMapQuery(offset = globalMapState.offset) {
     return params.toString();
 }
 
+function currentGlobalMapCaptures() {
+    return globalMapState.results.filter((capture) => captureHasCoordinates(capture));
+}
+
+function syncGlobalMapLaunchState() {
+    const button = document.getElementById("global-map-open-viewer-btn");
+    if (!button) {
+        return;
+    }
+
+    const captures = currentGlobalMapCaptures();
+    button.disabled = globalMapState.isLoading || captures.length === 0;
+    button.textContent = globalMapState.isLoading ? "Načítám mapu..." : "Otevřít mapu na celou obrazovku";
+}
+
 function updateGlobalMapSummary() {
     const summary = document.getElementById("global-map-summary");
     if (summary) {
@@ -84,173 +75,43 @@ function updateGlobalMapSummary() {
             summary.textContent = `Načteno ${globalMapState.loaded} bodů na mapě.`;
         }
     }
-}
 
-function buildGlobalMapPopupHtml(capture) {
-    const species = buildCaptureSpeciesLabel(capture);
-    const region = buildCaptureRegionLabel(capture);
-
-    return window.HZDMapUI.buildPopupHtml({
-        authorName: capture.author_name || "Neznámý houbař",
-        authorUrl: buildPublicProfileURL(capture.author_user_id),
-        previewHtml: capture.public_url ? buildCapturePopupPreviewHtml(capture, capture.author_name || "Neznámý houbař") : "",
-        altText: capture.author_name || "Neznámý houbař",
-        dateValue: capture.captured_at,
-        metaLines: [species, region],
-        actionHtml: capture.public_url
-            ? `<button type="button" class="btn btn-secondary map-popup-action global-map-open-btn" data-capture-id="${escapeHtml(capture.id)}">Otevřít ve fotkách</button>`
-            : ""
-    });
-}
-
-function degreesToRadians(value) {
-    return (value * Math.PI) / 180;
-}
-
-function getDistanceBetweenCapturesMeters(origin, candidate) {
-    const originLat = Number(origin?.latitude);
-    const originLon = Number(origin?.longitude);
-    const candidateLat = Number(candidate?.latitude);
-    const candidateLon = Number(candidate?.longitude);
-    if (
-        Number.isNaN(originLat)
-        || Number.isNaN(originLon)
-        || Number.isNaN(candidateLat)
-        || Number.isNaN(candidateLon)
-    ) {
-        return Number.POSITIVE_INFINITY;
-    }
-
-    const earthRadiusMeters = 6371000;
-    const latDelta = degreesToRadians(candidateLat - originLat);
-    const lonDelta = degreesToRadians(candidateLon - originLon);
-    const lat1 = degreesToRadians(originLat);
-    const lat2 = degreesToRadians(candidateLat);
-    const haversine =
-        Math.sin(latDelta / 2) * Math.sin(latDelta / 2)
-        + Math.cos(lat1) * Math.cos(lat2) * Math.sin(lonDelta / 2) * Math.sin(lonDelta / 2);
-    return 2 * earthRadiusMeters * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
-}
-
-function buildNearbyGlobalMapCollection(captureID) {
-    const targetCapture = globalMapState.results.find((capture) => capture && capture.id === captureID && capture.public_url);
-    if (!targetCapture) {
-        return [];
-    }
-
-    const nearby = globalMapState.results
-        .filter((capture) => capture && capture.public_url)
-        .map((capture) => ({
-            capture,
-            distanceMeters: capture.id === captureID
-                ? 0
-                : getDistanceBetweenCapturesMeters(targetCapture, capture)
-        }))
-        .filter((entry) => entry.capture.id === captureID || entry.distanceMeters <= GLOBAL_MAP_NEARBY_RADIUS_METERS)
-        .sort((left, right) => {
-            if (left.capture.id === captureID) return -1;
-            if (right.capture.id === captureID) return 1;
-            if (left.distanceMeters !== right.distanceMeters) {
-                return left.distanceMeters - right.distanceMeters;
-            }
-            return String(right.capture.captured_at || "").localeCompare(String(left.capture.captured_at || ""));
-        });
-
-    return nearby.map((entry) => entry.capture);
+    syncGlobalMapLaunchState();
 }
 
 function openGlobalMapCaptureLightbox(captureID) {
-    const capturesToOpen = buildNearbyGlobalMapCollection(captureID);
-    if (capturesToOpen.length === 0 || !window.HZDLightbox) {
-        return;
-    }
-
-    window.HZDLightbox.openCollection(capturesToOpen, 0);
-}
-
-function applyGlobalMapMarkers(markers) {
-    const map = ensureGlobalMap();
-    if (!map) return;
-
-    if (window.HZDMapClusters) {
-        globalMapState.markerLayer = window.HZDMapClusters.replaceLayer(
-            map,
-            globalMapState.markerLayer,
-            markers,
-            {
-                clusterOptions: {
-                    maxClusterRadius: 58,
-                    spiderfyDistanceMultiplier: 1.24
-                }
-            }
-        );
-        return;
-    }
-
-    if (!globalMapState.markerLayer || typeof globalMapState.markerLayer.clearLayers !== "function") {
-        globalMapState.markerLayer = L.layerGroup().addTo(map);
-    } else {
-        globalMapState.markerLayer.clearLayers();
-    }
-    markers.forEach((marker) => marker.addTo(globalMapState.markerLayer));
-}
-
-function renderGlobalMapMarkers() {
-    const map = ensureGlobalMap();
-    if (!map) return;
-
-    const markers = [];
-    globalMapState.bounds = L.latLngBounds();
-
-    globalMapState.results.forEach((capture) => {
-        const lat = Number(capture.latitude);
-        const lon = Number(capture.longitude);
-        if (Number.isNaN(lat) || Number.isNaN(lon)) {
-            return;
-        }
-
-        globalMapState.bounds.extend([lat, lon]);
-        const markerTitle = buildCaptureSpeciesLabel(capture) || capture.author_name || "Otevřít fotografii";
-        const markerTooltip = window.HZDMapUI?.buildMarkerTooltipHtml
-            ? window.HZDMapUI.buildMarkerTooltipHtml({
-                title: markerTitle,
-                metaLines: [capture.author_name || "", buildCaptureRegionLabel(capture)]
-            })
-            : "";
-        const marker = window.HZDMapUI?.createCaptureMarker
-            ? window.HZDMapUI.createCaptureMarker(capture, {
-                title: markerTitle,
-                tooltipHtml: markerTooltip,
-                onActivate: () => {
-                    openGlobalMapCaptureLightbox(capture.id);
-                }
-            })
-            : L.marker([lat, lon]);
-        if (!window.HZDMapUI?.createCaptureMarker) {
-            marker.on("click", () => {
-                openGlobalMapCaptureLightbox(capture.id);
-            });
-        }
-        markers.push(marker);
+    window.HZDMapUI?.openLightboxCollection(globalMapState.results, captureID, {
+        nearby: true,
+        requirePublicUrl: true,
+        radiusMeters: GLOBAL_MAP_NEARBY_RADIUS_METERS
     });
-
-    globalMapState.mapped = markers.length;
-    applyGlobalMapMarkers(markers);
-
-    if (window.HZDMapClusters && globalMapState.markerLayer && markers.length > 0) {
-        window.HZDMapClusters.fitLayer(map, globalMapState.markerLayer, { padding: [30, 30], maxZoom: 15 });
-    } else if (globalMapState.bounds.isValid()) {
-        map.fitBounds(globalMapState.bounds, { padding: [30, 30], maxZoom: 15 });
-    } else {
-        map.setView([49.8, 15.5], 7);
-    }
 }
+
+async function openGlobalMapViewer() {
+    if (!globalMapState.hasLoadedOnce && !globalMapState.isLoading) {
+        await loadGlobalMapBatch({ reset: true });
+    }
+
+    const captures = currentGlobalMapCaptures();
+    if (!captures.length || !window.HZDMapUI?.openViewer) {
+        syncGlobalMapLaunchState();
+        return false;
+    }
+
+    const summary = document.getElementById("global-map-summary")?.textContent?.trim() || "";
+    return window.HZDMapUI.openViewer(captures, null, {
+        title: "Veřejná mapa",
+        note: summary,
+        onCaptureActivate: (capture) => {
+            closeCaptureMapViewer();
+            openGlobalMapCaptureLightbox(capture.id);
+        }
+    });
+}
+
+window.openGlobalMapViewer = openGlobalMapViewer;
 
 async function loadGlobalMapBatch({ reset = false } = {}) {
-    const map = ensureGlobalMap();
-    if (!map) {
-        return;
-    }
     if (globalMapState.isLoading) {
         globalMapState.hasPendingReload = globalMapState.hasPendingReload || reset;
         return;
@@ -263,8 +124,8 @@ async function loadGlobalMapBatch({ reset = false } = {}) {
         globalMapState.loaded = 0;
         globalMapState.mapped = 0;
         globalMapState.internalAdminView = false;
+        globalMapState.hasLoadedOnce = false;
         globalMapState.results = [];
-        renderGlobalMapMarkers();
         updateGlobalMapSummary();
     }
 
@@ -287,15 +148,17 @@ async function loadGlobalMapBatch({ reset = false } = {}) {
 
             globalMapState.results = Array.from(capturesByID.values());
             globalMapState.loaded = globalMapState.results.length;
+            globalMapState.mapped = currentGlobalMapCaptures().length;
             globalMapState.offset = globalMapState.loaded;
             globalMapState.internalAdminView = globalMapState.internalAdminView || Boolean(result.internal_admin_view);
             globalMapState.hasMore = result.captures.length === globalMapState.pageSize;
-            renderGlobalMapMarkers();
             updateGlobalMapSummary();
 
             offset += result.captures.length;
             hasMore = result.captures.length === globalMapState.pageSize;
         }
+
+        globalMapState.hasLoadedOnce = true;
     } catch (error) {
         console.error("Failed to load global map batch", error);
         const summary = document.getElementById("global-map-summary");
@@ -313,9 +176,7 @@ async function loadGlobalMapBatch({ reset = false } = {}) {
 }
 
 function readGlobalMapFiltersFromForm() {
-    const readValue = (id) => (document.getElementById(id)?.value || "").trim();
-
-    globalMapState.filters.species = readValue("global-filter-species");
+    globalMapState.filters.species = (document.getElementById("global-filter-species")?.value || "").trim();
 }
 
 function resetGlobalMapFilters() {
@@ -328,10 +189,11 @@ function resetGlobalMapFilters() {
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
-    if (!ensureGlobalMap()) return;
+    if (document.body.dataset.page !== "map") return;
 
     readGlobalMapFiltersFromQuery();
     syncGlobalMapFilterInputs();
+    syncGlobalMapLaunchState();
 
     const filterForm = document.getElementById("global-map-filter-form");
     if (filterForm) {
@@ -355,6 +217,13 @@ document.addEventListener("DOMContentLoaded", async () => {
                 filtersDetails.open = false;
             }
             await resetGlobalMapFilters();
+        });
+    }
+
+    const openButton = document.getElementById("global-map-open-viewer-btn");
+    if (openButton) {
+        openButton.addEventListener("click", async () => {
+            await openGlobalMapViewer();
         });
     }
 

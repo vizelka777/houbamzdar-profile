@@ -282,4 +282,12 @@
 
 .feed-photo-frame {
     position: relative;
+    cursor: pointer;
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+}
+
+.feed-photo-frame:focus-visible {
+    outline: 3px solid rgba(214, 132, 48, 0.45);
+    outline-offset: 2px;
 }

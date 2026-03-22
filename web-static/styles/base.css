@@ -543,11 +543,25 @@ img {
 
 .header-menu-action {
     width: 100%;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.55rem;
-    margin-top: 0.2rem;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: start;
+    justify-content: stretch;
+    gap: 0.72rem;
+    margin-top: 0;
+    padding: 0.82rem 0.9rem;
+    text-align: left;
+    box-shadow: none;
+}
+
+.header-menu-action span:last-child {
+    min-width: 0;
+    text-align: left;
+}
+
+.header-menu-action:hover,
+.header-menu-action:focus-visible {
+    transform: translateX(-2px);
 }
 
 .author-link {
@@ -748,15 +762,6 @@ textarea {
     background: rgba(139, 59, 31, 0.96);
 }
 
-#global-map {
-    width: 100%;
-    height: clamp(25rem, 72vh, 42rem);
-    border-radius: var(--radius-lg);
-    border: 1px solid rgba(19, 38, 29, 0.08);
-    box-shadow: 0 20px 42px rgba(21, 34, 24, 0.12);
-    z-index: 1;
-}
-
 .map-popup-content {
     text-align: center;
     display: grid;
@@ -919,9 +924,9 @@ textarea {
     inset: 0;
     z-index: 1210;
     display: none;
-    align-items: center;
-    justify-content: center;
-    padding: 1rem;
+    align-items: stretch;
+    justify-content: stretch;
+    padding: 0;
 }
 
 .capture-map-viewer.active {
@@ -936,15 +941,15 @@ textarea {
 
 .capture-map-viewer-dialog {
     position: relative;
-    width: min(96vw, 60rem);
-    height: min(86vh, 46rem);
+    width: 100vw;
+    height: 100dvh;
     display: grid;
-    grid-template-rows: auto auto minmax(18rem, 1fr);
-    gap: 0.75rem;
-    padding: 1rem;
-    border-radius: 1.2rem;
+    grid-template-rows: auto auto minmax(0, 1fr);
+    gap: 0.5rem;
+    padding: 0.9rem 0.9rem 1rem;
+    border-radius: 0;
     background: linear-gradient(180deg, rgba(255, 252, 247, 0.98), rgba(245, 239, 229, 0.96));
-    box-shadow: 0 28px 60px rgba(7, 12, 9, 0.28);
+    box-shadow: none;
     z-index: 1;
 }
 
@@ -957,7 +962,7 @@ textarea {
 }
 
 .capture-map-viewer-map {
-    min-height: 18rem;
+    min-height: 0;
     height: 100%;
     border-radius: 1rem;
     overflow: hidden;
@@ -980,14 +985,10 @@ textarea {
 }
 
 @media (max-width: 700px) {
-    .capture-map-viewer {
-        padding: 0.65rem;
-    }
-
     .capture-map-viewer-dialog {
         width: 100%;
-        height: min(88vh, 42rem);
-        padding: 0.9rem;
+        height: 100dvh;
+        padding: calc(0.7rem + env(safe-area-inset-top, 0rem)) 0.75rem calc(0.8rem + env(safe-area-inset-bottom, 0rem));
     }
 
     .gallery-moderation-modal {
@@ -1165,15 +1166,6 @@ textarea {
         flex-direction: column;
     }
 
-    .profile-activity-switch {
-        width: 100%;
-    }
-
-    .profile-activity-toggle {
-        flex: 1 1 50%;
-        text-align: center;
-    }
-
     .profile-activity-strip-item {
         min-width: 7rem;
     }
@@ -1274,10 +1266,6 @@ textarea {
     .map-filter-body {
         padding: 0 0.78rem 0.78rem;
         gap: 0.65rem;
-    }
-
-    #global-map {
-        height: clamp(18rem, calc(100dvh - 12.2rem), 30rem);
     }
 
     .hero-card,
@@ -1412,13 +1400,11 @@ textarea {
         height: 5rem;
     }
 
-    .profile-activity-toggle,
     .server-status-button {
         padding: 0.58rem 0.78rem;
         min-height: 2.45rem;
     }
 
-    .profile-activity-switch,
     .server-status-toggle {
         padding: 0.2rem;
     }
@@ -1434,16 +1420,6 @@ textarea {
 
     .feed-header {
         gap: 0.75rem;
-    }
-
-    .feed-map-container,
-    .public-profile-map,
-    #profile-activity-map {
-        margin-top: 0.75rem;
-    }
-
-    .feed-map-container {
-        height: 190px;
     }
 
     .feed-actions {
@@ -1566,13 +1542,9 @@ textarea {
         font-size: 0.84rem;
     }
 
-    .capture-map-viewer {
-        padding: 0.4rem;
-    }
-
     .capture-map-viewer-dialog {
         gap: 0.55rem;
-        padding: 0.75rem;
+        padding: calc(0.65rem + env(safe-area-inset-top, 0rem)) 0.7rem calc(0.75rem + env(safe-area-inset-bottom, 0rem));
     }
 
     .capture-map-viewer-close {
