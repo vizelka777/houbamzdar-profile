@@ -285,8 +285,73 @@ function buildHeaderMenuIconMarkup(icon) {
     return `<span class="header-menu-icon" aria-hidden="true">${icon}</span>`;
 }
 
+function closeOpenHeaderMenusExcept(activeMenu = null) {
+    document.querySelectorAll(".header-menu[open]").forEach((menu) => {
+        if (activeMenu && menu === activeMenu) {
+            return;
+        }
+        menu.removeAttribute("open");
+    });
+}
+
+function eventPointHitsElement(event, element) {
+    if (!event || !element || typeof event.clientX !== "number" || typeof event.clientY !== "number") {
+        return false;
+    }
+    const rect = element.getBoundingClientRect();
+    return (
+        event.clientX >= rect.left &&
+        event.clientX <= rect.right &&
+        event.clientY >= rect.top &&
+        event.clientY <= rect.bottom
+    );
+}
+
+function resolveActiveHeaderMenuPointerTarget(event) {
+    const menu = event?.target?.closest?.(".header-menu") || null;
+    if (!menu) {
+        return null;
+    }
+
+    const panel = menu.querySelector(".header-menu-panel");
+    if (panel?.contains(event.target)) {
+        return menu;
+    }
+
+    const summary = menu.querySelector("summary");
+    if (summary?.contains(event.target) && eventPointHitsElement(event, summary)) {
+        return menu;
+    }
+
+    return null;
+}
+
+function resolveActiveHeaderMenuFocusTarget(target) {
+    const interactiveArea = target?.closest?.(".header-menu-panel, .header-menu summary") || null;
+    return interactiveArea ? interactiveArea.closest(".header-menu") : null;
+}
+
+function ensureHeaderMenuAutoClose() {
+    if (window.__hzdHeaderMenuAutoCloseBound) {
+        return;
+    }
+
+    window.__hzdHeaderMenuAutoCloseBound = true;
+
+    document.addEventListener("pointerdown", (event) => {
+        const activeMenu = resolveActiveHeaderMenuPointerTarget(event);
+        closeOpenHeaderMenusExcept(activeMenu);
+    }, true);
+
+    document.addEventListener("focusin", (event) => {
+        const activeMenu = resolveActiveHeaderMenuFocusTarget(event.target);
+        closeOpenHeaderMenusExcept(activeMenu);
+    });
+}
+
 function createHeaderMenuButton(label, iconSVG, className, items, options = {}) {
     const { hideLabel = false, lead = null } = options;
+    ensureHeaderMenuAutoClose();
     const details = document.createElement("details");
     details.className = "header-menu";
 
@@ -367,15 +432,13 @@ function createHeaderMenuButton(label, iconSVG, className, items, options = {}) 
                 ${item.note ? `<small class="header-menu-note">${escapeHtml(item.note)}</small>` : ""}
             </span>
         `;
+        link.addEventListener("click", () => {
+            details.removeAttribute("open");
+        });
         panel.appendChild(link);
     });
 
     details.appendChild(panel);
-    document.addEventListener("click", (event) => {
-        if (!details.contains(event.target)) {
-            details.removeAttribute("open");
-        }
-    });
 
     return details;
 }
@@ -1791,12 +1854,406 @@ const publicProfileState = {
     moderationActionsHasMore: false,
     posts: [],
     captures: [],
+    galleryCaptures: [],
     postsLimit: 6,
     postsOffset: 0,
     postsHasMore: false,
+    galleryPage: 1,
+    galleryPageSize: 24,
+    galleryTotal: 0,
+    galleryTotalPages: 0,
+    postsLoaded: false,
+    postsLoading: false,
+    capturesLoaded: false,
+    capturesLoading: false,
+    galleryLoaded: false,
+    galleryLoading: false,
     map: null,
     markerLayer: null
 };
+
+function publicProfileSectionNodes() {
+    return {
+        mapButton: document.getElementById("public-profile-open-map-btn"),
+        postsButton: document.getElementById("public-profile-open-posts-btn"),
+        galleryButton: document.getElementById("public-profile-open-gallery-btn"),
+        mapSection: document.getElementById("public-profile-map-section"),
+        postsSection: document.getElementById("public-profile-posts-section"),
+        gallerySection: document.getElementById("public-profile-gallery-section")
+    };
+}
+
+function syncPublicProfileSectionButtons() {
+    const nodes = publicProfileSectionNodes();
+    nodes.mapButton?.classList.toggle("is-active", Boolean(nodes.mapSection && !nodes.mapSection.hidden));
+    nodes.postsButton?.classList.toggle("is-active", Boolean(nodes.postsSection && !nodes.postsSection.hidden));
+    nodes.galleryButton?.classList.toggle("is-active", Boolean(nodes.gallerySection && !nodes.gallerySection.hidden));
+}
+
+function setPublicProfileSectionVisibility(section, visible) {
+    const nodes = publicProfileSectionNodes();
+    const sectionNode = {
+        map: nodes.mapSection,
+        posts: nodes.postsSection,
+        gallery: nodes.gallerySection
+    }[section] || null;
+    if (!sectionNode) {
+        return;
+    }
+    sectionNode.hidden = !visible;
+}
+
+async function openPublicProfileSection(section) {
+    const nodes = publicProfileSectionNodes();
+    const sectionNode = {
+        map: nodes.mapSection,
+        posts: nodes.postsSection,
+        gallery: nodes.gallerySection
+    }[section] || null;
+    if (!sectionNode) {
+        return;
+    }
+
+    setPublicProfileSectionVisibility("map", section === "map");
+    setPublicProfileSectionVisibility("posts", section === "posts");
+    setPublicProfileSectionVisibility("gallery", section === "gallery");
+    syncPublicProfileSectionButtons();
+
+    if (section === "map") {
+        if (!publicProfileState.capturesLoaded && !publicProfileState.capturesLoading) {
+            await loadPublicProfileCaptures();
+        } else {
+            renderPublicProfileMap();
+            window.setTimeout(() => publicProfileState.map?.invalidateSize(), 0);
+        }
+    } else if (section === "posts") {
+        if (!publicProfileState.postsLoaded && !publicProfileState.postsLoading) {
+            await loadPublicProfilePosts(false);
+        }
+    } else if (!publicProfileState.galleryLoaded && !publicProfileState.galleryLoading) {
+        await loadPublicProfileGallery(1);
+    } else {
+        renderPublicProfileGallery();
+    }
+
+    sectionNode.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function buildPublicProfileGalleryPaginationItems(currentPage, totalPages) {
+    if (totalPages <= 7) {
+        return Array.from({ length: totalPages }, (_, idx) => idx + 1);
+    }
+
+    const candidates = new Set([
+        1,
+        totalPages,
+        currentPage - 1,
+        currentPage,
+        currentPage + 1
+    ]);
+    if (currentPage <= 3) {
+        candidates.add(2);
+        candidates.add(3);
+    }
+    if (currentPage >= totalPages - 2) {
+        candidates.add(totalPages - 1);
+        candidates.add(totalPages - 2);
+    }
+
+    const pages = Array.from(candidates)
+        .filter((value) => value >= 1 && value <= totalPages)
+        .sort((left, right) => left - right);
+
+    const items = [];
+    let previous = 0;
+    pages.forEach((pageNumber) => {
+        if (previous && pageNumber - previous > 1) {
+            items.push("gap");
+        }
+        items.push(pageNumber);
+        previous = pageNumber;
+    });
+    return items;
+}
+
+function parsePublicProfileGalleryPage(rawValue, fallback = 1) {
+    const value = Number.parseInt(String(rawValue || ""), 10);
+    if (!Number.isFinite(value) || value <= 0) {
+        return fallback;
+    }
+    return value;
+}
+
+function formatPublicProfileGalleryRegionLabel(region) {
+    const safeRegion = escapeHtml(region || "");
+    return safeRegion.replace(/\s+([^\s]+)$/u, "<br>$1");
+}
+
+function buildPublicProfileGallerySpeciesButton(capture) {
+    const entries = buildCaptureSpeciesEntries(capture);
+    if (entries.length === 0) {
+        return "";
+    }
+    return `
+        <button
+            type="button"
+            class="gallery-species-trigger"
+            data-capture-id="${escapeHtml(capture.id)}"
+            aria-label="Zobrazit rozpoznané druhy"
+        >
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M7 5.5A2.5 2.5 0 0 1 9.5 3H19v18h-9.5A2.5 2.5 0 0 0 7 23z"></path>
+                <path d="M7 5.5A2.5 2.5 0 0 0 4.5 3H5v18h.5A2.5 2.5 0 0 1 8 23"></path>
+                <path d="M10.5 8H16"></path>
+                <path d="M10.5 11.5H16"></path>
+                <path d="M10.5 15H14.5"></path>
+            </svg>
+            <span class="sr-only">Zobrazit rozpoznané druhy</span>
+        </button>
+    `;
+}
+
+function closePublicProfileGallerySpeciesModal() {
+    const modal = document.getElementById("public-profile-gallery-species-modal");
+    if (!modal) {
+        return;
+    }
+    modal.hidden = true;
+    modal.setAttribute("aria-hidden", "true");
+}
+
+function openPublicProfileGallerySpeciesModal(captureID) {
+    const modal = document.getElementById("public-profile-gallery-species-modal");
+    const body = document.getElementById("public-profile-gallery-species-body");
+    const meta = document.getElementById("public-profile-gallery-species-meta");
+    if (!modal || !body || !meta) {
+        return;
+    }
+
+    const capture = publicProfileState.galleryCaptures.find((item) => item && item.id === captureID) || null;
+    const entries = buildCaptureSpeciesEntries(capture);
+    if (!capture || entries.length === 0) {
+        return;
+    }
+
+    const authorName = String(capture.author_name || publicProfileState.user?.preferred_username || "Neznámý houbař").trim();
+    const region = buildCaptureKrajLabel(capture);
+    meta.innerHTML = [
+        authorName ? `<span>${escapeHtml(authorName)}</span>` : "",
+        region ? `<span>${escapeHtml(region)}</span>` : ""
+    ].filter(Boolean).join(" • ");
+    body.innerHTML = `
+        <ul class="capture-species-list">
+            ${entries.map((entry) => `<li>${escapeHtml(entry)}</li>`).join("")}
+        </ul>
+    `;
+
+    modal.hidden = false;
+    modal.setAttribute("aria-hidden", "false");
+}
+
+function renderPublicProfileGalleryPagination() {
+    const pagination = document.getElementById("public-gallery-pagination");
+    if (!pagination) {
+        return;
+    }
+
+    if (publicProfileState.galleryTotalPages <= 1) {
+        pagination.hidden = true;
+        pagination.innerHTML = "";
+        return;
+    }
+
+    const items = buildPublicProfileGalleryPaginationItems(publicProfileState.galleryPage, publicProfileState.galleryTotalPages);
+    pagination.hidden = false;
+    pagination.innerHTML = [
+        `<button type="button" class="btn btn-secondary" data-page="${publicProfileState.galleryPage - 1}" ${publicProfileState.galleryPage <= 1 ? "disabled" : ""}>Předchozí</button>`,
+        ...items.map((item) => {
+            if (item === "gap") {
+                return '<span class="gallery-pagination-gap" aria-hidden="true">…</span>';
+            }
+            const active = item === publicProfileState.galleryPage;
+            return `
+                <button
+                    type="button"
+                    class="btn ${active ? "btn-primary" : "btn-secondary"}"
+                    data-page="${item}"
+                    ${active ? "aria-current=\"page\" disabled" : ""}
+                >${item}</button>
+            `;
+        }),
+        `<button type="button" class="btn btn-secondary" data-page="${publicProfileState.galleryPage + 1}" ${publicProfileState.galleryPage >= publicProfileState.galleryTotalPages ? "disabled" : ""}>Další</button>`
+    ].join("");
+
+    pagination.querySelectorAll("[data-page]").forEach((button) => {
+        button.addEventListener("click", async () => {
+            const nextPage = parsePublicProfileGalleryPage(button.dataset.page, publicProfileState.galleryPage);
+            if (
+                nextPage === publicProfileState.galleryPage
+                || nextPage < 1
+                || nextPage > publicProfileState.galleryTotalPages
+                || publicProfileState.galleryLoading
+            ) {
+                return;
+            }
+            await loadPublicProfileGallery(nextPage);
+            document.getElementById("public-gallery-container")?.scrollIntoView({ behavior: "smooth", block: "start" });
+        });
+    });
+}
+
+function renderPublicProfileGallery() {
+    const container = document.getElementById("public-gallery-container");
+    const summary = document.getElementById("public-gallery-summary");
+    if (!container || !summary) {
+        return;
+    }
+
+    const captures = Array.isArray(publicProfileState.galleryCaptures) ? publicProfileState.galleryCaptures : [];
+    const authorName = String(publicProfileState.user?.preferred_username || "uživatele").trim();
+
+    if (publicProfileState.galleryLoading && captures.length === 0) {
+        summary.textContent = "Načítám fotografie...";
+        container.innerHTML = '<p class="muted-copy gallery-grid-status">Načítám fotografie...</p>';
+        renderPublicProfileGalleryPagination();
+        return;
+    }
+
+    if (!captures.length) {
+        summary.textContent = `Uživatel ${authorName} zatím nemá žádné zveřejněné fotografie.`;
+        container.innerHTML = '<p class="muted-copy gallery-grid-status">Zatím tu nejsou žádné zveřejněné fotografie.</p>';
+        renderPublicProfileGalleryPagination();
+        return;
+    }
+
+    if (publicProfileState.galleryTotalPages > 1) {
+        summary.textContent = `Nalezeno ${publicProfileState.galleryTotal} veřejných fotografií od ${authorName}. Zobrazuji stranu ${publicProfileState.galleryPage} z ${publicProfileState.galleryTotalPages}.`;
+    } else {
+        summary.textContent = `Nalezeno ${publicProfileState.galleryTotal} veřejných fotografií od ${authorName}.`;
+    }
+
+    container.innerHTML = captures.map((capture, idx) => {
+        const avatarUrl = capture.author_avatar || DEFAULT_AVATAR_URL;
+        const captureAuthorName = capture.author_name || publicProfileState.user?.preferred_username || "Neznámý houbař";
+        const accessBadge = buildCaptureAccessBadgeHtml(capture);
+        const authorURL = buildPublicProfileURL(capture.author_user_id);
+        const region = buildCaptureKrajLabel(capture);
+        const imageHtml = buildCaptureImageTag(capture, {
+            variant: "thumb",
+            alt: "Houbařský úlovek",
+            loading: "lazy",
+            sizes: "(max-width: 720px) 50vw, (max-width: 1200px) 33vw, 384px"
+        });
+        const speciesButton = buildPublicProfileGallerySpeciesButton(capture);
+
+        return `
+            <div class="gallery-item" data-index="${idx}" tabindex="0" role="button" aria-label="Zobrazit detail fotky">
+                <div class="gallery-item-header">
+                    <a href="${escapeHtml(authorURL)}" class="author-link">
+                        <img src="${escapeHtml(avatarUrl)}" class="gallery-item-avatar" alt="Avatar">
+                        <span class="gallery-item-author">${escapeHtml(captureAuthorName)}</span>
+                    </a>
+                </div>
+                <div class="gallery-item-image">
+                    ${imageHtml}
+                    ${accessBadge}
+                </div>
+                <div class="gallery-item-copy">
+                    ${region ? `
+                        <div class="gallery-item-meta-row">
+                            <p class="gallery-item-region">${formatPublicProfileGalleryRegionLabel(region)}</p>
+                        </div>
+                    ` : ""}
+                </div>
+                ${speciesButton}
+            </div>
+        `;
+    }).join("");
+
+    container.querySelectorAll(".gallery-item").forEach((item) => {
+        const openItemLightbox = () => {
+            if (!window.HZDLightbox) {
+                return;
+            }
+            window.HZDLightbox.openCollection(publicProfileState.galleryCaptures, Number(item.dataset.index || 0));
+        };
+        item.addEventListener("click", openItemLightbox);
+        item.addEventListener("keydown", (event) => {
+            if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                openItemLightbox();
+            }
+        });
+    });
+
+    container.querySelectorAll(".author-link").forEach((link) => {
+        link.addEventListener("click", (event) => {
+            event.stopPropagation();
+        });
+    });
+
+    container.querySelectorAll(".gallery-species-trigger").forEach((button) => {
+        button.addEventListener("click", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            openPublicProfileGallerySpeciesModal(button.dataset.captureId);
+        });
+    });
+
+    renderPublicProfileGalleryPagination();
+}
+
+async function loadPublicProfileGallery(page = publicProfileState.galleryPage) {
+    const container = document.getElementById("public-gallery-container");
+    if (!container || !publicProfileState.requestedUserID || publicProfileState.galleryLoading) {
+        return;
+    }
+
+    let loadSucceeded = false;
+    publicProfileState.galleryLoading = true;
+    publicProfileState.galleryPage = Number.isFinite(Number(page)) && Number(page) > 0 ? Number(page) : 1;
+    renderPublicProfileGallery();
+
+    try {
+        const limit = publicProfileState.galleryPageSize;
+        const offset = (publicProfileState.galleryPage - 1) * limit;
+        const result = await apiGet(`/api/public/users/${encodeURIComponent(publicProfileState.requestedUserID)}/captures?limit=${limit}&offset=${offset}`);
+        if (!result || !result.ok) {
+            throw new Error("Nepodařilo se načíst galerii uživatele.");
+        }
+
+        publicProfileState.galleryCaptures = Array.isArray(result.captures) ? result.captures : [];
+        publicProfileState.galleryTotal = Number.isFinite(Number(result.total)) ? Number(result.total) : 0;
+        publicProfileState.galleryTotalPages = publicProfileState.galleryTotal > 0
+            ? Math.max(1, Math.ceil(publicProfileState.galleryTotal / publicProfileState.galleryPageSize))
+            : 0;
+
+        if (publicProfileState.galleryTotalPages > 0 && publicProfileState.galleryPage > publicProfileState.galleryTotalPages) {
+            publicProfileState.galleryLoading = false;
+            await loadPublicProfileGallery(publicProfileState.galleryTotalPages);
+            return;
+        }
+
+        publicProfileState.galleryLoaded = true;
+        loadSucceeded = true;
+    } catch (error) {
+        console.error("Failed to load public profile gallery", error);
+        publicProfileState.galleryCaptures = [];
+        publicProfileState.galleryTotal = 0;
+        publicProfileState.galleryTotalPages = 0;
+        const summary = document.getElementById("public-gallery-summary");
+        if (summary) {
+            summary.textContent = error.message || "Galerii se nepodařilo načíst.";
+        }
+        container.innerHTML = `<p class="muted-copy gallery-grid-status">${escapeHtml(error.message || "Galerii se nepodařilo načíst.")}</p>`;
+        renderPublicProfileGalleryPagination();
+    } finally {
+        publicProfileState.galleryLoading = false;
+        if (loadSucceeded) {
+            renderPublicProfileGallery();
+        }
+    }
+}
 
 function resolveRequestedPublicProfileUserID(params, me) {
     const requestedParam = params.get("user");
@@ -2113,9 +2570,11 @@ async function loadPublicProfilePosts(append = false) {
     const container = document.getElementById("public-posts-container");
     const loadMoreButton = document.getElementById("public-posts-load-more-btn");
     const summaryNode = document.getElementById("public-posts-summary");
-    if (!container || !publicProfileState.requestedUserID) {
+    if (!container || !publicProfileState.requestedUserID || publicProfileState.postsLoading) {
         return;
     }
+
+    publicProfileState.postsLoading = true;
 
     if (!append) {
         publicProfileState.posts = [];
@@ -2123,63 +2582,74 @@ async function loadPublicProfilePosts(append = false) {
         container.innerHTML = '<p class="muted-copy">Načítám publikace...</p>';
     }
 
-    const result = await apiGet(`/api/public/users/${encodeURIComponent(publicProfileState.requestedUserID)}/posts?limit=${publicProfileState.postsLimit}&offset=${publicProfileState.postsOffset}`);
-    if (!result || !result.ok) {
-        container.innerHTML = '<p class="muted-copy">Nepodařilo se načíst publikace.</p>';
-        if (loadMoreButton) loadMoreButton.style.display = "none";
-        return;
-    }
+    try {
+        const result = await apiGet(`/api/public/users/${encodeURIComponent(publicProfileState.requestedUserID)}/posts?limit=${publicProfileState.postsLimit}&offset=${publicProfileState.postsOffset}`);
+        if (!result || !result.ok) {
+            container.innerHTML = '<p class="muted-copy">Nepodařilo se načíst publikace.</p>';
+            if (loadMoreButton) loadMoreButton.style.display = "none";
+            return;
+        }
 
-    const posts = result.posts || [];
-    publicProfileState.posts = publicProfileState.posts.concat(posts);
-    publicProfileState.postsOffset += posts.length;
-    publicProfileState.postsHasMore = Boolean(result.has_more);
+        const posts = result.posts || [];
+        publicProfileState.posts = publicProfileState.posts.concat(posts);
+        publicProfileState.postsOffset += posts.length;
+        publicProfileState.postsHasMore = Boolean(result.has_more);
+        publicProfileState.postsLoaded = true;
 
-    container.innerHTML = "";
-    if (!publicProfileState.posts.length) {
-        container.innerHTML = '<p class="muted-copy">Zatím žádné publikace.</p>';
-    } else if (window.hzdFeedUI && typeof window.hzdFeedUI.renderPosts === "function") {
-        window.hzdFeedUI.renderPosts(publicProfileState.posts, container, {
-            postsStore: publicProfileState.posts,
-            allowPostManagement: publicProfileState.isOwner,
-            onPostDeleted: (_, nextPosts) => {
-                if (summaryNode) {
-                    summaryNode.textContent = `Načteno ${nextPosts.length} publikací.`;
+        container.innerHTML = "";
+        if (!publicProfileState.posts.length) {
+            container.innerHTML = '<p class="muted-copy">Zatím žádné publikace.</p>';
+        } else if (window.hzdFeedUI && typeof window.hzdFeedUI.renderPosts === "function") {
+            window.hzdFeedUI.renderPosts(publicProfileState.posts, container, {
+                postsStore: publicProfileState.posts,
+                allowPostManagement: publicProfileState.isOwner,
+                onPostDeleted: (_, nextPosts) => {
+                    if (summaryNode) {
+                        summaryNode.textContent = `Načteno ${nextPosts.length} publikací.`;
+                    }
+                    if (!nextPosts.length) {
+                        container.innerHTML = '<p class="muted-copy">Zatím žádné publikace.</p>';
+                    }
                 }
-                if (!nextPosts.length) {
-                    container.innerHTML = '<p class="muted-copy">Zatím žádné publikace.</p>';
-                }
-            }
-        });
-    }
+            });
+        }
 
-    if (summaryNode) {
-        summaryNode.textContent = `Načteno ${publicProfileState.posts.length} z ${result.total || publicProfileState.posts.length} publikací.`;
-    }
-    if (loadMoreButton) {
-        loadMoreButton.style.display = publicProfileState.postsHasMore ? "inline-flex" : "none";
+        if (summaryNode) {
+            summaryNode.textContent = `Načteno ${publicProfileState.posts.length} z ${result.total || publicProfileState.posts.length} publikací.`;
+        }
+        if (loadMoreButton) {
+            loadMoreButton.style.display = publicProfileState.postsHasMore ? "inline-flex" : "none";
+        }
+    } finally {
+        publicProfileState.postsLoading = false;
     }
 }
 
 async function loadPublicProfileCaptures() {
-    if (!publicProfileState.requestedUserID) {
+    if (!publicProfileState.requestedUserID || publicProfileState.capturesLoading) {
         return;
     }
 
+    publicProfileState.capturesLoading = true;
     publicProfileState.captures = [];
 
-    const result = await apiGet(`/api/public/users/${encodeURIComponent(publicProfileState.requestedUserID)}/map-captures`);
-    if (!result || !result.ok) {
-        const emptyNode = document.getElementById("public-map-empty");
-        if (emptyNode) {
-            emptyNode.hidden = false;
-            emptyNode.textContent = "Nepodařilo se načíst veřejnou mapu.";
+    try {
+        const result = await apiGet(`/api/public/users/${encodeURIComponent(publicProfileState.requestedUserID)}/map-captures`);
+        if (!result || !result.ok) {
+            const emptyNode = document.getElementById("public-map-empty");
+            if (emptyNode) {
+                emptyNode.hidden = false;
+                emptyNode.textContent = "Nepodařilo se načíst veřejnou mapu.";
+            }
+            return;
         }
-        return;
-    }
 
-    publicProfileState.captures = Array.isArray(result.captures) ? result.captures : [];
-    renderPublicProfileMap();
+        publicProfileState.captures = Array.isArray(result.captures) ? result.captures : [];
+        publicProfileState.capturesLoaded = true;
+        renderPublicProfileMap();
+    } finally {
+        publicProfileState.capturesLoading = false;
+    }
 }
 
 async function initPublicProfilePage() {
@@ -2198,8 +2668,26 @@ async function initPublicProfilePage() {
     publicProfileState.moderationActionsOffset = 0;
     publicProfileState.moderationActionsTotal = 0;
     publicProfileState.moderationActionsHasMore = false;
+    publicProfileState.posts = [];
+    publicProfileState.captures = [];
+    publicProfileState.galleryCaptures = [];
+    publicProfileState.postsOffset = 0;
+    publicProfileState.postsHasMore = false;
+    publicProfileState.galleryPage = 1;
+    publicProfileState.galleryTotal = 0;
+    publicProfileState.galleryTotalPages = 0;
+    publicProfileState.postsLoaded = false;
+    publicProfileState.postsLoading = false;
+    publicProfileState.capturesLoaded = false;
+    publicProfileState.capturesLoading = false;
+    publicProfileState.galleryLoaded = false;
+    publicProfileState.galleryLoading = false;
     renderPublicModeratorPanel(false);
     renderPublicOwnerPanel(false);
+    setPublicProfileSectionVisibility("map", false);
+    setPublicProfileSectionVisibility("posts", false);
+    setPublicProfileSectionVisibility("gallery", false);
+    syncPublicProfileSectionButtons();
 
     const params = new URLSearchParams(window.location.search);
     const requestedUserID = resolveRequestedPublicProfileUserID(params, me);
@@ -2230,7 +2718,7 @@ async function initPublicProfilePage() {
     const trust = buildPublicTrustProfile(profile);
     renderProfilePicture("public-profile-picture", profile.picture, "Veřejná profilová fotka");
     setText("public-profile-name", profile.preferred_username || "Bez veřejného jména");
-    setText("public-profile-trust", `${trust.trustLabel}. Veřejné publikace a mapa se načítají níže.`);
+    setText("public-profile-trust", `${trust.trustLabel}. Mapu, publikace a galerii otevřete tlačítky nahoře.`);
     setText("trust-score", `${trust.score} %`);
     setText("trust-label", trust.trustLabel);
     setText("public-about-preview", profile.about_me || "Zatím bez veřejného představení.");
@@ -2252,11 +2740,48 @@ async function initPublicProfilePage() {
     if (postsLoadMore) {
         postsLoadMore.addEventListener("click", () => loadPublicProfilePosts(true));
     }
-
-    await Promise.all([
-        loadPublicProfilePosts(false),
-        loadPublicProfileCaptures()
-    ]);
+    const speciesModal = document.getElementById("public-profile-gallery-species-modal");
+    const speciesModalClose = document.getElementById("public-profile-gallery-species-close");
+    if (speciesModal && !speciesModal.dataset.bound) {
+        speciesModal.dataset.bound = "1";
+        speciesModal.addEventListener("click", (event) => {
+            if (event.target instanceof HTMLElement && event.target.hasAttribute("data-close-public-gallery-species-modal")) {
+                closePublicProfileGallerySpeciesModal();
+            }
+        });
+    }
+    if (speciesModalClose && !speciesModalClose.dataset.bound) {
+        speciesModalClose.dataset.bound = "1";
+        speciesModalClose.addEventListener("click", closePublicProfileGallerySpeciesModal);
+    }
+    if (!window.__hzdPublicProfileGallerySpeciesEscBound) {
+        window.__hzdPublicProfileGallerySpeciesEscBound = true;
+        window.addEventListener("keydown", (event) => {
+            if (event.key === "Escape") {
+                closePublicProfileGallerySpeciesModal();
+            }
+        });
+    }
+    const sectionNodes = publicProfileSectionNodes();
+    if (sectionNodes.mapButton && !sectionNodes.mapButton.dataset.bound) {
+        sectionNodes.mapButton.dataset.bound = "1";
+        sectionNodes.mapButton.addEventListener("click", () => {
+            openPublicProfileSection("map");
+        });
+    }
+    if (sectionNodes.postsButton && !sectionNodes.postsButton.dataset.bound) {
+        sectionNodes.postsButton.dataset.bound = "1";
+        sectionNodes.postsButton.addEventListener("click", () => {
+            openPublicProfileSection("posts");
+        });
+    }
+    if (sectionNodes.galleryButton && !sectionNodes.galleryButton.dataset.bound) {
+        sectionNodes.galleryButton.dataset.bound = "1";
+        sectionNodes.galleryButton.addEventListener("click", () => {
+            openPublicProfileSection("gallery");
+        });
+    }
+    syncPublicProfileSectionButtons();
 
     await loadPublicModerationUser();
 }

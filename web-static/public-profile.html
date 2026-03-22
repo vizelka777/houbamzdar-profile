@@ -9,6 +9,7 @@
     <link rel="apple-touch-icon" href="/apple-touch-icon.png">
     <link rel="stylesheet" href="styles/base.css">
     <link rel="stylesheet" href="styles/page-feed.css">
+    <link rel="stylesheet" href="styles/page-gallery.css">
     <link rel="stylesheet" href="styles/page-map.css">
     <link rel="stylesheet" href="styles/page-profile.css">
     <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
@@ -27,13 +28,22 @@
     </header>
 
     <main class="content-main content-main-narrow">
-        <section class="page-intro card">
+        <section class="page-intro card public-profile-intro">
             <p class="section-label">Veřejný profil</p>
-            <h1>Profil houbaře</h1>
-            <p>
-                Kliknutím na jméno nebo avatar v komunitě otevřete veřejnou stránku autora.
-                Tady jsou jeho publikace, mapa a veřejné představení.
-            </p>
+            <div class="public-profile-shortcuts" aria-label="Sekce veřejného profilu">
+                <button type="button" id="public-profile-open-map-btn" class="btn btn-secondary btn-icon btn-icon-labeled public-profile-shortcut">
+                    <span class="btn-icon-glyph" aria-hidden="true">🗺️</span>
+                    <span class="btn-icon-label">Mapa</span>
+                </button>
+                <button type="button" id="public-profile-open-posts-btn" class="btn btn-secondary btn-icon btn-icon-labeled public-profile-shortcut">
+                    <span class="btn-icon-glyph" aria-hidden="true">📰</span>
+                    <span class="btn-icon-label">Publikace</span>
+                </button>
+                <button type="button" id="public-profile-open-gallery-btn" class="btn btn-secondary btn-icon btn-icon-labeled public-profile-shortcut">
+                    <span class="btn-icon-glyph" aria-hidden="true">🖼️</span>
+                    <span class="btn-icon-label">Galerie</span>
+                </button>
+            </div>
         </section>
 
         <section class="public-profile-card card">
@@ -54,14 +64,14 @@
                 </p>
             </div>
             
-            <div class="public-profile-body public-profile-section">
+            <div id="public-profile-map-section" class="public-profile-body public-profile-section" hidden>
                 <h2>Veřejná mapa</h2>
                 <p id="public-map-summary" class="muted-copy">Načítám veřejnou mapu...</p>
                 <div id="public-map" class="public-profile-map"></div>
                 <div id="public-map-empty" class="viewed-capture-empty" hidden></div>
             </div>
 
-            <div class="public-profile-body public-profile-section">
+            <div id="public-profile-posts-section" class="public-profile-body public-profile-section" hidden>
                 <h2>Publikace</h2>
                 <p id="public-posts-summary" class="muted-copy">Načítám publikace...</p>
                 <div id="public-posts-container" class="public-posts-list">
@@ -70,6 +80,15 @@
                 <div class="action-row">
                     <button id="public-posts-load-more-btn" class="btn btn-secondary" style="display: none;">Načíst další publikace</button>
                 </div>
+            </div>
+
+            <div id="public-profile-gallery-section" class="public-profile-body public-profile-section" hidden>
+                <h2>Galerie</h2>
+                <p id="public-gallery-summary" class="muted-copy">Načítám fotografie...</p>
+                <div id="public-gallery-container" class="gallery-grid">
+                    <p class="muted-copy gallery-grid-status">Načítám fotografie...</p>
+                </div>
+                <nav id="public-gallery-pagination" class="server-pagination gallery-pagination" aria-label="Stránkování galerie uživatele" hidden></nav>
             </div>
         </section>
 
@@ -87,9 +106,26 @@
             </div>
         </section>
 
-        <div id="public-moderator-panel-slot"></div>
-        <div id="public-owner-panel-slot"></div>
+    <div id="public-moderator-panel-slot"></div>
+    <div id="public-owner-panel-slot"></div>
     </main>
+
+    <div id="public-profile-gallery-species-modal" class="capture-species-modal" hidden aria-hidden="true">
+        <div class="capture-species-modal-backdrop" data-close-public-gallery-species-modal></div>
+        <div class="capture-species-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="public-profile-gallery-species-title">
+            <div class="capture-species-modal-head">
+                <div>
+                    <p class="section-label">Rozpoznané druhy</p>
+                    <h2 id="public-profile-gallery-species-title">Houby na fotografii</h2>
+                </div>
+                <button id="public-profile-gallery-species-close" type="button" class="capture-species-modal-close" aria-label="Zavřít okno s druhy">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <p id="public-profile-gallery-species-meta" class="capture-species-meta"></p>
+            <div id="public-profile-gallery-species-body"></div>
+        </div>
+    </div>
 
     <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
     <script src="vendor/leaflet-markercluster/leaflet.markercluster.js"></script>

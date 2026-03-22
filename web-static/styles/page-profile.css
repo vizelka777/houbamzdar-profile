@@ -347,6 +347,29 @@
     align-items: center;
 }
 
+.public-profile-intro {
+    display: grid;
+    gap: 0.9rem;
+}
+
+.public-profile-shortcuts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+}
+
+.public-profile-shortcut {
+    min-width: 10rem;
+    justify-content: center;
+}
+
+.public-profile-shortcut.is-active {
+    background: linear-gradient(135deg, var(--forest-900), var(--forest-700));
+    color: #f8f2e7;
+    border-color: rgba(19, 38, 29, 0.12);
+    box-shadow: 0 14px 24px rgba(19, 38, 29, 0.16);
+}
+
 .public-profile-body {
     display: grid;
     gap: 0.7rem;
@@ -361,6 +384,10 @@
     margin-top: 2rem;
     padding-top: 1.35rem;
     border-top: 1px solid rgba(19, 38, 29, 0.08);
+}
+
+.public-profile-section[hidden] {
+    display: none !important;
 }
 
 .public-about-preview {
