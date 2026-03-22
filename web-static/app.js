@@ -208,6 +208,20 @@ function createIconLinkButton(href, label, iconSVG, className) {
     return link;
 }
 
+function createIconActionButton(label, iconSVG, className, handler) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `btn ${className} btn-icon`;
+    button.setAttribute("aria-label", label);
+    button.setAttribute("title", label);
+    button.innerHTML = `
+        <span class="btn-icon-glyph" aria-hidden="true">${iconSVG}</span>
+        <span class="sr-only">${escapeHtml(label)}</span>
+    `;
+    button.addEventListener("click", handler);
+    return button;
+}
+
 function createLabeledIconLinkButton(href, label, iconSVG, className) {
     const link = document.createElement("a");
     link.className = `btn ${className} btn-icon btn-icon-labeled`;
@@ -1087,6 +1101,16 @@ function renderHeader(session, profile = null) {
     const cameraIcon = `
         <span class="header-emoji-icon">📷</span>
     `;
+    const createPostIcon = `
+        <span class="header-emoji-icon">✍️</span>
+    `;
+    const logoutIcon = `
+        <svg viewBox="0 0 24 24" aria-hidden="true" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M10 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h4"></path>
+            <polyline points="14 7 19 12 14 17"></polyline>
+            <line x1="19" y1="12" x2="9" y2="12"></line>
+        </svg>
+    `;
 
     const avatarUrl = identity?.picture;
     const profileIcon = avatarUrl
@@ -1125,8 +1149,14 @@ function renderHeader(session, profile = null) {
         const cameraButton = createDirectCameraButton("Přidat úlovek", cameraIcon, "btn-secondary");
         cameraButton.classList.add("header-control-button");
 
+        const createPostButton = createIconLinkButton("/create-post.html", "Vytvořit publikaci", createPostIcon, "btn-secondary");
+        createPostButton.classList.add("header-control-button");
+
         const profileButton = createIconLinkButton("/me.html", "Můj profil", profileIcon, "btn-secondary");
         profileButton.classList.add("header-control-button");
+
+        const logoutButton = createIconActionButton("Odhlásit", logoutIcon, "btn-secondary", logoutFlow);
+        logoutButton.classList.add("header-control-button");
 
         const username = session.user?.preferred_username || identity?.preferred_username || "hoste";
         const menuButton = createHeaderMenuButton("Menu", menuIcon, "btn-secondary", [
@@ -1141,7 +1171,9 @@ function renderHeader(session, profile = null) {
         });
 
         authButtons.appendChild(cameraButton);
+        authButtons.appendChild(createPostButton);
         authButtons.appendChild(profileButton);
+        authButtons.appendChild(logoutButton);
         authButtons.appendChild(menuButton);
         return;
     }
