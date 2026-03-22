@@ -862,22 +862,7 @@ func buildPublicCaptureQuerySpec(filters PublicCaptureFilters, viewerUserID int6
 
 	if requireVisibleCoordinates {
 		whereClauses = append(whereClauses, "c.latitude IS NOT NULL", "c.longitude IS NOT NULL")
-		if viewerUserID > 0 {
-			whereClauses = append(whereClauses, `
-				(
-					c.user_id = ?
-					OR COALESCE(c.coordinates_free, 0) = 1
-					OR EXISTS (
-						SELECT 1
-						FROM capture_coordinate_unlocks cu
-						WHERE cu.capture_id = c.id AND cu.viewer_user_id = ?
-					)
-				)
-			`)
-			args = append(args, viewerUserID, viewerUserID)
-		} else {
-			whereClauses = append(whereClauses, "COALESCE(c.coordinates_free, 0) = 1")
-		}
+		whereClauses = append(whereClauses, "COALESCE(c.coordinates_free, 0) = 1")
 	}
 
 	if filters.HasMushrooms != nil {

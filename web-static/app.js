@@ -571,14 +571,16 @@ function applyCaptureImageVariant(urlString, variant = "original", overrides = {
 
 function buildCaptureImageURL(capture, variant = "original") {
     if (!capture) return "";
-    if (capture.public_url) {
-        return applyCaptureImageVariant(capture.public_url, variant);
+    const baseURL = capture.image_url || capture.public_url || "";
+    if (baseURL) {
+        return applyCaptureImageVariant(baseURL, variant);
     }
     return `${API_URL}/api/captures/${encodeURIComponent(capture.id)}/preview`;
 }
 
 function buildCaptureImageSrcSet(capture, variant = "original") {
-    if (!capture || !capture.public_url) {
+    const baseURL = capture?.image_url || capture?.public_url || "";
+    if (!baseURL) {
         return "";
     }
 
@@ -590,7 +592,7 @@ function buildCaptureImageSrcSet(capture, variant = "original") {
 
     return [...new Set(widths.map((value) => Number(value)).filter((value) => value > 0))]
         .sort((left, right) => left - right)
-        .map((width) => `${applyCaptureImageVariant(capture.public_url, variant, { width: String(width) })} ${width}w`)
+        .map((width) => `${applyCaptureImageVariant(baseURL, variant, { width: String(width) })} ${width}w`)
         .join(", ");
 }
 
@@ -1311,6 +1313,77 @@ async function initIndexPage() {
     setAppIdentity(session, profile);
     renderHeader(session, profile);
     updateHomeHero(session);
+}
+
+let activeToastHost = null;
+
+function ensureToastHost() {
+    if (activeToastHost?.isConnected) {
+        return activeToastHost;
+    }
+
+    const host = document.createElement("div");
+    host.className = "toast-stack";
+    host.setAttribute("aria-live", "polite");
+    host.setAttribute("aria-atomic", "true");
+    document.body.appendChild(host);
+    activeToastHost = host;
+    return host;
+}
+
+function showToast(text, {
+    kind = "info",
+    duration = 2200
+} = {}) {
+    if (!text) {
+        return {
+            dismiss() {}
+        };
+    }
+
+    const host = ensureToastHost();
+    const toast = document.createElement("div");
+    toast.className = "toast";
+    if (kind) {
+        toast.classList.add(`is-${kind}`);
+    }
+    toast.textContent = text;
+    host.appendChild(toast);
+
+    requestAnimationFrame(() => {
+        toast.classList.add("is-visible");
+    });
+
+    let removed = false;
+    let timeoutID = null;
+
+    const dismiss = () => {
+        if (removed) {
+            return;
+        }
+        removed = true;
+        if (timeoutID) {
+            window.clearTimeout(timeoutID);
+        }
+        toast.classList.remove("is-visible");
+        window.setTimeout(() => {
+            toast.remove();
+            if (host.childElementCount === 0 && host.parentNode) {
+                host.remove();
+                if (activeToastHost === host) {
+                    activeToastHost = null;
+                }
+            }
+        }, 180);
+    };
+
+    if (duration > 0) {
+        timeoutID = window.setTimeout(dismiss, duration);
+    }
+
+    return {
+        dismiss
+    };
 }
 
 function setStatusMessage(node, text, kind = "") {

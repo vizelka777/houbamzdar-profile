@@ -9,6 +9,7 @@
     <link rel="apple-touch-icon" href="/apple-touch-icon.png">
     <link rel="stylesheet" href="styles/base.css">
     <link rel="stylesheet" href="styles/page-capture.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
 </head>
 <body data-page="server-storage" class="page-shell page-profile">
     <header class="site-header">
@@ -23,15 +24,18 @@
     </header>
 
     <main class="content-main content-main-narrow">
-        <section class="page-intro card">
+        <section class="page-intro card server-storage-intro">
             <p class="section-label">Nahrané fotografie</p>
-            <h1>Co už je na serveru</h1>
-            <p>
-                Tady spravujete nahrané fotky v Bunny storage. Nahrání znamená sdílení souboru,
-                publikace jen přidá odkazy z galerie a publikací. Můžete filtrovat podle data,
-                přepínat mezi nepublikovanými a publikovanými a provádět hromadné akce nad vybranými snímky.
-                Před publikací backend ověřuje, že fotka opravdu obsahuje houbu a že souřadnice leží v Česku.
-            </p>
+            <form id="storage-filter-form" class="server-date-form server-date-form-intro">
+                <label class="server-date-field">
+                    <span>Od</span>
+                    <input id="storage-date-from-input" type="date" class="server-date-input">
+                </label>
+                <label class="server-date-field">
+                    <span>Do</span>
+                    <input id="storage-date-to-input" type="date" class="server-date-input">
+                </label>
+            </form>
         </section>
 
         <section class="capture-card card">
@@ -40,13 +44,6 @@
                     <button id="storage-toggle-private" type="button" class="server-status-button is-active" data-status="private">Nepublikované</button>
                     <button id="storage-toggle-published" type="button" class="server-status-button" data-status="published">Publikované</button>
                 </div>
-
-                <form id="storage-filter-form" class="server-date-form">
-                    <label for="storage-date-input" class="sr-only">Datum</label>
-                    <input id="storage-date-input" type="date" class="server-date-input">
-                    <button type="submit" class="btn btn-secondary">Hledat podle data</button>
-                    <button id="storage-date-clear" type="button" class="btn btn-secondary">Vymazat</button>
-                </form>
             </div>
 
             <div class="server-bulk-bar">
@@ -71,25 +68,20 @@
         </section>
 
         <section class="capture-gallery card">
-            <div class="about-head">
-                <div>
-                    <p class="section-label">Fotografie</p>
-                    <h2>Archiv nahraných fotek</h2>
-                </div>
-                <div class="action-row">
-                    <a href="/capture.html" class="btn btn-secondary">Zpracování fotek</a>
-                </div>
-            </div>
-
             <div id="storage-grid" class="capture-grid"></div>
 
             <div class="server-pagination">
                 <button id="storage-prev-btn" type="button" class="btn btn-secondary">Předchozí</button>
                 <button id="storage-next-btn" type="button" class="btn btn-secondary">Další</button>
             </div>
+
+            <div class="action-row storage-gallery-footer">
+                <a href="/capture.html" class="btn btn-secondary">Zpracování fotek</a>
+            </div>
         </section>
     </main>
 
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
     <script src="app.js" defer></script>
     <script src="server-storage.js" defer></script>
 </body>

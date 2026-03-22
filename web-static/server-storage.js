@@ -3,7 +3,8 @@ const SERVER_STORAGE_REFRESH_MS = 8000;
 
 const storageState = {
     status: "private",
-    capturedOn: "",
+    dateFrom: "",
+    dateTo: "",
     page: 1,
     pageSize: SERVER_STORAGE_PAGE_SIZE,
     total: 0,
@@ -14,11 +15,25 @@ const storageState = {
 
 let storageRefreshTimer = null;
 
-function formatStorageCoords(lat, lng) {
-    if (typeof lat !== "number" || typeof lng !== "number") {
-        return "Bez GPS";
+function clearStorageStatusError() {
+    setStatusMessage(document.getElementById("storage-status"), "");
+}
+
+function setStorageStatusError(message) {
+    setStatusMessage(
+        document.getElementById("storage-status"),
+        message || "Serverový krok se nepovedl.",
+        "error"
+    );
+}
+
+function showStorageToast(message, options = {}) {
+    if (typeof showToast === "function") {
+        return showToast(message, options);
     }
-    return `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+    return {
+        dismiss() {}
+    };
 }
 
 function selectedStorageCaptures() {
@@ -30,8 +45,11 @@ function buildStorageQuery() {
     params.set("page", String(storageState.page));
     params.set("page_size", String(storageState.pageSize));
     params.set("status", storageState.status);
-    if (storageState.capturedOn) {
-        params.set("captured_on", storageState.capturedOn);
+    if (storageState.dateFrom) {
+        params.set("date_from", storageState.dateFrom);
+    }
+    if (storageState.dateTo) {
+        params.set("date_to", storageState.dateTo);
     }
     return params.toString();
 }
@@ -119,10 +137,17 @@ function updateStorageActionState() {
         selectedCountNode.textContent = `Vybráno: ${selectedCount}`;
     }
 
+    const publishVisible = storageState.status === "private";
+    const unpublishVisible = storageState.status === "published";
+
     if (publishButton) {
+        publishButton.hidden = !publishVisible;
+        publishButton.style.display = publishVisible ? "" : "none";
         publishButton.disabled = getStorageApplicableCaptures("publish", selected).length === 0;
     }
     if (unpublishButton) {
+        unpublishButton.hidden = !unpublishVisible;
+        unpublishButton.style.display = unpublishVisible ? "" : "none";
         unpublishButton.disabled = getStorageApplicableCaptures("unpublish", selected).length === 0;
     }
     if (deleteButton) {
@@ -148,7 +173,7 @@ function renderStorageSummary() {
 
 function buildStorageStatusBadge(capture) {
     if (capture.status === "published") {
-        return '<span class="status-badge verified">Publikované</span>';
+        return "";
     }
 
     switch (capture.publication_review_status) {
@@ -211,8 +236,7 @@ function buildStorageReviewPanel(capture) {
             title = "Před zveřejněním chybí GPS";
             copy = "Bez souřadnic nepůjde ověřit, jestli je nález z Česka.";
         } else {
-            title = "Připraveno ke kontrole";
-            copy = "Po kliknutí na zveřejnění backend nejdřív ověří Česko a přítomnost houby.";
+            return "";
         }
     }
 
@@ -221,6 +245,61 @@ function buildStorageReviewPanel(capture) {
             <strong class="capture-review-title">${escapeHtml(title)}</strong>
             <p class="capture-review-copy ${copyClass}">${escapeHtml(copy)}</p>
         </div>
+    `;
+}
+
+function buildStorageMapAction(capture) {
+    if (!captureHasCoordinates(capture)) {
+        return "";
+    }
+    return `
+        <button
+            type="button"
+            class="storage-map-btn"
+            data-capture-id="${escapeHtml(capture.id)}"
+            aria-label="Zobrazit na mapě"
+            title="Zobrazit na mapě"
+        >
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M15 5.5 9 3 3 5.5v15L9 18l6 2.5 6-2.5v-15z"></path>
+                <path d="M9 3v15"></path>
+                <path d="M15 5.5v15"></path>
+            </svg>
+        </button>
+    `;
+}
+
+function buildStorageSelectOverlay(capture) {
+    return `
+        <label class="storage-card-select" aria-label="Vybrat fotografii">
+            <input
+                class="storage-capture-checkbox storage-card-select-input"
+                type="checkbox"
+                value="${escapeHtml(capture.id)}"
+            >
+            <span class="storage-card-select-chip">
+                <span class="storage-card-select-check" aria-hidden="true">✓</span>
+                <span class="storage-card-select-label">Vybrat</span>
+            </span>
+        </label>
+    `;
+}
+
+function buildStorageCoordinatesFreeControl(capture) {
+    if (capture.status !== "published" || !captureHasCoordinates(capture)) {
+        return "";
+    }
+
+    return `
+        <label class="capture-free-toggle storage-free-toggle">
+            <input
+                class="capture-free-checkbox"
+                type="checkbox"
+                value="${escapeHtml(capture.id)}"
+                ${capture.coordinates_free ? "checked" : ""}
+            >
+            <span>Souřadnice zdarma</span>
+        </label>
     `;
 }
 
@@ -246,54 +325,35 @@ function renderServerStorageGrid() {
         card.className = "capture-item";
 
         const previewUrl = `${API_URL}/api/captures/${encodeURIComponent(capture.id)}/preview`;
-        const publicLink = capture.public_url
-            ? `<a href="${escapeHtml(capture.public_url)}" target="_blank" rel="noreferrer" class="capture-link">Otevřít veřejnou verzi</a>`
-            : "";
-        const coordinatesAccessHtml = captureHasCoordinates(capture)
-            ? `
-                <div class="capture-free-panel">
-                    <label class="capture-free-toggle">
-                        <input
-                            class="capture-free-checkbox"
-                            type="checkbox"
-                            value="${escapeHtml(capture.id)}"
-                            ${capture.coordinates_free ? "checked" : ""}
-                        >
-                        <span>Souřadnice zdarma</span>
-                    </label>
-                    <p class="capture-free-help">
-                        ${capture.coordinates_free
-                            ? "Veřejné hledání může jít až po okres nebo obec."
-                            : "Veřejné hledání zůstane jen na úrovni kraje, přesná poloha je za houbičku."}
-                    </p>
-                </div>
-            `
-            : '<p class="capture-free-help">Bez GPS, není co zpřístupnit.</p>';
+        const mapAction = buildStorageMapAction(capture);
+        const coordinatesFreeControl = buildStorageCoordinatesFreeControl(capture);
+        const statusBadge = buildStorageStatusBadge(capture);
+        const headHtml = [coordinatesFreeControl, statusBadge].filter(Boolean).join("");
 
         const previewHtml = buildCaptureImageTag(capture, {
             variant: "thumb",
             alt: "Náhled nahrané fotografie",
-            className: "capture-thumb",
+            className: "capture-thumb storage-thumb",
             loading: "lazy",
-            sizes: "(max-width: 720px) 100vw, 320px"
-        }) || `<img src="${escapeHtml(previewUrl)}" alt="Náhled nahrané fotografie" class="capture-thumb" loading="lazy">`;
+            sizes: "(max-width: 720px) 50vw, (max-width: 1080px) 25vw, 180px"
+        }) || `<img src="${escapeHtml(previewUrl)}" alt="Náhled nahrané fotografie" class="capture-thumb storage-thumb" loading="lazy">`;
 
         card.innerHTML = `
-            <div class="capture-item-head">
-                <label class="capture-select">
-                    <input class="storage-capture-checkbox" type="checkbox" value="${escapeHtml(capture.id)}">
-                    <span>Vybrat</span>
-                </label>
-                ${buildStorageStatusBadge(capture)}
+            ${headHtml ? `<div class="capture-item-head">${headHtml}</div>` : ""}
+            <div class="storage-thumb-shell">
+                <button
+                    type="button"
+                    class="storage-thumb-trigger"
+                    data-capture-id="${escapeHtml(capture.id)}"
+                    aria-label="Otevřít fotografii"
+                >
+                    ${previewHtml}
+                </button>
+                ${buildStorageSelectOverlay(capture)}
+                ${mapAction}
             </div>
-            ${previewHtml}
             <div class="capture-meta">
-                <h3>${escapeHtml(capture.original_file_name || "Nález")}</h3>
                 <p>${escapeHtml(formatDateTime(capture.captured_at))}</p>
-                <p>${escapeHtml(formatStorageCoords(capture.latitude, capture.longitude))}</p>
-                <p>${escapeHtml(`${Math.round((capture.size_bytes || 0) / 1024)} KB`)}</p>
-                ${publicLink}
-                ${coordinatesAccessHtml}
                 ${buildStorageReviewPanel(capture)}
             </div>
         `;
@@ -304,6 +364,43 @@ function renderServerStorageGrid() {
     updateStorageActionState();
     renderStorageSummary();
     scheduleStorageRefresh();
+}
+
+function handleStorageGridClick(event) {
+    const mapButton = event.target.closest(".storage-map-btn");
+    if (mapButton) {
+        const capture = storageState.captures.find((item) => item.id === mapButton.dataset.captureId);
+        if (!capture || !captureHasCoordinates(capture) || typeof openCaptureMapViewer !== "function") {
+            return;
+        }
+
+        event.preventDefault();
+        const opened = openCaptureMapViewer({
+            lat: Number(capture.latitude),
+            lon: Number(capture.longitude)
+        }, capture);
+        if (!opened) {
+            setStatusMessage(
+                document.getElementById("storage-status"),
+                "Mapu se nepodařilo otevřít.",
+                "error"
+            );
+        }
+        return;
+    }
+
+    const thumbTrigger = event.target.closest(".storage-thumb-trigger");
+    if (!thumbTrigger) {
+        return;
+    }
+
+    const captureIndex = storageState.captures.findIndex((item) => item.id === thumbTrigger.dataset.captureId);
+    if (captureIndex === -1 || !window.HZDLightbox) {
+        return;
+    }
+
+    event.preventDefault();
+    window.HZDLightbox.openCollection(storageState.captures, captureIndex);
 }
 
 async function loadAndRenderServerStorage() {
@@ -441,47 +538,42 @@ function buildStorageActionMessage(action, summary) {
         if (summary.published) {
             parts.push(`Okamžitě publikováno: ${summary.published}.`);
         }
-        if (summary.errors.length) {
-            parts.push(`Chyby: ${summary.errors.join(" | ")}`);
-        }
         return parts.join(" ");
     }
 
     if (action === "unpublish") {
-        const parts = [`Publikace zrušena: ${summary.unpublished}.`];
-        if (summary.errors.length) {
-            parts.push(`Chyby: ${summary.errors.join(" | ")}`);
-        }
-        return parts.join(" ");
+        return summary.unpublished ? `Publikace zrušena: ${summary.unpublished}.` : "";
     }
 
-    const parts = [`Smazáno: ${summary.deleted}.`];
-    if (summary.errors.length) {
-        parts.push(`Chyby: ${summary.errors.join(" | ")}`);
-    }
-    return parts.join(" ");
+    return summary.deleted ? `Smazáno: ${summary.deleted}.` : "";
+}
+
+function buildStorageActionErrorMessage(summary) {
+    return Array.isArray(summary?.errors) && summary.errors.length
+        ? `Chyby: ${summary.errors.join(" | ")}`
+        : "";
 }
 
 async function handleStorageGridChange(event) {
     const freeCheckbox = event.target.closest(".capture-free-checkbox");
     if (freeCheckbox) {
-        const statusNode = document.getElementById("storage-status");
         const capture = storageState.captures.find((item) => item.id === freeCheckbox.value);
         if (!capture) return;
 
         const previousValue = Boolean(capture.coordinates_free);
         const nextValue = Boolean(freeCheckbox.checked);
+        const loadingToast = showStorageToast(
+            nextValue
+                ? "Zpřístupňuji souřadnice zdarma..."
+                : "Vrácím souřadnice zpět do houbičkového režimu...",
+            { duration: 0 }
+        );
 
         capture.coordinates_free = nextValue;
         freeCheckbox.disabled = true;
 
         try {
-            setStatusMessage(
-                statusNode,
-                nextValue
-                    ? "Zpřístupňuji souřadnice zdarma..."
-                    : "Vrácím souřadnice zpět do houbičkového režimu..."
-            );
+            clearStorageStatusError();
 
             const res = await apiSetCaptureCoordinatesFree(capture.id, nextValue);
             if (!res || !res.ok || !res.capture) {
@@ -490,18 +582,19 @@ async function handleStorageGridChange(event) {
 
             Object.assign(capture, res.capture);
             renderServerStorageGrid();
-            setStatusMessage(
-                statusNode,
+            loadingToast.dismiss();
+            showStorageToast(
                 nextValue
                     ? "Souřadnice jsou teď zdarma pro všechny a funguje i hledání po okresu nebo obci."
                     : "Souřadnice jsou znovu chráněné houbičkou a veřejně se hledá jen podle kraje.",
-                "success"
+                { kind: "success" }
             );
         } catch (error) {
             console.error("Failed to update capture coordinates_free", error);
+            loadingToast.dismiss();
             capture.coordinates_free = previousValue;
             freeCheckbox.checked = previousValue;
-            setStatusMessage(statusNode, error.message || "Nepodařilo se změnit přístup k souřadnicím.", "error");
+            setStorageStatusError(error.message || "Nepodařilo se změnit přístup k souřadnicím.");
         } finally {
             freeCheckbox.disabled = false;
         }
@@ -533,20 +626,29 @@ function handleStorageSelectAll(event) {
 }
 
 async function runStorageAction(action, busyMessage) {
-    const statusNode = document.getElementById("storage-status");
+    const loadingToast = showStorageToast(busyMessage, { duration: 0 });
 
     try {
-        setStatusMessage(statusNode, busyMessage);
+        clearStorageStatusError();
         const summary = await performStorageBulkAction(action);
         await loadAndRenderServerStorage();
-        setStatusMessage(
-            statusNode,
-            buildStorageActionMessage(action, summary),
-            summary.errors.length ? "error" : "success"
-        );
+        loadingToast.dismiss();
+
+        const successMessage = buildStorageActionMessage(action, summary);
+        if (successMessage) {
+            showStorageToast(successMessage, { kind: "success" });
+        }
+
+        const errorMessage = buildStorageActionErrorMessage(summary);
+        if (errorMessage) {
+            setStorageStatusError(errorMessage);
+        } else {
+            clearStorageStatusError();
+        }
     } catch (error) {
         console.error(`Failed to ${action} storage captures`, error);
-        setStatusMessage(statusNode, error.message || "Serverový krok se nepovedl.", "error");
+        loadingToast.dismiss();
+        setStorageStatusError(error.message || "Serverový krok se nepovedl.");
     }
 }
 
@@ -565,11 +667,10 @@ async function initServerStoragePage() {
     setAppIdentity(session, me);
     renderHeader(session, me);
 
-    const statusNode = document.getElementById("storage-status");
     const grid = document.getElementById("storage-grid");
     const filterForm = document.getElementById("storage-filter-form");
-    const dateInput = document.getElementById("storage-date-input");
-    const clearButton = document.getElementById("storage-date-clear");
+    const dateFromInput = document.getElementById("storage-date-from-input");
+    const dateToInput = document.getElementById("storage-date-to-input");
     const selectAll = document.getElementById("storage-select-all");
     const prevButton = document.getElementById("storage-prev-btn");
     const nextButton = document.getElementById("storage-next-btn");
@@ -581,73 +682,84 @@ async function initServerStoragePage() {
         button.addEventListener("click", async () => {
             storageState.status = button.dataset.status || "private";
             storageState.page = 1;
-            setStatusMessage(statusNode, "Načítám archiv...");
+            const loadingToast = showStorageToast("Načítám archiv...", { duration: 0 });
             try {
+                clearStorageStatusError();
                 await loadAndRenderServerStorage();
-                setStatusMessage(statusNode, "");
+                loadingToast.dismiss();
             } catch (error) {
                 console.error("Failed to switch storage status filter", error);
-                setStatusMessage(statusNode, "Archiv se nepodařilo načíst.", "error");
+                loadingToast.dismiss();
+                setStorageStatusError("Archiv se nepodařilo načíst.");
             }
         });
     });
 
-    filterForm.addEventListener("submit", async (event) => {
-        event.preventDefault();
-        storageState.capturedOn = dateInput.value || "";
+    const applyStorageDateFilter = async () => {
+        const nextDateFrom = dateFromInput.value || "";
+        const nextDateTo = dateToInput.value || "";
+
+        if (nextDateFrom && nextDateTo && nextDateFrom > nextDateTo) {
+            setStorageStatusError("Datum Od musí být dříve nebo stejné jako Datum Do.");
+            return;
+        }
+
+        storageState.dateFrom = nextDateFrom;
+        storageState.dateTo = nextDateTo;
         storageState.page = 1;
+        const loadingToast = showStorageToast("Hledám podle období...", { duration: 0 });
 
         try {
-            setStatusMessage(statusNode, "Hledám podle data...");
+            clearStorageStatusError();
             await loadAndRenderServerStorage();
-            setStatusMessage(statusNode, "");
+            loadingToast.dismiss();
         } catch (error) {
-            console.error("Failed to filter server archive by date", error);
-            setStatusMessage(statusNode, "Vyhledávání podle data se nepovedlo.", "error");
+            console.error("Failed to filter server archive by date range", error);
+            loadingToast.dismiss();
+            setStorageStatusError("Vyhledávání podle období se nepovedlo.");
         }
-    });
+    };
 
-    clearButton.addEventListener("click", async () => {
-        dateInput.value = "";
-        storageState.capturedOn = "";
-        storageState.page = 1;
-
-        try {
-            setStatusMessage(statusNode, "Načítám celý archiv...");
-            await loadAndRenderServerStorage();
-            setStatusMessage(statusNode, "");
-        } catch (error) {
-            console.error("Failed to clear server archive date filter", error);
-            setStatusMessage(statusNode, "Archiv se nepodařilo načíst.", "error");
-        }
+    if (filterForm) {
+        filterForm.addEventListener("submit", (event) => {
+            event.preventDefault();
+        });
+    }
+    [dateFromInput, dateToInput].forEach((input) => {
+        input?.addEventListener("change", applyStorageDateFilter);
     });
 
     selectAll.addEventListener("change", handleStorageSelectAll);
     grid.addEventListener("change", handleStorageGridChange);
+    grid.addEventListener("click", handleStorageGridClick);
 
     prevButton.addEventListener("click", async () => {
         if (storageState.page <= 1) return;
         storageState.page -= 1;
+        const loadingToast = showStorageToast("Načítám předchozí stránku...", { duration: 0 });
         try {
-            setStatusMessage(statusNode, "Načítám předchozí stránku...");
+            clearStorageStatusError();
             await loadAndRenderServerStorage();
-            setStatusMessage(statusNode, "");
+            loadingToast.dismiss();
         } catch (error) {
             console.error("Failed to load previous server archive page", error);
-            setStatusMessage(statusNode, "Předchozí stránku se nepodařilo načíst.", "error");
+            loadingToast.dismiss();
+            setStorageStatusError("Předchozí stránku se nepodařilo načíst.");
         }
     });
 
     nextButton.addEventListener("click", async () => {
         if (storageState.totalPages === 0 || storageState.page >= storageState.totalPages) return;
         storageState.page += 1;
+        const loadingToast = showStorageToast("Načítám další stránku...", { duration: 0 });
         try {
-            setStatusMessage(statusNode, "Načítám další stránku...");
+            clearStorageStatusError();
             await loadAndRenderServerStorage();
-            setStatusMessage(statusNode, "");
+            loadingToast.dismiss();
         } catch (error) {
             console.error("Failed to load next server archive page", error);
-            setStatusMessage(statusNode, "Další stránku se nepodařilo načíst.", "error");
+            loadingToast.dismiss();
+            setStorageStatusError("Další stránku se nepodařilo načíst.");
         }
     });
 
@@ -665,13 +777,15 @@ async function initServerStoragePage() {
 
     window.addEventListener("beforeunload", clearStorageRefreshTimer);
 
+    const loadingToast = showStorageToast("Načítám archiv...", { duration: 0 });
     try {
-        setStatusMessage(statusNode, "Načítám archiv...");
+        clearStorageStatusError();
         await loadAndRenderServerStorage();
-        setStatusMessage(statusNode, "");
+        loadingToast.dismiss();
     } catch (error) {
         console.error("Failed to initialize server storage page", error);
-        setStatusMessage(statusNode, "Archiv se nepodařilo načíst.", "error");
+        loadingToast.dismiss();
+        setStorageStatusError("Archiv se nepodařilo načíst.");
     }
 }
 

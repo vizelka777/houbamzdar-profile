@@ -2035,7 +2035,7 @@ func (db *DB) ListPublicCapturesByUser(userID int64, limit, offset int, viewerUs
 	return captures, nil
 }
 
-func (db *DB) ListPublicMapCapturesByUser(userID int64, viewerUserID int64) ([]*models.Capture, error) {
+func (db *DB) ListPublicMapCapturesByUser(userID int64, _ int64) ([]*models.Capture, error) {
 	now := moderationNowRFC3339()
 	rows, err := db.Query(fmt.Sprintf(`
 		SELECT c.id, c.user_id, COALESCE(u.preferred_username, ''), COALESCE(u.picture, ''), COALESCE(c.client_local_id, ''), c.original_file_name, c.content_type, c.size_bytes, c.width, c.height,
@@ -2044,7 +2044,8 @@ func (db *DB) ListPublicMapCapturesByUser(userID int64, viewerUserID int64) ([]*
 		FROM photo_captures c
 		JOIN users u ON c.user_id = u.id
 		WHERE c.user_id = ? AND c.status = 'published' AND COALESCE(c.moderator_hidden, 0) = 0
-			AND COALESCE(c.private_storage_key, '') != '' AND c.latitude IS NOT NULL AND c.longitude IS NOT NULL AND %s
+			AND COALESCE(c.private_storage_key, '') != '' AND c.latitude IS NOT NULL AND c.longitude IS NOT NULL
+			AND COALESCE(c.coordinates_free, 0) = 1 AND %s
 		ORDER BY c.published_at DESC, c.captured_at DESC
 	`, publicUserNotBannedClause("u")), userID, now)
 	if err != nil {
@@ -2076,10 +2077,6 @@ func (db *DB) ListPublicMapCapturesByUser(userID int64, viewerUserID int64) ([]*
 		captures = append(captures, &c)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
-	if err := db.maskCaptureCoordinatesForViewer(viewerUserID, captures); err != nil {
 		return nil, err
 	}
 

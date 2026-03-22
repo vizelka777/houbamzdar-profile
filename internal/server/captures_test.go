@@ -18,6 +18,62 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+func TestParseCaptureListFiltersSupportsInclusiveDateRange(t *testing.T) {
+	t.Parallel()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/captures?date_from=2026-03-20&date_to=2026-03-22", nil)
+	filters := parseCaptureListFilters(req)
+
+	if filters.CapturedFrom == nil {
+		t.Fatalf("expected captured_from to be parsed")
+	}
+	if filters.CapturedTo == nil {
+		t.Fatalf("expected captured_to to be parsed")
+	}
+
+	wantFrom := time.Date(2026, time.March, 20, 0, 0, 0, 0, time.UTC)
+	wantTo := time.Date(2026, time.March, 23, 0, 0, 0, 0, time.UTC)
+
+	if !filters.CapturedFrom.Equal(wantFrom) {
+		t.Fatalf("unexpected captured_from: got %s want %s", filters.CapturedFrom.Format(time.RFC3339), wantFrom.Format(time.RFC3339))
+	}
+	if !filters.CapturedTo.Equal(wantTo) {
+		t.Fatalf("unexpected captured_to: got %s want %s", filters.CapturedTo.Format(time.RFC3339), wantTo.Format(time.RFC3339))
+	}
+}
+
+func TestAttachPublicURLsAlsoSetsImageURL(t *testing.T) {
+	t.Parallel()
+
+	storage := media.NewBunnyStorage(&config.Config{
+		BunnyPrivateZone:       "foto-zone",
+		BunnyPrivateStorageKey: "foto-key",
+		BunnyPublicZone:        "foto-zone",
+		BunnyPublicStorageKey:  "foto-key",
+		BunnyPublicBaseURL:     "https://foto.houbamzdar.cz",
+	})
+	if storage == nil {
+		t.Fatalf("expected bunny storage to be configured")
+	}
+
+	capture := &models.Capture{
+		ID:                "capture-image-url-001",
+		UserID:            7,
+		Status:            "private",
+		PrivateStorageKey: "captures/7/2026/03/capture-image-url-001.jpg",
+	}
+
+	attachPublicURLs([]*models.Capture{capture}, storage)
+
+	wantImageURL := "https://foto.houbamzdar.cz/captures/7/2026/03/capture-image-url-001.jpg"
+	if capture.ImageURL != wantImageURL {
+		t.Fatalf("unexpected image_url: got %q want %q", capture.ImageURL, wantImageURL)
+	}
+	if capture.PublicURL != "" {
+		t.Fatalf("expected empty public_url for unpublished capture, got %q", capture.PublicURL)
+	}
+}
+
 func TestCaptureCoordinateUnlockFlow(t *testing.T) {
 	t.Parallel()
 
@@ -280,15 +336,11 @@ func TestCaptureCoordinateUnlockFlow(t *testing.T) {
 	if err := json.NewDecoder(authMapRec.Body).Decode(&authMapPayload); err != nil {
 		t.Fatalf("decode authenticated public map captures: %v", err)
 	}
-	if len(authMapPayload.Captures) != 2 {
-		t.Fatalf("expected both captures on unlocked viewer map, got %+v", authMapPayload.Captures)
+	if len(authMapPayload.Captures) != 1 || authMapPayload.Captures[0].ID != freeCapture.ID {
+		t.Fatalf("expected only free capture on authenticated public map, got %+v", authMapPayload.Captures)
 	}
-	captureByID = make(map[string]*models.Capture, len(authMapPayload.Captures))
-	for _, capture := range authMapPayload.Captures {
-		captureByID[capture.ID] = capture
-	}
-	if captureByID[paidCapture.ID] == nil || captureByID[paidCapture.ID].Latitude == nil || captureByID[paidCapture.ID].Longitude == nil || captureByID[paidCapture.ID].CoordinatesLocked {
-		t.Fatalf("expected paid capture to appear on unlocked viewer map, got %+v", captureByID[paidCapture.ID])
+	if authMapPayload.Captures[0].Latitude == nil || authMapPayload.Captures[0].Longitude == nil || authMapPayload.Captures[0].CoordinatesLocked {
+		t.Fatalf("expected free capture to stay visible on authenticated public map, got %+v", authMapPayload.Captures[0])
 	}
 
 	viewedReq := httptest.NewRequest(http.MethodGet, "/api/me/viewed-captures?limit=10&offset=0", nil)
@@ -511,22 +563,11 @@ func TestProfileMapEndpointsUseDedicatedWholeMapPayloads(t *testing.T) {
 	if err := json.NewDecoder(viewerPublicMapRec.Body).Decode(&viewerPublicMapPayload); err != nil {
 		t.Fatalf("decode unlocked public user map: %v", err)
 	}
-	if len(viewerPublicMapPayload.Captures) != 2 {
-		t.Fatalf("expected 2 captures on unlocked public map, got %d", len(viewerPublicMapPayload.Captures))
+	if len(viewerPublicMapPayload.Captures) != 1 || viewerPublicMapPayload.Captures[0].ID != freePublicCapture.ID {
+		t.Fatalf("expected only free capture on public profile map after unlock, got %+v", viewerPublicMapPayload.Captures)
 	}
-
-	viewerPublicIDs := make(map[string]bool, len(viewerPublicMapPayload.Captures))
-	for _, capture := range viewerPublicMapPayload.Captures {
-		viewerPublicIDs[capture.ID] = true
-		if capture.Latitude == nil || capture.Longitude == nil {
-			t.Fatalf("expected viewer public map capture %s to include coordinates", capture.ID)
-		}
-	}
-	if !viewerPublicIDs[paidPublicCapture.ID] || !viewerPublicIDs[freePublicCapture.ID] {
-		t.Fatalf("unexpected unlocked public map capture ids: %+v", viewerPublicIDs)
-	}
-	if viewerPublicIDs[privateCapture.ID] || viewerPublicIDs[noCoordsCapture.ID] {
-		t.Fatalf("unexpected non-public captures on public map: %+v", viewerPublicIDs)
+	if viewerPublicMapPayload.Captures[0].Latitude == nil || viewerPublicMapPayload.Captures[0].Longitude == nil {
+		t.Fatalf("expected free public profile map capture to include coordinates, got %+v", viewerPublicMapPayload.Captures[0])
 	}
 }
 

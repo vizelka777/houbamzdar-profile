@@ -290,6 +290,7 @@ func (s *Server) handleCreateCapture(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to store capture metadata", http.StatusInternalServerError)
 		return
 	}
+	attachPublicURLs([]*models.Capture{capture}, s.Media)
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
@@ -317,7 +318,7 @@ func (s *Server) handlePublishCapture(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if capture.IsPubliclyShared() {
-		capture.PublicURL = s.Media.PublicURL(capture.PublishedStorageKey())
+		attachPublicURLs([]*models.Capture{capture}, s.Media)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"ok":      true,
@@ -346,7 +347,10 @@ func (s *Server) handlePublishCapture(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "failed to reload capture", http.StatusInternalServerError)
 			return
 		}
-		updated.PublicURL = publicURL
+		attachPublicURLs([]*models.Capture{updated}, s.Media)
+		if updated.PublicURL == "" {
+			updated.PublicURL = publicURL
+		}
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
@@ -366,6 +370,7 @@ func (s *Server) handlePublishCapture(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "failed to reload capture", http.StatusInternalServerError)
 			return
 		}
+		attachPublicURLs([]*models.Capture{updated}, s.Media)
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnprocessableEntity)
@@ -389,6 +394,7 @@ func (s *Server) handlePublishCapture(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to reload capture", http.StatusInternalServerError)
 		return
 	}
+	attachPublicURLs([]*models.Capture{updated}, s.Media)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
@@ -881,6 +887,7 @@ func (s *Server) handleUnpublishCapture(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "failed to reload capture", http.StatusInternalServerError)
 		return
 	}
+	attachPublicURLs([]*models.Capture{updated}, s.Media)
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
@@ -986,6 +993,9 @@ func attachPublicURLs(captures []*models.Capture, storage *media.BunnyStorage) {
 	}
 
 	for _, capture := range captures {
+		if strings.TrimSpace(capture.PrivateStorageKey) != "" {
+			capture.ImageURL = storage.PublicURL(capture.PrivateStorageKey)
+		}
 		if capture.IsPubliclyShared() {
 			capture.PublicURL = storage.PublicURL(capture.PublishedStorageKey())
 		}
@@ -1038,10 +1048,10 @@ func parseCaptureListFilters(r *http.Request) db.CaptureListFilters {
 		}
 	}
 
-	if from := parseOptionalDateTime(query.Get("date_from")); from != nil {
+	if from := parseCaptureListDateFrom(query.Get("date_from")); from != nil {
 		filters.CapturedFrom = from
 	}
-	if to := parseOptionalDateTime(query.Get("date_to")); to != nil {
+	if to := parseCaptureListDateTo(query.Get("date_to")); to != nil {
 		filters.CapturedTo = to
 	}
 
@@ -1110,6 +1120,36 @@ func parseOptionalDateTime(raw string) *time.Time {
 	}
 	if parsed, err := time.Parse("2006-01-02", raw); err == nil {
 		value := parsed.UTC()
+		return &value
+	}
+	return nil
+}
+
+func parseCaptureListDateFrom(raw string) *time.Time {
+	if raw == "" {
+		return nil
+	}
+	if parsed, err := time.Parse(time.RFC3339, raw); err == nil {
+		value := parsed.UTC()
+		return &value
+	}
+	if parsed, err := time.Parse("2006-01-02", raw); err == nil {
+		value := parsed.UTC()
+		return &value
+	}
+	return nil
+}
+
+func parseCaptureListDateTo(raw string) *time.Time {
+	if raw == "" {
+		return nil
+	}
+	if parsed, err := time.Parse(time.RFC3339, raw); err == nil {
+		value := parsed.UTC()
+		return &value
+	}
+	if parsed, err := time.Parse("2006-01-02", raw); err == nil {
+		value := parsed.UTC().Add(24 * time.Hour)
 		return &value
 	}
 	return nil
