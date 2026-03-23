@@ -103,7 +103,6 @@ async function openGlobalMapViewer() {
         title: "Veřejná mapa",
         note: summary,
         onCaptureActivate: (capture) => {
-            closeCaptureMapViewer();
             openGlobalMapCaptureLightbox(capture.id);
         }
     });
