@@ -346,7 +346,6 @@ async function openHeaderGlobalMap() {
             title: "Veřejná mapa",
             note: `Načteno ${captures.length} bodů na mapě.`,
             onCaptureActivate: (capture) => {
-                closeCaptureMapViewer();
                 window.HZDMapUI.openLightboxCollection(captures, capture.id, {
                     nearby: true,
                     requirePublicUrl: true,
@@ -673,6 +672,10 @@ function buildPublicProfileURL(userID) {
         return "/public-profile.html";
     }
     return `/public-profile.html?user=${encodeURIComponent(userID)}`;
+}
+
+function buildFollowingPageURL() {
+    return "/following.html";
 }
 
 const CAPTURE_IMAGE_VARIANTS = {
@@ -2211,6 +2214,7 @@ const publicProfileState = {
     requestedUserID: 0,
     isOwner: false,
     user: null,
+    followActionBusy: false,
     moderationUser: null,
     moderationActions: [],
     moderationActionsLimit: 8,
@@ -2238,6 +2242,15 @@ const publicProfileState = {
     markerLayer: null
 };
 
+const followingPageState = {
+    users: [],
+    total: 0,
+    limit: 24,
+    offset: 0,
+    hasMore: false,
+    loading: false
+};
+
 function publicProfileSectionNodes() {
     return {
         mapButton: document.getElementById("public-profile-open-map-btn"),
@@ -2247,6 +2260,91 @@ function publicProfileSectionNodes() {
         postsSection: document.getElementById("public-profile-posts-section"),
         gallerySection: document.getElementById("public-profile-gallery-section")
     };
+}
+
+function publicProfileFollowNodes() {
+    return {
+        container: document.getElementById("public-profile-follow-actions"),
+        button: document.getElementById("public-profile-follow-btn"),
+        status: document.getElementById("public-profile-follow-status")
+    };
+}
+
+function buildPublicProfileStatsText(profile) {
+    if (!profile) {
+        return "Načítám přehled...";
+    }
+
+    const parts = [
+        `${profile.public_posts_count || 0} publikací`,
+        `${profile.public_captures_count || 0} veřejných fotografií`,
+        `${profile.followers_count || 0} sledujících`
+    ];
+    return parts.join(" · ");
+}
+
+function syncPublicProfileFollowAction() {
+    const nodes = publicProfileFollowNodes();
+    if (!nodes.container || !nodes.button) {
+        return;
+    }
+
+    const profile = publicProfileState.user;
+    const shouldHide = !profile || publicProfileState.isOwner;
+    nodes.container.hidden = shouldHide;
+    if (shouldHide) {
+        setStatusMessage(nodes.status, "");
+        return;
+    }
+
+    const loggedIn = Boolean(window.appSession && window.appSession.logged_in && window.appMe);
+    const isFollowing = Boolean(profile.is_followed_by_me);
+
+    nodes.button.disabled = Boolean(publicProfileState.followActionBusy);
+    nodes.button.className = `btn ${isFollowing ? "btn-secondary" : "btn-primary"}`;
+    nodes.button.textContent = loggedIn
+        ? (isFollowing ? "Přestat sledovat" : "Sledovat")
+        : "Přihlásit se a sledovat";
+}
+
+async function togglePublicProfileFollow() {
+    const profile = publicProfileState.user;
+    const nodes = publicProfileFollowNodes();
+    if (!profile || publicProfileState.isOwner) {
+        return;
+    }
+
+    if (!(window.appSession && window.appSession.logged_in && window.appMe)) {
+        window.location.href = `${API_URL}/auth/login`;
+        return;
+    }
+
+    publicProfileState.followActionBusy = true;
+    setStatusMessage(nodes.status, "");
+    syncPublicProfileFollowAction();
+
+    try {
+        const isFollowing = Boolean(profile.is_followed_by_me);
+        const result = await apiJsonRequest(`/api/users/${encodeURIComponent(profile.id)}/follow`, {
+            method: isFollowing ? "DELETE" : "POST"
+        });
+
+        profile.is_followed_by_me = Boolean(result?.is_following);
+        profile.followers_count = Number(result?.followers_count || 0);
+        profile.following_count = Number(result?.following_count || profile.following_count || 0);
+        setText("public-profile-stats", buildPublicProfileStatsText(profile));
+        setStatusMessage(
+            nodes.status,
+            profile.is_followed_by_me ? "Uživatele teď sledujete." : "Sledování bylo zrušeno.",
+            "success"
+        );
+    } catch (error) {
+        console.error("Failed to toggle public profile follow", error);
+        setStatusMessage(nodes.status, error.message || "Sledování se nepodařilo změnit.", "error");
+    } finally {
+        publicProfileState.followActionBusy = false;
+        syncPublicProfileFollowAction();
+    }
 }
 
 function syncPublicProfileSectionButtons() {
@@ -2895,7 +2993,6 @@ function openPublicProfileMapViewer() {
         title: `Mapa uživatele ${authorName}`,
         note: `${captures.length} veřejných bodů na mapě.`,
         onCaptureActivate: (capture) => {
-            closeCaptureMapViewer();
             openPublicProfileMapLightbox(capture.id);
         }
     });
@@ -2998,6 +3095,7 @@ async function initPublicProfilePage() {
 
     publicProfileState.user = null;
     publicProfileState.isOwner = false;
+    publicProfileState.followActionBusy = false;
     publicProfileState.moderationUser = null;
     publicProfileState.moderationActions = [];
     publicProfileState.moderationActionsOffset = 0;
@@ -3020,6 +3118,7 @@ async function initPublicProfilePage() {
     publicProfileState.galleryLoading = false;
     renderPublicModeratorPanel(false);
     renderPublicOwnerPanel(false);
+    syncPublicProfileFollowAction();
     setPublicProfileSectionVisibility("map", false);
     setPublicProfileSectionVisibility("posts", false);
     setPublicProfileSectionVisibility("gallery", false);
@@ -3058,7 +3157,8 @@ async function initPublicProfilePage() {
     setText("trust-score", `${trust.score} %`);
     setText("trust-label", trust.trustLabel);
     setText("public-about-preview", profile.about_me || "Zatím bez veřejného představení.");
-    setText("public-profile-stats", `${profile.public_posts_count || 0} publikací · ${profile.public_captures_count || 0} veřejných fotografií`);
+    setText("public-profile-stats", buildPublicProfileStatsText(profile));
+    syncPublicProfileFollowAction();
 
     const trustFill = document.getElementById("trust-bar-fill");
     if (trustFill) {
@@ -3075,6 +3175,11 @@ async function initPublicProfilePage() {
     const postsLoadMore = document.getElementById("public-posts-load-more-btn");
     if (postsLoadMore) {
         postsLoadMore.addEventListener("click", () => loadPublicProfilePosts(true));
+    }
+    const followButton = document.getElementById("public-profile-follow-btn");
+    if (followButton && !followButton.dataset.bound) {
+        followButton.dataset.bound = "1";
+        followButton.addEventListener("click", togglePublicProfileFollow);
     }
     const speciesModal = document.getElementById("public-profile-gallery-species-modal");
     const speciesModalClose = document.getElementById("public-profile-gallery-species-close");
@@ -3129,10 +3234,217 @@ async function initPublicProfilePage() {
     await loadPublicModerationUser();
 }
 
+function renderFollowingPageSummary() {
+    const summaryNode = document.getElementById("following-page-summary");
+    if (!summaryNode) {
+        return;
+    }
+
+    if (followingPageState.loading && followingPageState.users.length === 0) {
+        summaryNode.textContent = "Načítám seznam uživatelů, které sledujete...";
+        return;
+    }
+
+    if (!followingPageState.total) {
+        summaryNode.textContent = "Zatím nikoho nesledujete.";
+        return;
+    }
+
+    summaryNode.textContent = `Sledujete ${followingPageState.total} uživatelů.`;
+}
+
+function renderFollowingUsers() {
+    const container = document.getElementById("following-users-list");
+    const loadMoreButton = document.getElementById("following-users-load-more-btn");
+    if (!container) {
+        return;
+    }
+
+    renderFollowingPageSummary();
+
+    if (followingPageState.loading && followingPageState.users.length === 0) {
+        container.innerHTML = '<div class="viewed-capture-empty">Načítám sledované uživatele...</div>';
+        if (loadMoreButton) loadMoreButton.hidden = true;
+        return;
+    }
+
+    if (!followingPageState.users.length) {
+        container.innerHTML = `
+            <div class="viewed-capture-empty">
+                Jakmile začnete někoho sledovat z veřejného profilu, objeví se tady.
+            </div>
+        `;
+        if (loadMoreButton) loadMoreButton.hidden = true;
+        return;
+    }
+
+    container.innerHTML = followingPageState.users.map((user) => `
+        <article class="following-user-card card" data-following-user-card="${escapeHtml(String(user.id))}">
+            <div class="following-user-head">
+                <a class="following-user-avatar" href="${escapeHtml(buildPublicProfileURL(user.id))}" aria-label="Otevřít veřejný profil uživatele ${escapeHtml(user.preferred_username || "uživatel")}">
+                    <img src="${escapeHtml(user.picture || DEFAULT_AVATAR_URL)}" alt="${escapeHtml(user.preferred_username || "Profilová fotka")}">
+                </a>
+                <div class="following-user-copy">
+                    <div class="following-user-title-row">
+                        <div>
+                            <h2>${escapeHtml(user.preferred_username || "Bez veřejného jména")}</h2>
+                            <p class="muted-copy">${escapeHtml(
+                                hasMeaningfulDateTime(user.followed_at)
+                                    ? `Sledujete od ${formatDateTime(user.followed_at, "")}`
+                                    : "Ve sledování"
+                            )}</p>
+                        </div>
+                        <button
+                            type="button"
+                            class="btn btn-secondary"
+                            data-following-unfollow="${escapeHtml(String(user.id))}"
+                        >Přestat sledovat</button>
+                    </div>
+                    <p class="public-about-preview">${escapeHtml(user.about_me || "Zatím bez veřejného představení.")}</p>
+                    <div class="compact-meta">
+                        <span class="compact-chip">${escapeHtml(String(user.public_posts_count || 0))} publikací</span>
+                        <span class="compact-chip">${escapeHtml(String(user.public_captures_count || 0))} veřejných fotografií</span>
+                        <span class="compact-chip">${escapeHtml(String(user.followers_count || 0))} sledujících</span>
+                    </div>
+                    <div class="action-row">
+                        <a href="${escapeHtml(buildPublicProfileURL(user.id))}" class="btn btn-primary">Otevřít veřejný profil</a>
+                    </div>
+                </div>
+            </div>
+        </article>
+    `).join("");
+
+    if (loadMoreButton) {
+        loadMoreButton.hidden = !followingPageState.hasMore;
+        loadMoreButton.disabled = followingPageState.loading;
+    }
+}
+
+async function loadFollowingUsers(loadMore = false) {
+    if (followingPageState.loading) {
+        return;
+    }
+
+    const nextOffset = loadMore ? followingPageState.offset : 0;
+    followingPageState.loading = true;
+    if (!loadMore) {
+        followingPageState.users = [];
+        followingPageState.total = 0;
+        followingPageState.offset = 0;
+        followingPageState.hasMore = false;
+    }
+    renderFollowingUsers();
+
+    try {
+        const result = await apiGet(`/api/me/following?limit=${followingPageState.limit}&offset=${nextOffset}`);
+        if (!result || !result.ok) {
+            throw new Error("Nepodařilo se načíst sledované uživatele.");
+        }
+
+        const users = Array.isArray(result.users) ? result.users : [];
+        followingPageState.users = loadMore ? followingPageState.users.concat(users) : users;
+        followingPageState.total = Number(result.total || 0);
+        followingPageState.offset = nextOffset + users.length;
+        followingPageState.hasMore = Boolean(result.has_more);
+    } catch (error) {
+        console.error("Failed to load following users", error);
+        const container = document.getElementById("following-users-list");
+        if (container && !followingPageState.users.length) {
+            container.innerHTML = '<div class="viewed-capture-empty">Nepodařilo se načíst sledované uživatele.</div>';
+        }
+        showToast(error.message || "Nepodařilo se načíst sledované uživatele.", { kind: "error" });
+    } finally {
+        followingPageState.loading = false;
+        renderFollowingUsers();
+    }
+}
+
+async function handleFollowingPageUnfollow(userID) {
+    const numericUserID = Number(userID);
+    if (!Number.isFinite(numericUserID) || numericUserID <= 0) {
+        return;
+    }
+
+    const button = document.querySelector(`[data-following-unfollow="${numericUserID}"]`);
+    if (button instanceof HTMLButtonElement) {
+        button.disabled = true;
+    }
+
+    try {
+        await apiJsonRequest(`/api/users/${encodeURIComponent(numericUserID)}/follow`, {
+            method: "DELETE"
+        });
+        followingPageState.users = followingPageState.users.filter((user) => Number(user.id) !== numericUserID);
+        followingPageState.total = Math.max(0, followingPageState.total - 1);
+        renderFollowingUsers();
+        showToast("Uživatel byl odebrán ze sledování.", { kind: "success" });
+    } catch (error) {
+        console.error("Failed to unfollow user from following page", error);
+        showToast(error.message || "Sledování se nepodařilo zrušit.", { kind: "error" });
+        if (button instanceof HTMLButtonElement) {
+            button.disabled = false;
+        }
+    }
+}
+
+async function initFollowingPage() {
+    const session = await apiGet("/api/session");
+    if (!session || !session.logged_in) {
+        window.location.href = "/";
+        return;
+    }
+
+    const me = await apiGet("/api/me");
+    if (!me) {
+        return;
+    }
+
+    setAppIdentity(session, me);
+    renderHeader(session, me);
+
+    followingPageState.users = [];
+    followingPageState.total = 0;
+    followingPageState.offset = 0;
+    followingPageState.hasMore = false;
+    followingPageState.loading = false;
+
+    const loadMoreButton = document.getElementById("following-users-load-more-btn");
+    if (loadMoreButton && !loadMoreButton.dataset.bound) {
+        loadMoreButton.dataset.bound = "1";
+        loadMoreButton.addEventListener("click", () => loadFollowingUsers(true));
+    }
+
+    const container = document.getElementById("following-users-list");
+    if (container && !container.dataset.bound) {
+        container.dataset.bound = "1";
+        container.addEventListener("click", (event) => {
+            const target = event.target instanceof Element
+                ? event.target.closest("[data-following-unfollow]")
+                : null;
+            if (!(target instanceof HTMLElement)) {
+                return;
+            }
+
+            const userID = Number(target.dataset.followingUnfollow || 0);
+            if (!Number.isFinite(userID) || userID <= 0) {
+                return;
+            }
+            handleFollowingPageUnfollow(userID);
+        });
+    }
+
+    renderFollowingUsers();
+    await loadFollowingUsers(false);
+}
+
 // Společná Lightbox logika
 window.lightboxImages = [];
 window.lightboxMapData = []; // [{lat: 12.3, lon: 45.6}, null, ...]
 window.lightboxCaptureData = [];
+window.lightboxContext = {
+    mode: "",
+    onCaptureUpdated: null
+};
 window.currentLightboxIndex = 0;
 let captureMapViewerInstance = null;
 let captureMapViewerMarkerLayer = null;
@@ -3154,6 +3466,12 @@ function openSharedLightboxCollection(captures, startIndex = 0, options = {}) {
     window.lightboxImages = list.map((capture) => imageBuilder(capture));
     window.lightboxCaptureData = list.slice();
     window.lightboxMapData = list.map((capture) => mapBuilder(capture));
+    window.lightboxContext = {
+        mode: String(options.mode || "").trim(),
+        onCaptureUpdated: typeof options.onCaptureUpdated === "function"
+            ? options.onCaptureUpdated
+            : null
+    };
     window.currentLightboxIndex = index;
 
     if (typeof openLightbox === "function") {
@@ -3170,6 +3488,27 @@ window.HZDLightbox = {
 
 function currentLightboxCapture() {
     return window.lightboxCaptureData[window.currentLightboxIndex] || null;
+}
+
+function currentLightboxContext() {
+    return window.lightboxContext || {};
+}
+
+function applyCurrentLightboxCaptureUpdate(updatedCapture) {
+    if (!updatedCapture || !updatedCapture.id) {
+        return;
+    }
+
+    window.lightboxCaptureData[window.currentLightboxIndex] = updatedCapture;
+    window.lightboxImages[window.currentLightboxIndex] = buildCaptureImageURL(updatedCapture, "lightbox");
+    window.lightboxMapData[window.currentLightboxIndex] = buildCaptureMapData(updatedCapture);
+
+    if (typeof currentLightboxContext().onCaptureUpdated === "function") {
+        currentLightboxContext().onCaptureUpdated(updatedCapture, window.currentLightboxIndex);
+    }
+    if (typeof window.onLightboxCaptureUpdated === "function") {
+        window.onLightboxCaptureUpdated(updatedCapture, window.currentLightboxIndex);
+    }
 }
 
 function setLightboxMessage(text, kind = "") {
@@ -3463,17 +3802,11 @@ async function unlockCurrentLightboxCapture() {
         }
 
         const updatedCapture = payload.capture;
-        window.lightboxCaptureData[window.currentLightboxIndex] = updatedCapture;
-        window.lightboxImages[window.currentLightboxIndex] = buildCaptureImageURL(updatedCapture, "lightbox");
-        window.lightboxMapData[window.currentLightboxIndex] = buildCaptureMapData(updatedCapture);
+        applyCurrentLightboxCaptureUpdate(updatedCapture);
 
         if (window.appMe && typeof payload.balance === "number") {
             window.appMe.houbicka_balance = payload.balance;
             refreshHoubickaBalanceViews();
-        }
-
-        if (typeof window.onLightboxCaptureUpdated === "function") {
-            window.onLightboxCaptureUpdated(updatedCapture, window.currentLightboxIndex);
         }
 
         syncLightboxImage();
@@ -3500,8 +3833,143 @@ async function unlockCurrentLightboxCapture() {
     }
 }
 
+function getLightboxOwnProfileActionNodes() {
+    return {
+        actions: document.getElementById("lightbox-own-map-actions"),
+        freeToggle: document.getElementById("lightbox-own-free-toggle"),
+        freeCheckbox: document.getElementById("lightbox-own-free-checkbox"),
+        unpublishButton: document.getElementById("lightbox-own-unpublish-btn")
+    };
+}
+
+function setLightboxOwnProfileActionBusy(busy) {
+    const { freeCheckbox, unpublishButton } = getLightboxOwnProfileActionNodes();
+    if (freeCheckbox) {
+        freeCheckbox.disabled = Boolean(busy);
+    }
+    if (unpublishButton) {
+        unpublishButton.disabled = Boolean(busy) || unpublishButton.hidden;
+    }
+}
+
+async function setCurrentLightboxCaptureCoordinatesFree(nextValue) {
+    const capture = currentLightboxCapture();
+    const { freeCheckbox } = getLightboxOwnProfileActionNodes();
+    if (!capture?.id || capture.status !== "published" || !captureHasCoordinates(capture)) {
+        return;
+    }
+
+    const previousValue = Boolean(capture.coordinates_free);
+    setLightboxOwnProfileActionBusy(true);
+
+    try {
+        const result = await apiJsonRequest(`/api/captures/${encodeURIComponent(capture.id)}/coordinates-free`, {
+            method: "POST",
+            body: {
+                coordinates_free: Boolean(nextValue)
+            }
+        });
+        if (!result?.ok || !result.capture) {
+            throw new Error("Server nevrátil aktualizovanou fotografii.");
+        }
+
+        applyCurrentLightboxCaptureUpdate(result.capture);
+        syncLightboxImage();
+        updateLightboxMap();
+        setLightboxMessage(
+            nextValue
+                ? "Souřadnice jsou teď zdarma pro všechny."
+                : "Souřadnice jsou znovu chráněné houbičkou.",
+            "success"
+        );
+    } catch (error) {
+        console.error("Failed to update lightbox capture coordinates_free", error);
+        capture.coordinates_free = previousValue;
+        if (freeCheckbox) {
+            freeCheckbox.checked = previousValue;
+        }
+        setLightboxMessage(error.message || "Nepodařilo se změnit přístup k souřadnicím.", "error");
+    } finally {
+        setLightboxOwnProfileActionBusy(false);
+    }
+}
+
+async function unpublishCurrentLightboxCapture() {
+    const capture = currentLightboxCapture();
+    if (!capture?.id || capture.status !== "published") {
+        return;
+    }
+
+    setLightboxOwnProfileActionBusy(true);
+
+    try {
+        const result = await apiJsonRequest(`/api/captures/${encodeURIComponent(capture.id)}/unpublish`, {
+            method: "POST"
+        });
+        if (!result?.ok || !result.capture) {
+            throw new Error("Server nevrátil aktualizovanou fotografii.");
+        }
+
+        applyCurrentLightboxCaptureUpdate(result.capture);
+        syncLightboxImage();
+        updateLightboxMap();
+        setLightboxMessage("Publikace byla zrušena.", "success");
+    } catch (error) {
+        console.error("Failed to unpublish lightbox capture", error);
+        setLightboxMessage(error.message || "Nepodařilo se zrušit publikaci.", "error");
+    } finally {
+        setLightboxOwnProfileActionBusy(false);
+    }
+}
+
+function updateOwnProfileMapLightboxActions(capture) {
+    const { actions, freeToggle, freeCheckbox, unpublishButton } = getLightboxOwnProfileActionNodes();
+    if (!actions || !freeToggle || !freeCheckbox || !unpublishButton) {
+        return false;
+    }
+
+    if (currentLightboxContext().mode !== "ownProfileMap" || !capture) {
+        actions.hidden = true;
+        freeToggle.hidden = true;
+        unpublishButton.hidden = true;
+        freeCheckbox.onchange = null;
+        unpublishButton.onclick = null;
+        return false;
+    }
+
+    const isPublished = capture.status === "published";
+    const canToggleCoordinatesFree = isPublished && captureHasCoordinates(capture);
+
+    actions.hidden = false;
+    freeToggle.hidden = !canToggleCoordinatesFree;
+    freeCheckbox.checked = Boolean(capture.coordinates_free);
+    freeCheckbox.disabled = !canToggleCoordinatesFree;
+    freeCheckbox.onchange = canToggleCoordinatesFree
+        ? async (event) => {
+            event.stopPropagation();
+            await setCurrentLightboxCaptureCoordinatesFree(Boolean(event.target.checked));
+        }
+        : null;
+
+    unpublishButton.hidden = !isPublished;
+    unpublishButton.disabled = !isPublished;
+    unpublishButton.onclick = isPublished
+        ? async (event) => {
+            event.stopPropagation();
+            await unpublishCurrentLightboxCapture();
+        }
+        : null;
+
+    if (!isPublished) {
+        setLightboxMessage("Fotografie zatím není publikovaná.");
+    }
+
+    return true;
+}
+
 function updateLightboxMap() {
     const mapBtn = document.getElementById("lightbox-map-btn");
+    const { actions, freeToggle, unpublishButton } = getLightboxOwnProfileActionNodes();
     if (!mapBtn) return;
 
     const capture = currentLightboxCapture();
@@ -3511,9 +3979,23 @@ function updateLightboxMap() {
     mapBtn.style.display = "none";
     mapBtn.disabled = false;
     mapBtn.onclick = null;
+    if (actions) {
+        actions.hidden = true;
+    }
+    if (freeToggle) {
+        freeToggle.hidden = true;
+    }
+    if (unpublishButton) {
+        unpublishButton.hidden = true;
+        unpublishButton.onclick = null;
+    }
     setLightboxMessage("");
 
     if (!capture) {
+        return;
+    }
+
+    if (updateOwnProfileMapLightboxActions(capture)) {
         return;
     }
 
@@ -3583,7 +4065,6 @@ function updateLightboxMap() {
 function openLightbox() {
     const lb = document.getElementById("lightbox");
     if (!lb || window.lightboxImages.length === 0) return;
-    closeCaptureMapViewer();
     syncLightboxImage();
     updateLightboxMap();
     lb.classList.add("active");
@@ -3592,6 +4073,10 @@ function openLightbox() {
 function closeLightbox() {
     const lb = document.getElementById("lightbox");
     if (lb) lb.classList.remove("active");
+    window.lightboxContext = {
+        mode: "",
+        onCaptureUpdated: null
+    };
     setLightboxMessage("");
 }
 
@@ -3618,6 +4103,13 @@ document.addEventListener("DOMContentLoaded", () => {
         <img id="lightbox-img" class="lightbox-content" src="" alt="Detail fotky">
         <button type="button" id="lightbox-next" class="lightbox-nav lightbox-next" aria-label="Další fotka">&#10095;</button>
         <button type="button" id="lightbox-map-btn" class="btn btn-primary lightbox-map-btn" style="display: none;">Zobrazit na mapě</button>
+        <div id="lightbox-own-map-actions" class="lightbox-own-map-actions" hidden>
+            <label id="lightbox-own-free-toggle" class="lightbox-own-free-toggle" hidden>
+                <input id="lightbox-own-free-checkbox" type="checkbox">
+                <span>Souřadnice zdarma</span>
+            </label>
+            <button type="button" id="lightbox-own-unpublish-btn" class="btn btn-danger lightbox-own-action-btn" hidden>Zrušit publikaci</button>
+        </div>
         <p id="lightbox-note" class="lightbox-note"></p>
     </div>
         `;
@@ -3667,12 +4159,14 @@ document.addEventListener("DOMContentLoaded", () => {
         const mapViewerActive = Boolean(mapViewer && !mapViewer.hidden);
         if (!lightboxActive && !mapViewerActive) return;
         if (e.key === "Escape") {
+            if (lightboxActive) {
+                closeLightbox();
+                return;
+            }
             if (mapViewerActive) {
                 closeCaptureMapViewer();
                 return;
             }
-            closeLightbox();
-            return;
         }
         if (!lightboxActive) return;
         if (e.key === "ArrowRight") lightboxNext();
@@ -3741,6 +4235,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
     if (page === "public-profile") {
         initPublicProfilePage();
+        return;
+    }
+
+    if (page === "following") {
+        initFollowingPage();
         return;
     }
 

@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sledovaní uživatelé | Houbam Zdar</title>
+    <meta name="description" content="Přehled uživatelů, které sledujete na Houbam Zdar.">
+    <link rel="icon" href="/favicon.ico" sizes="any">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+    <link rel="stylesheet" href="styles/base.css">
+    <link rel="stylesheet" href="styles/page-profile.css">
+</head>
+<body data-page="following" class="page-shell page-profile">
+    <header class="site-header">
+        <a href="/" class="brand-link" aria-label="Houbam Zdar">
+            <img src="/logo.png" alt="Logo Houbam Zdar" class="brand-mark">
+            <div class="brand-copy">
+                <span class="brand-eyebrow">Moje síť</span>
+                <strong>Houbam Zdar</strong>
+            </div>
+        </a>
+        <div id="auth-buttons" class="header-actions"></div>
+    </header>
+
+    <main class="content-main content-main-narrow">
+        <div class="profile-shortcuts-row">
+            <a href="/me.html" class="btn btn-secondary">Můj profil</a>
+            <a href="/public-profile.html" class="btn btn-secondary">Veřejný profil</a>
+        </div>
+
+        <section class="page-intro card public-profile-intro">
+            <p class="section-label">Sledování</p>
+            <h1 class="page-title">Sledovaní uživatelé</h1>
+            <p id="following-page-summary" class="muted-copy">Načítám seznam uživatelů, které sledujete...</p>
+        </section>
+
+        <section class="card">
+            <div id="following-users-list" class="following-users-list">
+                <div class="viewed-capture-empty">Načítám sledované uživatele...</div>
+            </div>
+            <div class="action-row">
+                <button id="following-users-load-more-btn" type="button" class="btn btn-secondary" hidden>Načíst další</button>
+            </div>
+        </section>
+    </main>
+
+    <script src="app.js" defer></script>
+</body>
+</html>

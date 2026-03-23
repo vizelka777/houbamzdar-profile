@@ -49,11 +49,15 @@
         <section class="public-profile-card card">
             <div class="public-profile-head">
                 <div id="public-profile-picture" class="profile-picture profile-picture-large"></div>
-                <div>
+                <div class="public-profile-identity">
                     <p class="section-label">Veřejná vizitka</p>
                     <h2 id="public-profile-name">Načítám profil...</h2>
                     <p id="public-profile-trust" class="muted-copy">Načítám informace...</p>
                     <p id="public-profile-stats" class="muted-copy">Načítám přehled...</p>
+                    <div id="public-profile-follow-actions" class="public-profile-follow-actions" hidden>
+                        <button id="public-profile-follow-btn" type="button" class="btn btn-primary">Sledovat</button>
+                        <span id="public-profile-follow-status" class="status-message" aria-live="polite"></span>
+                    </div>
                 </div>
             </div>
 

@@ -221,6 +221,11 @@
     color: var(--forest-950);
 }
 
+.page-title {
+    margin: 0;
+    color: var(--forest-950);
+}
+
 .metric-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -390,6 +395,18 @@
     align-items: center;
 }
 
+.public-profile-identity {
+    display: grid;
+    gap: 0.55rem;
+}
+
+.public-profile-follow-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.65rem;
+}
+
 .public-profile-intro {
     display: grid;
     gap: 0.9rem;
@@ -438,6 +455,56 @@
     color: var(--muted);
     line-height: 1.7;
     white-space: pre-wrap;
+}
+
+.following-users-list {
+    display: grid;
+    gap: 1rem;
+}
+
+.following-user-card {
+    padding: 1rem;
+}
+
+.following-user-head {
+    display: grid;
+    grid-template-columns: 5.5rem minmax(0, 1fr);
+    gap: 1rem;
+    align-items: start;
+}
+
+.following-user-avatar {
+    display: block;
+    width: 5.5rem;
+    height: 5.5rem;
+    border-radius: 1.6rem;
+    overflow: hidden;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(223, 214, 196, 0.9));
+    border: 1px solid rgba(19, 38, 29, 0.08);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.5);
+}
+
+.following-user-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.following-user-copy {
+    display: grid;
+    gap: 0.8rem;
+}
+
+.following-user-title-row {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 0.75rem 1rem;
+    align-items: start;
+}
+
+.following-user-title-row h2 {
+    margin: 0;
 }
 
 .profile-topline,
@@ -494,5 +561,19 @@
 
     .nickname-editor {
         grid-template-columns: 1fr;
+    }
+
+    .following-user-head {
+        grid-template-columns: 1fr;
+    }
+
+    .following-user-avatar {
+        width: 4.8rem;
+        height: 4.8rem;
+    }
+
+    .following-user-title-row {
+        flex-direction: column;
+        align-items: stretch;
     }
 }

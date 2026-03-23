@@ -255,7 +255,21 @@ type PublicUserProfile struct {
 	PhoneVerified       bool      `json:"phone_verified"`
 	PublicPostsCount    int       `json:"public_posts_count"`
 	PublicCapturesCount int       `json:"public_captures_count"`
+	FollowersCount      int       `json:"followers_count"`
+	FollowingCount      int       `json:"following_count"`
+	IsFollowedByMe      bool      `json:"is_followed_by_me"`
 	JoinedAt            time.Time `json:"joined_at"`
+}
+
+type FollowedUserProfile struct {
+	ID                  int64     `json:"id"`
+	PreferredUsername   string    `json:"preferred_username"`
+	Picture             string    `json:"picture"`
+	AboutMe             string    `json:"about_me"`
+	PublicPostsCount    int       `json:"public_posts_count"`
+	PublicCapturesCount int       `json:"public_captures_count"`
+	FollowersCount      int       `json:"followers_count"`
+	FollowedAt          time.Time `json:"followed_at"`
 }
 
 type ModerationAction struct {

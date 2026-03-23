@@ -835,7 +835,7 @@ textarea {
     display: none;
     position: fixed;
     inset: 0;
-    z-index: 1200;
+    z-index: 1220;
     align-items: center;
     justify-content: center;
     flex-direction: column;
@@ -854,7 +854,7 @@ textarea {
     font-size: 2rem;
     cursor: pointer;
     user-select: none;
-    z-index: 1201;
+    z-index: 1221;
     background: none;
     border: none;
 }
@@ -874,7 +874,7 @@ textarea {
     cursor: pointer;
     user-select: none;
     padding: 1rem;
-    z-index: 1201;
+    z-index: 1221;
     background: none;
     border: none;
 }
@@ -889,7 +889,41 @@ textarea {
 
 .lightbox-map-btn {
     margin-top: 0.9rem;
-    z-index: 1201;
+    z-index: 1221;
+}
+
+.lightbox-own-map-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    margin-top: 0.9rem;
+    z-index: 1221;
+}
+
+.lightbox-own-map-actions[hidden] {
+    display: none;
+}
+
+.lightbox-own-free-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 0.95rem;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.1);
+    color: #fff7f2;
+    font-weight: 700;
+    backdrop-filter: blur(10px);
+}
+
+.lightbox-own-free-toggle input {
+    accent-color: #3b814e;
+}
+
+.lightbox-own-action-btn {
+    min-width: min(16rem, 80vw);
 }
 
 .lightbox-note {
@@ -898,7 +932,7 @@ textarea {
     padding: 0 1rem;
     color: rgba(247, 242, 232, 0.88);
     text-align: center;
-    z-index: 1201;
+    z-index: 1221;
 }
 
 .lightbox-note.is-success {
@@ -916,7 +950,7 @@ textarea {
     display: none;
     border-radius: 0.75rem;
     overflow: hidden;
-    z-index: 1201;
+    z-index: 1221;
 }
 
 .capture-map-viewer {

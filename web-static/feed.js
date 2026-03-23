@@ -478,7 +478,6 @@ function attachInlineMapToggle(card, post, mapCaptures) {
             title: "Mapa publikace",
             note: `${mapCaptures.length} bodů v této publikaci.`,
             onCaptureActivate: (capture) => {
-                closeCaptureMapViewer();
                 openPostCaptureLightbox(post, capture.id);
             }
         });

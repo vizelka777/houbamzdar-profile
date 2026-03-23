@@ -72,7 +72,15 @@ function openOwnProfileMapLightbox(captureID) {
     }
 
     window.HZDLightbox.openCollection(capturesToOpen, startIndex, {
-        imageBuilder: (capture) => profileCaptureImageURL(capture, "lightbox")
+        imageBuilder: (capture) => profileCaptureImageURL(capture, "lightbox"),
+        mode: "ownProfileMap",
+        onCaptureUpdated: (updatedCapture) => {
+            const existing = profileMapState.datasets.own.items.find((capture) => capture.id === updatedCapture.id);
+            if (existing) {
+                Object.assign(existing, updatedCapture);
+            }
+            syncProfileMapButtons();
+        }
     });
 }
 
@@ -130,7 +138,6 @@ async function openProfileDatasetMap(source) {
         title: config.title,
         note: `${items.length} bodů na mapě.`,
         onCaptureActivate: (capture) => {
-            closeCaptureMapViewer();
             config.openLightbox(capture.id);
         }
     });

@@ -58,6 +58,7 @@ const migrationUsersPreferredUsernameNormID = "20260320_add_users_preferred_user
 const migrationUsersClearContactDataID = "20260320_clear_user_contact_data"
 const migrationUsersClearStoredOIDCTokensID = "20260320_clear_user_oidc_tokens"
 const migrationBackfillPublishedCapturePrivateKeysID = "20260321_backfill_published_capture_private_keys"
+const migrationUserFollowsTableID = "20260323_create_user_follows_table"
 
 var ErrInsufficientHoubickaBalance = errors.New("insufficient houbicka balance")
 var ErrCaptureHasNoCoordinates = errors.New("capture has no coordinates")
@@ -715,13 +716,37 @@ func migrate(db *sql.DB) error {
 			id: migrationBackfillPublishedCapturePrivateKeysID,
 			apply: func(tx *sql.Tx) error {
 				_, err := tx.Exec(`
-						UPDATE photo_captures
+					UPDATE photo_captures
 						SET private_storage_key = public_storage_key
 						WHERE status = 'published'
 							AND COALESCE(public_storage_key, '') != ''
 							AND private_storage_key != public_storage_key
-					`)
+				`)
 				return err
+			},
+		},
+		{
+			id: migrationUserFollowsTableID,
+			apply: func(tx *sql.Tx) error {
+				queries := []string{
+					`CREATE TABLE IF NOT EXISTS user_follows (
+						follower_user_id INTEGER NOT NULL,
+						followed_user_id INTEGER NOT NULL,
+						created_at TEXT NOT NULL DEFAULT (datetime('now')),
+						PRIMARY KEY(follower_user_id, followed_user_id),
+						FOREIGN KEY(follower_user_id) REFERENCES users(id) ON DELETE CASCADE,
+						FOREIGN KEY(followed_user_id) REFERENCES users(id) ON DELETE CASCADE
+					);`,
+					`CREATE INDEX IF NOT EXISTS idx_user_follows_follower_created ON user_follows(follower_user_id, created_at DESC);`,
+					`CREATE INDEX IF NOT EXISTS idx_user_follows_followed_created ON user_follows(followed_user_id, created_at DESC);`,
+				}
+
+				for _, query := range queries {
+					if _, err := tx.Exec(query); err != nil {
+						return err
+					}
+				}
+				return nil
 			},
 		},
 	}
@@ -1087,11 +1112,16 @@ func (db *DB) GetUserByPreferredUsername(username string) (*models.User, error) 
 }
 
 func (db *DB) GetPublicUserProfile(id int64) (*models.PublicUserProfile, error) {
+	return db.GetPublicUserProfileForViewer(id, 0)
+}
+
+func (db *DB) GetPublicUserProfileForViewer(id int64, viewerUserID int64) (*models.PublicUserProfile, error) {
 	var (
 		profile                models.PublicUserProfile
 		createdAtRaw           string
 		emailVerifiedInt       int
 		phoneNumberVerifiedInt int
+		isFollowedByMeInt      int
 	)
 	now := moderationNowRFC3339()
 
@@ -1105,10 +1135,38 @@ func (db *DB) GetPublicUserProfile(id int64) (*models.PublicUserProfile, error) 
 			phone_number_verified,
 			created_at,
 			(SELECT COUNT(*) FROM posts WHERE user_id = users.id AND status = 'published' AND COALESCE(moderator_hidden, 0) = 0),
-			(SELECT COUNT(*) FROM photo_captures WHERE user_id = users.id AND status = 'published' AND COALESCE(moderator_hidden, 0) = 0 AND COALESCE(private_storage_key, '') != '')
+			(SELECT COUNT(*) FROM photo_captures WHERE user_id = users.id AND status = 'published' AND COALESCE(moderator_hidden, 0) = 0 AND COALESCE(private_storage_key, '') != ''),
+			(
+				SELECT COUNT(*)
+				FROM user_follows uf
+				JOIN users follower_users ON follower_users.id = uf.follower_user_id
+				WHERE uf.followed_user_id = users.id AND %s
+			),
+			(
+				SELECT COUNT(*)
+				FROM user_follows uf
+				JOIN users followed_users ON followed_users.id = uf.followed_user_id
+				WHERE uf.follower_user_id = users.id AND %s
+			),
+			CASE
+				WHEN ? > 0 AND ? != users.id AND EXISTS (
+					SELECT 1
+					FROM user_follows
+					WHERE follower_user_id = ? AND followed_user_id = users.id
+				) THEN 1
+				ELSE 0
+			END
 		FROM users
 		WHERE id = ? AND %s
-	`, publicUserNotBannedClause("users")), id, now).Scan(
+	`, publicUserNotBannedClause("follower_users"), publicUserNotBannedClause("followed_users"), publicUserNotBannedClause("users")),
+		now,
+		now,
+		viewerUserID,
+		viewerUserID,
+		viewerUserID,
+		id,
+		now,
+	).Scan(
 		&profile.ID,
 		&profile.PreferredUsername,
 		&profile.Picture,
@@ -1118,6 +1176,9 @@ func (db *DB) GetPublicUserProfile(id int64) (*models.PublicUserProfile, error) 
 		&createdAtRaw,
 		&profile.PublicPostsCount,
 		&profile.PublicCapturesCount,
+		&profile.FollowersCount,
+		&profile.FollowingCount,
+		&isFollowedByMeInt,
 	)
 	if err != nil {
 		return nil, err
@@ -1125,6 +1186,7 @@ func (db *DB) GetPublicUserProfile(id int64) (*models.PublicUserProfile, error) 
 
 	profile.EmailVerified = emailVerifiedInt == 1
 	profile.PhoneVerified = phoneNumberVerifiedInt == 1
+	profile.IsFollowedByMe = isFollowedByMeInt == 1
 	profile.JoinedAt, _ = time.Parse(time.RFC3339, createdAtRaw)
 	return &profile, nil
 }

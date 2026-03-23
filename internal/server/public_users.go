@@ -35,7 +35,7 @@ func (s *Server) handleGetPublicUserProfile(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	profile, err := s.DB.GetPublicUserProfile(userID)
+	profile, err := s.DB.GetPublicUserProfileForViewer(userID, s.currentUserIDFromOptionalSession(r))
 	if err != nil {
 		if err == sql.ErrNoRows {
 			http.Error(w, "user not found", http.StatusNotFound)
