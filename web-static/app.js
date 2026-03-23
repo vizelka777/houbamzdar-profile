@@ -1588,24 +1588,26 @@ function updateHomeHero(session) {
     const primaryAction = document.getElementById("hero-primary-action");
     const secondaryAction = document.getElementById("hero-secondary-action");
     const secondaryNote = document.getElementById("hero-secondary-note");
+    const registrationForm = document.getElementById("registration-request-form");
     if (!primaryAction || !secondaryNote) return;
 
     if (session && session.logged_in) {
         primaryAction.href = "/me.html";
         primaryAction.textContent = "Pokračovat do profilu";
         if (secondaryAction) secondaryAction.style.display = "none";
+        if (registrationForm) registrationForm.style.display = "none";
         secondaryNote.textContent = "Jste přihlášeni. Profil, důvěru i další kroky máte připravené hned po ruce.";
         return;
     }
 
-    primaryAction.href = `https://ahoj420.eu/?mode=register&return_to=${encodeURIComponent(API_URL + '/auth/login')}`;
+    if (registrationForm) registrationForm.style.display = "flex";
     primaryAction.textContent = "Vytvořit účet";
     if (secondaryAction) {
         secondaryAction.style.display = "inline-flex";
         secondaryAction.href = `${API_URL}/auth/login`;
-        secondaryAction.textContent = "Přihlásit se";
+        secondaryAction.textContent = "Už mám účet? Přihlásit se";
     }
-    secondaryNote.textContent = "Přihlášení a správa identity běží bezpečně přes AHOJ420.";
+    secondaryNote.textContent = "Přihlášení a správa identity běží bezpečně через AHOJ420.";
 }
 
 async function logoutFlow() {
@@ -1628,6 +1630,49 @@ async function initIndexPage() {
     setAppIdentity(session, profile);
     renderHeader(session, profile);
     updateHomeHero(session);
+
+    // Setup email registration request
+    const regButton = document.getElementById("hero-primary-action");
+    const emailInput = document.getElementById("reg-email-input");
+    const statusMsg = document.getElementById("registration-status-msg");
+    const regForm = document.getElementById("registration-request-form");
+
+    if (regButton && emailInput && statusMsg && (!session || !session.logged_in)) {
+        regButton.addEventListener("click", async (e) => {
+            e.preventDefault();
+            const email = emailInput.value.trim();
+            if (!email || !email.includes("@")) {
+                alert("Zadejte prosím platný e-mail.");
+                return;
+            }
+
+            regButton.disabled = true;
+            regButton.textContent = "Odesílám...";
+
+            try {
+                const returnTo = encodeURIComponent(window.location.origin + "/auth/login");
+                const res = await fetch(`https://ahoj420.eu/auth/register/request?return_to=${returnTo}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email })
+                });
+
+                if (!res.ok) {
+                    throw new Error(await res.text());
+                }
+
+                const data = await res.json();
+                if (regForm) regForm.style.display = "none";
+                statusMsg.textContent = data.message || "Registrační e-mail byl odeslán. Zkontrolujte prosím svou schránku.";
+                statusMsg.classList.remove("hidden");
+            } catch (err) {
+                console.error("Registration request failed", err);
+                alert("Chyba: " + err.message);
+                regButton.disabled = false;
+                regButton.textContent = "Vytvořit účet";
+            }
+        });
+    }
 }
 
 let activeToastHost = null;
