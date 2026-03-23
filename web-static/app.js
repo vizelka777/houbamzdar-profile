@@ -1551,9 +1551,21 @@ function renderHeader(session, profile = null) {
             <line x1="15" y1="12" x2="3" y2="12"></line>
         </svg>
     `;
-
-    const loginButton = createIconLinkButton(`${API_URL}/auth/login`, "Přihlášení", loginIcon, "btn-primary");
+    const loginButton = createIconLinkButton(`${API_URL}/auth/login`, "Přihlášení", loginIcon, "btn-secondary");
     loginButton.classList.add("header-control-button");
+
+    const registerIcon = `
+        <svg viewBox="0 0 24 24" aria-hidden="true" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path>
+            <circle cx="9" cy="7" r="4"></circle>
+            <line x1="19" y1="8" x2="19" y2="14"></line>
+            <line x1="22" y1="11" x2="16" y2="11"></line>
+        </svg>
+    `;
+    const registerURL = `https://ahoj420.eu/?mode=register&return_to=${encodeURIComponent(API_URL + '/auth/login')}`;
+    const registerButton = createIconLinkButton(registerURL, "Registrace", registerIcon, "btn-primary");
+    registerButton.classList.add("header-control-button");
+
     const cameraButton = createDirectCameraButton("Přidat úlovek", cameraIcon, "btn-secondary");
     cameraButton.classList.add("header-control-button");
 
@@ -1568,23 +1580,31 @@ function renderHeader(session, profile = null) {
 
     authButtons.appendChild(cameraButton);
     authButtons.appendChild(loginButton);
+    authButtons.appendChild(registerButton);
     authButtons.appendChild(menuButton);
 }
 
 function updateHomeHero(session) {
     const primaryAction = document.getElementById("hero-primary-action");
+    const secondaryAction = document.getElementById("hero-secondary-action");
     const secondaryNote = document.getElementById("hero-secondary-note");
     if (!primaryAction || !secondaryNote) return;
 
     if (session && session.logged_in) {
         primaryAction.href = "/me.html";
         primaryAction.textContent = "Pokračovat do profilu";
+        if (secondaryAction) secondaryAction.style.display = "none";
         secondaryNote.textContent = "Jste přihlášeni. Profil, důvěru i další kroky máte připravené hned po ruce.";
         return;
     }
 
-    primaryAction.href = `${API_URL}/auth/login`;
-    primaryAction.textContent = "Přihlásit se";
+    primaryAction.href = `https://ahoj420.eu/?mode=register&return_to=${encodeURIComponent(API_URL + '/auth/login')}`;
+    primaryAction.textContent = "Vytvořit účet";
+    if (secondaryAction) {
+        secondaryAction.style.display = "inline-flex";
+        secondaryAction.href = `${API_URL}/auth/login`;
+        secondaryAction.textContent = "Přihlásit se";
+    }
     secondaryNote.textContent = "Přihlášení a správa identity běží bezpečně přes AHOJ420.";
 }
 

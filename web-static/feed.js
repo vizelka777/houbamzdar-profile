@@ -230,7 +230,8 @@ function buildCommentsSectionHtml(post, isOpen = false) {
         : `
             <p class="comment-login-note">
                 Komentovat mohou jen přihlášení uživatelé.
-                <a href="${API_URL}/auth/login">Přihlásit se</a>
+                <a href="${API_URL}/auth/login">Přihlásit se</a> nebo
+                <a href="https://ahoj420.eu/?mode=register&return_to=${encodeURIComponent(API_URL + '/auth/login')}">Vytvořit účet</a>
             </p>
         `;
 
