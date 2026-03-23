@@ -1,0 +1,146 @@
+@import "tailwindcss";
+
+@theme {
+  --color-forest-500: #5d8568;
+  --color-forest-700: #355d45;
+  --color-forest-900: #1b3729;
+  --color-forest-950: #13261d;
+  
+  --color-moss-300: #b8c8aa;
+  
+  --color-sand-100: #f5efe2;
+  --color-sand-200: #ede5d6;
+  --color-sand-300: #e4dbc9;
+  
+  --color-accent: #c8742f;
+  --color-accent-soft: #eeb16d;
+  
+  --font-sans: "Trebuchet MS", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  
+  --shadow-soft: 0 14px 34px rgba(21, 34, 24, 0.08);
+  --shadow-heavy: 0 24px 60px rgba(21, 34, 24, 0.16);
+  
+  --radius-sm: 0.85rem;
+  --radius-md: 1rem;
+  --radius-lg: 1.4rem;
+  --radius-xl: 2rem;
+}
+
+@layer base {
+  body {
+    @apply text-forest-950 font-sans min-h-screen relative pb-10 m-0;
+    background:
+        radial-gradient(circle at top left, rgba(238, 177, 109, 0.34), transparent 32%),
+        radial-gradient(circle at top right, rgba(93, 133, 104, 0.2), transparent 28%),
+        linear-gradient(180deg, #f4eddf 0%, #efe7d8 44%, #e3d7c2 100%);
+  }
+
+  body::before,
+  body::after {
+    @apply content-[''] fixed -z-10 pointer-events-none rounded-full blur-[28px];
+  }
+
+  body::before {
+    @apply w-60 h-60 top-16 -right-16;
+    background: rgba(93, 133, 104, 0.18);
+  }
+
+  body::after {
+    @apply w-72 h-72 -bottom-20 -left-24;
+    background: rgba(200, 116, 47, 0.14);
+  }
+}
+
+@layer components {
+  /* Layout */
+  .page-shell {
+    @apply flex flex-col min-h-screen;
+  }
+  .site-header {
+    @apply w-full max-w-[72rem] mx-auto flex items-center justify-between gap-3 mt-1 px-4 z-50;
+  }
+  .content-main {
+    @apply w-full max-w-[72rem] mx-auto px-4 mt-8 flex-grow;
+  }
+  .content-main-narrow {
+    @apply max-w-3xl;
+  }
+
+  /* Branding */
+  .brand-link {
+    @apply inline-flex items-center gap-0 no-underline bg-gradient-to-br from-white/90 to-sand-100/80 border border-white/50 shadow-soft backdrop-blur-md p-1 pr-4 rounded-full transition-transform hover:scale-105;
+  }
+  .brand-mark {
+    @apply w-12 h-12 object-contain drop-shadow-md;
+  }
+  .brand-copy {
+    @apply hidden md:flex flex-col ml-2;
+  }
+  .brand-eyebrow {
+    @apply text-[0.65rem] uppercase tracking-widest font-bold text-forest-700 leading-none mb-1;
+  }
+  .brand-copy strong {
+    @apply text-forest-950 font-bold leading-none text-lg;
+  }
+
+  /* Buttons */
+  .btn {
+    @apply inline-flex items-center justify-center font-bold px-6 py-3 rounded-full transition-transform cursor-pointer border-none gap-2 no-underline text-sm;
+  }
+  .btn-primary {
+    @apply text-white bg-forest-700 hover:bg-forest-900 shadow-soft hover:-translate-y-0.5;
+  }
+  .btn-secondary {
+    @apply text-forest-900 bg-sand-200 hover:bg-sand-300;
+  }
+  .btn-danger {
+    @apply text-white bg-red-600 hover:bg-red-700;
+  }
+  .btn-icon {
+    @apply w-12 h-12 p-0 rounded-full flex items-center justify-center bg-white/50 backdrop-blur-md shadow-soft hover:bg-white text-forest-700;
+  }
+  .btn-icon-glyph {
+    @apply w-6 h-6 fill-current stroke-current;
+  }
+  .header-actions {
+    @apply flex items-center gap-2;
+  }
+
+  /* Cards and Panels */
+  .card, .panel {
+    @apply bg-white/60 hover:bg-white/70 transition-colors backdrop-blur-xl border border-forest-900/10 rounded-2xl p-6 md:p-8 shadow-heavy mb-6;
+  }
+  .panel-header {
+    @apply flex items-center justify-between mb-4 border-b border-forest-900/10 pb-4;
+  }
+  .panel-title {
+    @apply text-xl font-bold text-forest-950;
+  }
+
+  /* Typography */
+  h1, h2, h3, h4 {
+    @apply font-black text-forest-950 tracking-tight;
+  }
+  p {
+    @apply text-forest-950/80 leading-relaxed;
+  }
+  .section-label, .feature-tag, .hero-kicker {
+    @apply inline-block bg-accent/10 text-accent font-bold text-xs uppercase tracking-widest px-3 py-1 rounded-full mb-4;
+  }
+
+  /* Forms */
+  .form-group {
+    @apply mb-4;
+  }
+  .form-group label {
+    @apply block font-bold text-forest-950 mb-2 text-sm;
+  }
+  .form-control, input[type="text"], input[type="email"], input[type="password"], textarea, select {
+    @apply w-full bg-white/70 border border-forest-900/20 rounded-xl px-4 py-3 text-forest-950 focus:outline-none focus:ring-2 focus:ring-forest-500 focus:bg-white transition-all shadow-inner;
+  }
+
+  /* Utilities */
+  .sr-only {
+    @apply absolute w-px h-px p-0 -m-px overflow-hidden whitespace-nowrap border-0 [clip:rect(0,0,0,0)];
+  }
+}
