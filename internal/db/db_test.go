@@ -418,6 +418,76 @@ func TestUpsertUserDoesNotPersistContactValues(t *testing.T) {
 	}
 }
 
+func TestUpsertUserPreservesLocalPreferredUsernameAfterFirstSync(t *testing.T) {
+	t.Parallel()
+
+	rawDB := openTestDB(t)
+	if err := migrate(rawDB); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	wrapped := &DB{rawDB}
+	user, isNew, err := wrapped.UpsertUser(&models.OIDCClaims{
+		Iss:               "https://ahoj420.eu",
+		Sub:               "split-name-123",
+		PreferredUsername: "LesniMuz",
+		EmailVerified:     true,
+		Picture:           "https://avatar.example/one.png",
+	}, &oauth2.Token{
+		AccessToken:  "token-one",
+		RefreshToken: "refresh-one",
+		Expiry:       time.Now().Add(time.Hour).UTC(),
+	})
+	if err != nil {
+		t.Fatalf("initial upsert: %v", err)
+	}
+	if !isNew {
+		t.Fatalf("expected first upsert to create a new user")
+	}
+	if user.PreferredUsername != "LesniMuz" {
+		t.Fatalf("expected initial preferred_username from first sync, got %q", user.PreferredUsername)
+	}
+
+	updatedUsername, err := wrapped.UpdatePreferredUsername(user.ID, "KosikovyKral")
+	if err != nil {
+		t.Fatalf("update preferred_username locally: %v", err)
+	}
+	if updatedUsername != "KosikovyKral" {
+		t.Fatalf("unexpected updated preferred_username %q", updatedUsername)
+	}
+
+	resynced, isNew, err := wrapped.UpsertUser(&models.OIDCClaims{
+		Iss:                 "https://ahoj420.eu",
+		Sub:                 "split-name-123",
+		PreferredUsername:   "JineJmenoNaAhoj420",
+		EmailVerified:       false,
+		PhoneNumberVerified: true,
+		Picture:             "https://avatar.example/two.png",
+	}, &oauth2.Token{
+		AccessToken:  "token-two",
+		RefreshToken: "refresh-two",
+		Expiry:       time.Now().Add(2 * time.Hour).UTC(),
+	})
+	if err != nil {
+		t.Fatalf("second upsert: %v", err)
+	}
+	if isNew {
+		t.Fatalf("expected second upsert to update existing user")
+	}
+	if resynced.PreferredUsername != "KosikovyKral" {
+		t.Fatalf("expected local preferred_username to stay untouched, got %q", resynced.PreferredUsername)
+	}
+	if resynced.Picture != "https://avatar.example/two.png" {
+		t.Fatalf("expected picture to keep syncing, got %q", resynced.Picture)
+	}
+	if resynced.EmailVerified {
+		t.Fatalf("expected email_verified to reflect latest claim state")
+	}
+	if !resynced.PhoneNumberVerified {
+		t.Fatalf("expected phone_number_verified to reflect latest claim state")
+	}
+}
+
 func TestMigrateCreatesPhotoCapturesTableAndSupportsCRUD(t *testing.T) {
 	t.Parallel()
 

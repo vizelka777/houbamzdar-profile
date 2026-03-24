@@ -12,6 +12,9 @@ import (
 
 func (s *Server) handleFollowUser(w http.ResponseWriter, r *http.Request) {
 	user := r.Context().Value("user").(*models.User)
+	if !s.ensureVerifiedEmail(w, user) {
+		return
+	}
 	targetUserID, err := parseURLInt64Param(r, "userID")
 	if err != nil || targetUserID <= 0 {
 		http.Error(w, "invalid user id", http.StatusBadRequest)

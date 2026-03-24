@@ -50,6 +50,9 @@ var (
 
 func (s *Server) handleCreatePost(w http.ResponseWriter, r *http.Request) {
 	user := r.Context().Value("user").(*models.User)
+	if !s.ensureVerifiedEmail(w, user) {
+		return
+	}
 	if !s.ensureCanPublish(w, user) {
 		return
 	}
@@ -222,6 +225,9 @@ func (s *Server) handleDeletePost(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleCreatePostComment(w http.ResponseWriter, r *http.Request) {
 	user := r.Context().Value("user").(*models.User)
+	if !s.ensureVerifiedEmail(w, user) {
+		return
+	}
 	if !s.ensureCanComment(w, user) {
 		return
 	}

@@ -825,14 +825,6 @@ func (db *DB) UpsertUser(claims *models.OIDCClaims, token *oauth2.Token) (*model
 		exists                   bool
 		currentPreferredUsername string
 	)
-	isModerator := 0
-	if isModeratorUsername(claims.PreferredUsername) {
-		isModerator = 1
-	}
-	isAdmin := 0
-	if isAdminUsername(claims.PreferredUsername) {
-		isAdmin = 1
-	}
 
 	err = tx.QueryRow(`
 		SELECT id, COALESCE(preferred_username, '')
@@ -875,6 +867,14 @@ func (db *DB) UpsertUser(claims *models.OIDCClaims, token *oauth2.Token) (*model
 	if !exists {
 		for attempt := 0; attempt < 5000; attempt++ {
 			preferredUsername := preferredUsernameCandidate(claims.PreferredUsername, attempt)
+			isModerator := 0
+			if isModeratorUsername(preferredUsername) {
+				isModerator = 1
+			}
+			isAdmin := 0
+			if isAdminUsername(preferredUsername) {
+				isAdmin = 1
+			}
 			res, insertErr := tx.Exec(`
 					INSERT INTO users (
 						idp_issuer,
@@ -919,6 +919,14 @@ func (db *DB) UpsertUser(claims *models.OIDCClaims, token *oauth2.Token) (*model
 			if err != nil {
 				return nil, false, err
 			}
+		}
+		isModerator := 0
+		if isModeratorUsername(preferredUsername) {
+			isModerator = 1
+		}
+		isAdmin := 0
+		if isAdminUsername(preferredUsername) {
+			isAdmin = 1
 		}
 
 		_, err := tx.Exec(`

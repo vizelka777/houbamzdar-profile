@@ -104,6 +104,14 @@ func (s *Server) ensureNotBanned(w http.ResponseWriter, user *models.User) bool 
 	return false
 }
 
+func (s *Server) ensureVerifiedEmail(w http.ResponseWriter, user *models.User) bool {
+	if user != nil && user.EmailVerified {
+		return true
+	}
+	http.Error(w, "confirm your email in AHOJ420 before using this action", http.StatusForbidden)
+	return false
+}
+
 func (s *Server) ensureCanPublish(w http.ResponseWriter, user *models.User) bool {
 	if !s.ensureNotBanned(w, user) {
 		return false

@@ -226,6 +226,9 @@ func (s *Server) handleListPublicMapCaptures(w http.ResponseWriter, r *http.Requ
 
 func (s *Server) handleCreateCapture(w http.ResponseWriter, r *http.Request) {
 	user := r.Context().Value("user").(*models.User)
+	if !s.ensureVerifiedEmail(w, user) {
+		return
+	}
 	if !s.ensureNotBanned(w, user) {
 		return
 	}
@@ -301,6 +304,9 @@ func (s *Server) handleCreateCapture(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handlePublishCapture(w http.ResponseWriter, r *http.Request) {
 	user := r.Context().Value("user").(*models.User)
+	if !s.ensureVerifiedEmail(w, user) {
+		return
+	}
 	if !s.ensureCanPublish(w, user) {
 		return
 	}

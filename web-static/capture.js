@@ -1,7 +1,23 @@
 const PHOTO_DB_NAME = "hzd-photo-vault";
 const PHOTO_STORE_NAME = "captures";
+const GPS_TARGET_ACCURACY_METERS = 100;
+const GPS_REQUEST_OPTIONS = {
+    enableHighAccuracy: true,
+    timeout: 12000,
+    maximumAge: 0
+};
 
 let captureObjectUrls = [];
+const captureGpsState = {
+    watchId: null,
+    checking: false,
+    ready: false,
+    latestPosition: null,
+    bestPosition: null,
+    lastError: null,
+    pendingFiles: [],
+    flushingPendingFiles: false
+};
 
 function captureUploadEnabled() {
     return Boolean(window.appSession && window.appSession.logged_in);
@@ -123,6 +139,366 @@ function formatCoords(lat, lng) {
     }
 
     return `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+}
+
+function formatAccuracyMeters(value) {
+    const accuracy = Number(value);
+    if (!Number.isFinite(accuracy)) {
+        return "";
+    }
+
+    if (accuracy >= 1000) {
+        return `${(accuracy / 1000).toFixed(1)} km`;
+    }
+
+    return `${Math.round(accuracy)} m`;
+}
+
+function getPositionAccuracyMeters(position) {
+    const accuracy = Number(position?.coords?.accuracy);
+    return Number.isFinite(accuracy) ? accuracy : null;
+}
+
+function isPositionAccurateEnough(position) {
+    const accuracy = getPositionAccuracyMeters(position);
+    return accuracy !== null && accuracy <= GPS_TARGET_ACCURACY_METERS;
+}
+
+function chooseBetterPosition(left, right) {
+    if (!left) return right || null;
+    if (!right) return left;
+
+    const leftAccuracy = getPositionAccuracyMeters(left);
+    const rightAccuracy = getPositionAccuracyMeters(right);
+
+    if (leftAccuracy === null && rightAccuracy === null) {
+        return right;
+    }
+    if (leftAccuracy === null) {
+        return right;
+    }
+    if (rightAccuracy === null) {
+        return left;
+    }
+
+    return rightAccuracy <= leftAccuracy ? right : left;
+}
+
+function renderCaptureGpsStatus(options = {}) {
+    const node = document.getElementById("capture-gps-status");
+    if (!node) return;
+
+    const {
+        kind = "",
+        title = "",
+        body = "",
+        steps = [],
+        note = ""
+    } = options;
+
+    if (!title && !body && !steps.length && !note) {
+        node.hidden = true;
+        node.className = "capture-gps-status";
+        node.innerHTML = "";
+        return;
+    }
+
+    const stepsHtml = steps.length
+        ? `<ul class="capture-gps-status-list">${steps.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`
+        : "";
+
+    node.hidden = false;
+    node.className = "capture-gps-status";
+    if (kind) {
+        node.classList.add(`is-${kind}`);
+    }
+    node.innerHTML = `
+        ${title ? `<p class="capture-gps-status-title"><strong>${escapeHtml(title)}</strong></p>` : ""}
+        ${body ? `<p class="capture-gps-status-copy">${escapeHtml(body)}</p>` : ""}
+        ${stepsHtml}
+        ${note ? `<p class="capture-gps-status-note">${escapeHtml(note)}</p>` : ""}
+    `;
+}
+
+function getCaptureGpsCurrentPosition() {
+    return captureGpsState.latestPosition || captureGpsState.bestPosition || null;
+}
+
+function getCaptureGpsAdviceItems(mode = "waiting") {
+    if (mode === "permission") {
+        return [
+            "Povolte tomuto webu přístup k poloze a v telefonu zapněte přesnou polohu / GPS.",
+            "Pokud jste oprávnění právě změnili, klepněte na „Zkusit GPS znovu“.",
+            "Na iPhonu zkontrolujte Safari > Poloha > Přesná poloha, na Androidu oprávnění Poloha pro prohlížeč."
+        ];
+    }
+
+    if (mode === "unsupported") {
+        return [
+            "Otevřete stránku v moderním mobilním prohlížeči, který geolokaci podporuje.",
+            "Když má fotka GPS už uložené v EXIF, použijeme tyto souřadnice automaticky.",
+            "Pro GPS z prohlížeče zkuste aktuální Chrome, Safari nebo Firefox v telefonu."
+        ];
+    }
+
+    return [
+        "Vyjděte ven nebo blíž k oknu a počkejte 10 až 30 sekund, než telefon chytí satelity.",
+        "Zkontrolujte, že je v telefonu zapnutá přesná poloha / GPS.",
+        "Nechte zapnuté Wi-Fi nebo mobilní data. Telefon si jimi často pomáhá při prvním určení polohy.",
+        "Otáčení telefonem pomáhá hlavně kompasu, ne samotné přesnosti GPS."
+    ];
+}
+
+function buildCaptureGpsStatusSummary() {
+    const position = getCaptureGpsCurrentPosition();
+    const accuracy = getPositionAccuracyMeters(position);
+    const accuracyLabel = accuracy !== null ? formatAccuracyMeters(accuracy) : null;
+    const error = captureGpsState.lastError;
+
+    if (!navigator.geolocation) {
+        return {
+            kind: "error",
+            title: "GPS není v tomto prohlížeči dostupné.",
+            body: "Aktuální přesnost není k dispozici. Fotoaparát zůstane zamčený, dokud stránku neotevřete v prohlížeči s geolokací.",
+            steps: getCaptureGpsAdviceItems("unsupported"),
+            note: "Pokud fotka obsahuje GPS v EXIF, použije se tato poloha automaticky."
+        };
+    }
+
+    if (captureGpsState.ready && position) {
+        return {
+            kind: "success",
+            title: "GPS splňuje požadovanou přesnost.",
+            body: `Aktuální přesnost je asi ${accuracyLabel}. To je v limitu ${GPS_TARGET_ACCURACY_METERS} m, fotoaparát je odemčený.`,
+            note: "I při splněném limitu tuto hodnotu ukazujeme, abyste hned viděli, s jakou přesností se bude nová poloha používat."
+        };
+    }
+
+    if (position && accuracy !== null) {
+        return {
+            kind: "warning",
+            title: "GPS je zapnuté, ale ještě čekáme na lepší přesnost.",
+            body: `Aktuální přesnost je asi ${accuracyLabel}. Potřebujeme nejvýš ${GPS_TARGET_ACCURACY_METERS} m, fotoaparát proto zatím zůstává zamčený.`,
+            steps: getCaptureGpsAdviceItems("waiting"),
+            note: "Jakmile telefon spadne na 100 m nebo lepší, fotoaparát se odemkne bez dalšího kroku."
+        };
+    }
+
+    if (error && error.code === 1) {
+        return {
+            kind: "error",
+            title: "GPS není povolené.",
+            body: "Aktuální přesnost není k dispozici. Bez přístupu k poloze fotoaparát neodemkneme.",
+            steps: getCaptureGpsAdviceItems("permission"),
+            note: "Po povolení polohy klepněte na „Zkusit GPS znovu“."
+        };
+    }
+
+    if (error && error.code === 2) {
+        return {
+            kind: "warning",
+            title: "GPS zatím nedává použitelnou polohu.",
+            body: "Aktuální přesnost ještě není k dispozici. Zkontrolujte, že je v telefonu zapnutá poloha, a chvíli počkejte na první fix.",
+            steps: getCaptureGpsAdviceItems("waiting")
+        };
+    }
+
+    if (error && error.code === 3) {
+        return {
+            kind: "warning",
+            title: "Čekám na první přesnější GPS fix.",
+            body: "Aktuální přesnost ještě není k dispozici. Jakmile telefon pošle polohu, začneme ukazovat její odchylku v metrech.",
+            steps: getCaptureGpsAdviceItems("waiting")
+        };
+    }
+
+    if (captureGpsState.checking) {
+        return {
+            kind: "pending",
+            title: "Zjišťuji GPS polohu telefonu…",
+            body: `Fotoaparát odemkneme až ve chvíli, kdy bude aktuální přesnost ${GPS_TARGET_ACCURACY_METERS} m nebo lepší.`
+        };
+    }
+
+    return {
+        kind: "pending",
+        title: "Připravuji kontrolu GPS.",
+        body: `Jakmile dostaneme první polohu, zobrazíme její aktuální přesnost a budeme čekat na limit ${GPS_TARGET_ACCURACY_METERS} m.`
+    };
+}
+
+function updateCaptureLaunchControls() {
+    const openCameraButton = document.getElementById("capture-open-camera");
+    const refreshGpsButton = document.getElementById("capture-refresh-gps");
+    const stateNode = document.getElementById("capture-open-camera-state");
+    const position = getCaptureGpsCurrentPosition();
+    const accuracy = getPositionAccuracyMeters(position);
+    const accuracyLabel = accuracy !== null ? formatAccuracyMeters(accuracy) : null;
+
+    if (openCameraButton) {
+        openCameraButton.disabled = !captureGpsState.ready;
+    }
+
+    if (refreshGpsButton) {
+        refreshGpsButton.disabled = false;
+    }
+
+    if (!stateNode) {
+        return;
+    }
+
+    if (captureGpsState.ready && accuracyLabel) {
+        stateNode.textContent = `GPS ${accuracyLabel}. Limit ${GPS_TARGET_ACCURACY_METERS} m splněn.`;
+        return;
+    }
+
+    if (accuracyLabel) {
+        stateNode.textContent = `Aktuální přesnost ${accuracyLabel}. Čekám na ${GPS_TARGET_ACCURACY_METERS} m nebo lepší.`;
+        return;
+    }
+
+    if (!navigator.geolocation) {
+        stateNode.textContent = "Tento prohlížeč neumí geolokaci.";
+        return;
+    }
+
+    if (captureGpsState.lastError && captureGpsState.lastError.code === 1) {
+        stateNode.textContent = "Povolte přístup k poloze a zkuste GPS znovu.";
+        return;
+    }
+
+    stateNode.textContent = `Čekám na GPS do ${GPS_TARGET_ACCURACY_METERS} m.`;
+}
+
+function syncCaptureGpsUi() {
+    renderCaptureGpsStatus(buildCaptureGpsStatusSummary());
+    updateCaptureLaunchControls();
+}
+
+function stopCaptureGpsWatch() {
+    if (captureGpsState.watchId !== null && navigator.geolocation) {
+        navigator.geolocation.clearWatch(captureGpsState.watchId);
+    }
+    captureGpsState.watchId = null;
+    captureGpsState.checking = false;
+}
+
+async function flushPendingCaptureFiles() {
+    if (!captureGpsState.ready || captureGpsState.flushingPendingFiles || !captureGpsState.pendingFiles.length) {
+        return;
+    }
+
+    const files = captureGpsState.pendingFiles.splice(0, captureGpsState.pendingFiles.length);
+    captureGpsState.flushingPendingFiles = true;
+
+    try {
+        await handleCaptureSelection(files);
+    } catch (error) {
+        console.error("Failed to process queued capture files", error);
+        setStatusMessage(document.getElementById("capture-status"), error.message || "Fotky se nepodařilo zpracovat.", "error");
+    } finally {
+        captureGpsState.flushingPendingFiles = false;
+        if (captureGpsState.ready && captureGpsState.pendingFiles.length) {
+            void flushPendingCaptureFiles();
+        }
+    }
+}
+
+function enqueueCaptureFilesForGpsGate(files) {
+    const selectedFiles = Array.from(files || []).filter(Boolean);
+    if (!selectedFiles.length) {
+        return;
+    }
+
+    captureGpsState.pendingFiles.push(...selectedFiles);
+
+    if (captureGpsState.ready) {
+        void flushPendingCaptureFiles();
+        return;
+    }
+
+    const accuracy = getPositionAccuracyMeters(getCaptureGpsCurrentPosition());
+    const accuracyLine = accuracy !== null
+        ? `Aktuální přesnost je asi ${formatAccuracyMeters(accuracy)}.`
+        : "Aktuální přesnost ještě není k dispozici.";
+    setStatusMessage(
+        document.getElementById("capture-status"),
+        `Snímky čekají na GPS. ${accuracyLine} Fotoaparát i zpracování pustíme až při ${GPS_TARGET_ACCURACY_METERS} m nebo lepší.`
+    );
+}
+
+function handleCaptureGpsSuccess(position) {
+    captureGpsState.checking = false;
+    captureGpsState.lastError = null;
+    captureGpsState.latestPosition = position;
+    captureGpsState.bestPosition = chooseBetterPosition(captureGpsState.bestPosition, position);
+
+    if (isPositionAccurateEnough(position) || isPositionAccurateEnough(captureGpsState.bestPosition)) {
+        captureGpsState.ready = true;
+        stopCaptureGpsWatch();
+    }
+
+    syncCaptureGpsUi();
+    if (captureGpsState.ready) {
+        void flushPendingCaptureFiles();
+    }
+}
+
+function handleCaptureGpsError(error) {
+    captureGpsState.checking = false;
+    captureGpsState.lastError = error || null;
+
+    if (error && error.code === 1) {
+        stopCaptureGpsWatch();
+    }
+
+    syncCaptureGpsUi();
+}
+
+function startCaptureGpsWatch() {
+    if (captureGpsState.ready) {
+        syncCaptureGpsUi();
+        return;
+    }
+
+    if (!navigator.geolocation) {
+        captureGpsState.lastError = { code: "unsupported" };
+        syncCaptureGpsUi();
+        return;
+    }
+
+    if (captureGpsState.watchId !== null) {
+        syncCaptureGpsUi();
+        return;
+    }
+
+    captureGpsState.checking = true;
+    captureGpsState.lastError = null;
+    syncCaptureGpsUi();
+    captureGpsState.watchId = navigator.geolocation.watchPosition(
+        handleCaptureGpsSuccess,
+        handleCaptureGpsError,
+        GPS_REQUEST_OPTIONS
+    );
+}
+
+function restartCaptureGpsWatch() {
+    stopCaptureGpsWatch();
+    captureGpsState.checking = false;
+    captureGpsState.ready = false;
+    captureGpsState.latestPosition = null;
+    captureGpsState.bestPosition = null;
+    captureGpsState.lastError = null;
+    syncCaptureGpsUi();
+    startCaptureGpsWatch();
+}
+
+function getReadyCapturePosition() {
+    if (!captureGpsState.ready) {
+        return null;
+    }
+
+    return chooseBetterPosition(captureGpsState.bestPosition, captureGpsState.latestPosition);
 }
 
 function isHeicLikeFile(file) {
@@ -276,23 +652,24 @@ function renderCaptureGrid(items) {
         const coordsStr = escapeHtml(formatCoords(item.latitude, item.longitude));
         const gpsIcon = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: text-bottom; margin-right: 4px;"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>`;
         const uploadEnabled = captureUploadEnabled();
-        const sendLabel = uploadEnabled ? "Odeslat" : "Přihlásit se pro nahrání";
-        const sendDisabled = uploadEnabled ? "" : "disabled";
-        const sendTitle = uploadEnabled ? "" : 'title="Snímek zůstane uložený v telefonu. Pro nahrání na server se přihlaste později."';
-        const offlineNote = uploadEnabled
-            ? ""
-            : '<p style="font-size: 0.8rem; color: var(--text-muted); margin: 0.5rem 0 0 0;">Snímek zůstane uložený v telefonu a nahrajete ho až po přihlášení.</p>';
+        const sendLabel = "Odeslat";
+        const actionsHtml = uploadEnabled
+            ? `
+                    <button type="button" class="btn btn-primary btn-send-single capture-local-action" data-id="${escapeHtml(item.id)}" style="background: var(--success-color, #4CAF50); border-color: var(--success-color, #4CAF50);">${sendLabel}</button>
+                    <button type="button" class="btn btn-danger btn-delete-single capture-local-action" data-id="${escapeHtml(item.id)}">Smazat</button>
+                `
+            : `
+                    <button type="button" class="btn btn-danger btn-delete-single capture-local-action capture-local-action-single" data-id="${escapeHtml(item.id)}">Smazat</button>
+                `;
 
         card.innerHTML = `
             <img src="${previewUrl}" alt="Nález hub" loading="lazy" style="width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: var(--radius-sm);">
             <div>
                 <p style="font-size: 0.85rem; color: var(--text-muted); margin: 0 0 0.25rem 0;">${dateStr}</p>
                 <p style="font-size: 0.85rem; color: var(--text-muted); margin: 0 0 0.75rem 0;">${gpsIcon}${coordsStr}</p>
-                <div style="display: flex; gap: 0.5rem;">
-                    <button type="button" class="btn btn-primary btn-send-single" data-id="${escapeHtml(item.id)}" style="flex: 1; background: var(--success-color, #4CAF50); border-color: var(--success-color, #4CAF50);" ${sendDisabled} ${sendTitle}>${sendLabel}</button>
-                    <button type="button" class="btn btn-danger btn-delete-single" data-id="${escapeHtml(item.id)}" style="flex: 1;">Smazat</button>
+                <div class="capture-local-actions">
+                    ${actionsHtml}
                 </div>
-                ${offlineNote}
             </div>
         `;
 
@@ -372,26 +749,25 @@ async function refreshCaptureVault() {
     renderCaptureGrid(localItems);
 }
 
-function readCurrentPosition() {
-    return new Promise((resolve) => {
-        if (!navigator.geolocation) {
-            resolve(null);
-            return;
-        }
-
-        navigator.geolocation.getCurrentPosition(
-            (position) => resolve(position),
-            () => resolve(null),
-            { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
-        );
-    });
-}
-
 async function handleCaptureSelection(files) {
     if (!files.length) return;
 
-    setStatusMessage(document.getElementById("capture-status"), "Zpracovávám snímky a zjišťuji polohu...");
-    const position = await readCurrentPosition();
+    const statusNode = document.getElementById("capture-status");
+    const position = getReadyCapturePosition();
+
+    if (!position) {
+        enqueueCaptureFilesForGpsGate(files);
+        return;
+    }
+
+    const readyAccuracy = getPositionAccuracyMeters(position);
+    const readyAccuracyLabel = readyAccuracy !== null ? formatAccuracyMeters(readyAccuracy) : null;
+    setStatusMessage(
+        statusNode,
+        readyAccuracyLabel
+            ? `Zpracovávám snímky. Aktuální přesnost GPS je asi ${readyAccuracyLabel}.`
+            : "Zpracovávám snímky s ověřenou GPS polohou."
+    );
     let storedCount = 0;
     let convertedCount = 0;
     const failedFiles = [];
@@ -423,23 +799,23 @@ async function handleCaptureSelection(files) {
             // Pokud jsme použili EXIF, neznáme přesnost, dáme null. Pokud lokaci z browseru, dáme accuracy.
             const finalAcc = (exifLat !== null) ? null : (position ? position.coords.accuracy : null);
 
-        const record = {
-            id: typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
-            fileName: normalized.fileName,
-            mimeType: normalized.mimeType,
-            size: normalized.blob.size || 0,
-            capturedAt: new Date().toISOString(),
-            latitude: finalLat,
-            longitude: finalLon,
-            accuracy: finalAcc,
-            queued: false,
-            serverCaptureId: "",
-            uploadedAt: "",
-            serverStatus: "",
-            blob: normalized.blob
-        };
+            const record = {
+                id: typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
+                fileName: normalized.fileName,
+                mimeType: normalized.mimeType,
+                size: normalized.blob.size || 0,
+                capturedAt: new Date().toISOString(),
+                latitude: finalLat,
+                longitude: finalLon,
+                accuracy: finalAcc,
+                queued: false,
+                serverCaptureId: "",
+                uploadedAt: "",
+                serverStatus: "",
+                blob: normalized.blob
+            };
 
-        await putCapture(record);
+            await putCapture(record);
             storedCount += 1;
         } catch (error) {
             console.error("Failed to normalize selected file", error);
@@ -448,7 +824,6 @@ async function handleCaptureSelection(files) {
     }
 
     await refreshCaptureVault();
-    const statusNode = document.getElementById("capture-status");
     if (storedCount === 0) {
         throw new Error("Nepodařilo se uložit žádný snímek. HEIC/HEIF zkuste na iPhonu přepnout na Most Compatible.");
     }
@@ -577,6 +952,9 @@ async function initCapturePage() {
     const statusNode = document.getElementById("capture-status");
     const gridNode = document.getElementById("capture-grid");
     const footerLink = document.getElementById("capture-footer-link");
+    const openCameraButton = document.getElementById("capture-open-camera");
+    const refreshGpsButton = document.getElementById("capture-refresh-gps");
+    const cameraInput = document.getElementById("capture-camera-input");
     const directCameraRequested = new URLSearchParams(window.location.search).get("source") === "camera";
     if (!indexedDbAvailable()) {
         setStatusMessage(statusNode, "Tento prohlížeč neumí IndexedDB. Zkuste moderní mobilní prohlížeč.", "error");
@@ -594,13 +972,52 @@ async function initCapturePage() {
         footerLink.textContent = "Přejít k nahraným fotkám";
     }
 
+    syncCaptureGpsUi();
+    startCaptureGpsWatch();
+
+    if (openCameraButton && cameraInput) {
+        openCameraButton.addEventListener("click", () => {
+            if (!captureGpsState.ready) {
+                syncCaptureGpsUi();
+                return;
+            }
+            cameraInput.click();
+        });
+
+        cameraInput.addEventListener("change", async (event) => {
+            const input = event.currentTarget;
+            const selectedFiles = Array.from(input?.files || []);
+            if (!selectedFiles.length) {
+                return;
+            }
+
+            try {
+                await handleCaptureSelection(selectedFiles);
+            } catch (error) {
+                console.error("Failed to process direct camera selection", error);
+                setStatusMessage(statusNode, error.message || "Fotky se nepodařilo zpracovat.", "error");
+            } finally {
+                if (input) {
+                    input.value = "";
+                }
+            }
+        });
+    }
+
+    if (refreshGpsButton) {
+        refreshGpsButton.addEventListener("click", () => {
+            setStatusMessage(statusNode, "Spouštím novou kontrolu GPS...");
+            restartCaptureGpsWatch();
+        });
+    }
+
     await refreshCaptureVault();
 
     if (typeof consumePendingCameraFiles === "function") {
         try {
             const pendingFiles = await consumePendingCameraFiles();
             if (pendingFiles.length) {
-                await handleCaptureSelection(pendingFiles);
+                enqueueCaptureFilesForGpsGate(pendingFiles);
             }
             if (pendingFiles.length || directCameraRequested) {
                 window.history.replaceState({}, "", "/capture.html");
@@ -609,6 +1026,8 @@ async function initCapturePage() {
             console.error("Failed to process pending camera files", error);
             setStatusMessage(statusNode, "Fotky z rychlé kamery se nepodařilo načíst.", "error");
         }
+    } else if (directCameraRequested) {
+        window.history.replaceState({}, "", "/capture.html");
     }
 
     if (gridNode) {

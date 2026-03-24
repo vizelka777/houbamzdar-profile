@@ -1,8 +1,84 @@
 const API_URL = "https://api.houbamzdar.cz";
-const DEFAULT_AVATAR_URL = "/default-avatar.png";
+const AHOJ420_URL = "https://ahoj420.eu";
+const FRONT_URL = "https://houbamzdar.cz";
+const DEFAULT_AVATAR_URL = "https://houbamzdar.cz/default-avatar.png";
 const PROFILE_LAST_VISIT_KEY = "hzd_last_profile_visit_at";
 const PHOTO_INTAKE_DB_NAME = "hzd-photo-intake";
 const PHOTO_INTAKE_STORE_NAME = "pending-files";
+let emailVerificationResendUntil = 0;
+let emailVerificationResendTimer = null;
+
+function buildAbsoluteFrontURL(path) {
+    return new URL(path || "/", FRONT_URL).toString();
+}
+
+function buildAbsoluteAPIURL(path) {
+    return new URL(path || "/", API_URL).toString();
+}
+
+function buildAhoj420FlowURL(path, {
+    includeAuthReturn = true,
+    authReturnPath = "/auth/login",
+    profileReturnPath = "/",
+    afterSavePath = ""
+} = {}) {
+    const url = new URL(path, `${AHOJ420_URL}/`);
+    url.searchParams.set("client_host", new URL(API_URL).host);
+    url.searchParams.set("return_client_host", new URL(FRONT_URL).host);
+    if (includeAuthReturn && authReturnPath) {
+        url.searchParams.set("return_to", buildAbsoluteAPIURL(authReturnPath));
+    }
+    if (profileReturnPath) {
+        url.searchParams.set("return_profile_to", buildAbsoluteFrontURL(profileReturnPath));
+    }
+    if (afterSavePath) {
+        url.searchParams.set("return_after_save_to", buildAbsoluteFrontURL(afterSavePath));
+    }
+    return url.toString();
+}
+
+function buildAhoj420RegisterURL() {
+    return buildAhoj420FlowURL("/register", {
+        profileReturnPath: "/",
+        afterSavePath: "/reauth.html"
+    });
+}
+
+function buildAhoj420QRLoginURL() {
+    return buildAhoj420FlowURL("/login-qr", {
+        profileReturnPath: "/"
+    });
+}
+
+function buildAhoj420RecoveryURL() {
+    return buildAhoj420FlowURL("/recover", {
+        profileReturnPath: "/"
+    });
+}
+
+function buildAhoj420AddDeviceQRURL() {
+    return buildAhoj420FlowURL("/add-device-qr", {
+        includeAuthReturn: false,
+        profileReturnPath: "/me.html",
+        afterSavePath: "/me.html"
+    });
+}
+
+function buildAhoj420EmailVerifyRequestURL() {
+    return buildAhoj420FlowURL("/verify-email", {
+        includeAuthReturn: false,
+        profileReturnPath: "/me.html",
+        afterSavePath: "/reauth.html"
+    });
+}
+
+function buildAhoj420ManageProfileURL() {
+    return buildAhoj420FlowURL("/?mode=login&edit_profile=1", {
+        includeAuthReturn: false,
+        profileReturnPath: "/me.html",
+        afterSavePath: "/reauth.html"
+    });
+}
 
 function photoIntakeAvailable() {
     return typeof window !== "undefined" && typeof window.indexedDB !== "undefined";
@@ -430,25 +506,16 @@ async function handleDirectCameraSelection(event) {
 }
 
 function createDirectCameraButton(label, iconSVG, className) {
-    const wrapper = document.createElement("label");
-    wrapper.className = `btn ${className} btn-icon`;
-    wrapper.setAttribute("aria-label", label);
-    wrapper.setAttribute("title", label);
-    wrapper.innerHTML = `
+    const link = document.createElement("a");
+    link.className = `btn ${className} btn-icon`;
+    link.href = "/capture.html?source=camera";
+    link.setAttribute("aria-label", label);
+    link.setAttribute("title", label);
+    link.innerHTML = `
         <span class="btn-icon-glyph" aria-hidden="true">${iconSVG}</span>
         <span class="sr-only">${escapeHtml(label)}</span>
     `;
-
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = "image/*";
-    input.capture = "environment";
-    input.multiple = true;
-    input.className = "sr-only";
-    input.addEventListener("change", handleDirectCameraSelection);
-    wrapper.appendChild(input);
-
-    return wrapper;
+    return link;
 }
 
 function buildHeaderMenuIconMarkup(icon) {
@@ -1407,6 +1474,13 @@ function renderProfilePicture(elementId, picture, altText) {
     node.innerHTML = `<img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(altText)}">`;
 }
 
+function buildAvatarImageHtml(picture, altText, className = "", extraAttributes = "") {
+    const imageUrl = picture || DEFAULT_AVATAR_URL;
+    const classAttr = className ? ` class="${escapeHtml(className)}"` : "";
+    const extraAttrs = extraAttributes ? ` ${extraAttributes}` : "";
+    return `<img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(altText)}"${classAttr}${extraAttrs}>`;
+}
+
 function renderSimpleList(elementId, items, emptyText) {
     const list = document.getElementById(elementId);
     if (!list) return;
@@ -1473,19 +1547,12 @@ function renderHeader(session, profile = null) {
     `;
 
     const avatarUrl = identity?.picture;
-    const profileIcon = avatarUrl
-        ? `<img src="${escapeHtml(avatarUrl)}" alt="Avatar" loading="lazy">`
-        : `
-        <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M20 21a8 8 0 0 0-16 0"></path>
-            <circle cx="12" cy="8" r="4"></circle>
-        </svg>
-    `;
+    const profileIcon = buildAvatarImageHtml(avatarUrl, "Avatar", "", 'loading="lazy"');
 
     if (session && session.logged_in) {
         const menuItems = [
             { href: "/create-post.html", label: "Vytvořit publikaci", icon: "✍️" },
-            { type: "file-input", label: "Vyfotit nový nález", handler: handleDirectCameraSelection, icon: "📷" },
+            { href: "/capture.html?source=camera", label: "Vyfotit nový nález", note: "nejdřív ověření GPS do 100 m", icon: "📷" },
             { href: "/capture.html", label: "Zpracování fotek", note: "lokální snímky, výběr a nahrání na server", icon: "🧺" },
             { href: "/server-storage.html", label: "Nahrané fotky", note: "to, co už je uložené v Bunny", icon: "🗂️" },
             { href: "/feed.html", label: "Zeď úlovků", icon: "📰" },
@@ -1500,9 +1567,7 @@ function renderHeader(session, profile = null) {
             menuItems.push({ href: "/admin.html", label: "Administrace", icon: "⚙️" });
         }
 
-        const menuProfileIcon = avatarUrl
-            ? `<img src="${escapeHtml(avatarUrl)}" alt="Avatar" loading="lazy">`
-            : "👤";
+        const menuProfileIcon = buildAvatarImageHtml(avatarUrl, "Avatar", "", 'loading="lazy"');
 
         menuItems.push({ href: "/me.html", label: "Můj profil", icon: menuProfileIcon });
 
@@ -1542,6 +1607,9 @@ function renderHeader(session, profile = null) {
         { href: "/feed.html", label: "Zeď úlovků", icon: "📰" },
         { href: "/gallery.html", label: "Galerie", icon: "🖼️" },
         { type: "action", label: "Mapa", icon: "🗺️", handler: openHeaderGlobalMap },
+        { href: buildAhoj420AddDeviceQRURL(), label: "Přidání zařízení přes QR", note: "otevře QR stránku pro přidání passkey na tomto zařízení", icon: "📲" },
+        { href: buildAhoj420QRLoginURL(), label: "Přihlášení přes QR", note: "otevře QR stránku a po potvrzení vrátí zpět", icon: "📲" },
+        { href: buildAhoj420RecoveryURL(), label: "Obnovení účtu", note: "spustí obnovení v samostatné stránce a po dokončení vrátí zpět", icon: "🛟" },
     ];
 
     const loginIcon = `
@@ -1562,8 +1630,8 @@ function renderHeader(session, profile = null) {
             <line x1="22" y1="11" x2="16" y2="11"></line>
         </svg>
     `;
-    const registerURL = `https://ahoj420.eu/?mode=register&return_to=${encodeURIComponent(API_URL + '/auth/login')}`;
-    const registerButton = createIconLinkButton(registerURL, "Registrace", registerIcon, "btn-primary");
+
+    const registerButton = createIconLinkButton(buildAhoj420RegisterURL(), "Registrace", registerIcon, "btn-primary");
     registerButton.classList.add("header-control-button");
 
     const cameraButton = createDirectCameraButton("Přidat úlovek", cameraIcon, "btn-secondary");
@@ -1588,19 +1656,17 @@ function updateHomeHero(session) {
     const primaryAction = document.getElementById("hero-primary-action");
     const secondaryAction = document.getElementById("hero-secondary-action");
     const secondaryNote = document.getElementById("hero-secondary-note");
-    const registrationForm = document.getElementById("registration-request-form");
     if (!primaryAction || !secondaryNote) return;
 
     if (session && session.logged_in) {
         primaryAction.href = "/me.html";
         primaryAction.textContent = "Pokračovat do profilu";
         if (secondaryAction) secondaryAction.style.display = "none";
-        if (registrationForm) registrationForm.style.display = "none";
         secondaryNote.textContent = "Jste přihlášeni. Profil, důvěru i další kroky máte připravené hned po ruce.";
         return;
     }
 
-    if (registrationForm) registrationForm.style.display = "flex";
+    primaryAction.href = buildAhoj420RegisterURL();
     primaryAction.textContent = "Vytvořit účet";
     if (secondaryAction) {
         secondaryAction.style.display = "inline-flex";
@@ -1630,49 +1696,6 @@ async function initIndexPage() {
     setAppIdentity(session, profile);
     renderHeader(session, profile);
     updateHomeHero(session);
-
-    // Setup email registration request
-    const regButton = document.getElementById("hero-primary-action");
-    const emailInput = document.getElementById("reg-email-input");
-    const statusMsg = document.getElementById("registration-status-msg");
-    const regForm = document.getElementById("registration-request-form");
-
-    if (regButton && emailInput && statusMsg && (!session || !session.logged_in)) {
-        regButton.addEventListener("click", async (e) => {
-            e.preventDefault();
-            const email = emailInput.value.trim();
-            if (!email || !email.includes("@")) {
-                alert("Zadejte prosím platný e-mail.");
-                return;
-            }
-
-            regButton.disabled = true;
-            regButton.textContent = "Odesílám...";
-
-            try {
-                const returnTo = encodeURIComponent(window.location.origin + "/auth/login");
-                const res = await fetch(`https://ahoj420.eu/auth/register/request?return_to=${returnTo}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ email })
-                });
-
-                if (!res.ok) {
-                    throw new Error(await res.text());
-                }
-
-                const data = await res.json();
-                if (regForm) regForm.style.display = "none";
-                statusMsg.textContent = data.message || "Registrační e-mail byl odeslán. Zkontrolujte prosím svou schránku.";
-                statusMsg.classList.remove("hidden");
-            } catch (err) {
-                console.error("Registration request failed", err);
-                alert("Chyba: " + err.message);
-                regButton.disabled = false;
-                regButton.textContent = "Vytvořit účet";
-            }
-        });
-    }
 }
 
 let activeToastHost = null;
@@ -1755,6 +1778,96 @@ function setStatusMessage(node, text, kind = "") {
     }
 }
 
+function clearEmailVerificationResendTimer() {
+    if (emailVerificationResendTimer) {
+        window.clearInterval(emailVerificationResendTimer);
+        emailVerificationResendTimer = null;
+    }
+}
+
+function renderEmailVerificationResendButton() {
+    const button = document.getElementById("resend-email-verification-btn");
+    if (!button) {
+        clearEmailVerificationResendTimer();
+        return;
+    }
+
+    const remainingSeconds = Math.max(0, Math.ceil((emailVerificationResendUntil - Date.now()) / 1000));
+    if (remainingSeconds <= 0) {
+        button.disabled = false;
+        button.textContent = "Poslat potvrzení znovu";
+        clearEmailVerificationResendTimer();
+        return;
+    }
+
+    button.disabled = true;
+    button.textContent = `Znovu za ${remainingSeconds}s`;
+}
+
+function startEmailVerificationResendCooldown(seconds = 60) {
+    emailVerificationResendUntil = Date.now() + (Math.max(1, Number(seconds) || 60) * 1000);
+    renderEmailVerificationResendButton();
+    clearEmailVerificationResendTimer();
+    emailVerificationResendTimer = window.setInterval(() => {
+        renderEmailVerificationResendButton();
+    }, 1000);
+}
+
+function stopEmailVerificationResendCooldown() {
+    emailVerificationResendUntil = 0;
+    renderEmailVerificationResendButton();
+    clearEmailVerificationResendTimer();
+}
+
+function renderEmailVerificationBanner(me) {
+    const banner = document.getElementById("email-verification-banner");
+    const statusNode = document.getElementById("email-verification-status");
+    const manageLinks = [
+        document.getElementById("account-manage-link"),
+        document.getElementById("email-verification-manage-link")
+    ];
+    const manageURL = buildAhoj420ManageProfileURL();
+
+    manageLinks.forEach((link) => {
+        if (link) {
+            link.href = manageURL;
+        }
+    });
+
+    if (!banner) {
+        stopEmailVerificationResendCooldown();
+        if (statusNode) {
+            setStatusMessage(statusNode, "", "");
+        }
+        return;
+    }
+
+    const needsVerification = Boolean(me && !me.email_verified);
+    banner.hidden = !needsVerification;
+    if (!needsVerification) {
+        stopEmailVerificationResendCooldown();
+        if (statusNode) {
+            setStatusMessage(statusNode, "", "");
+        }
+        return;
+    }
+
+    renderEmailVerificationResendButton();
+}
+
+async function resendEmailVerification() {
+    const button = document.getElementById("resend-email-verification-btn");
+    if (!button) {
+        return;
+    }
+    if (button.disabled) {
+        return;
+    }
+
+    button.disabled = true;
+    window.location.href = buildAhoj420EmailVerifyRequestURL();
+}
+
 function renderViewedCaptures(captures) {
     const container = document.getElementById("viewed-captures-list");
     if (!container) return;
@@ -1833,6 +1946,7 @@ async function initMePage() {
     setText("account-email-chip", me.email_verified ? "E-mail · ověřen" : "E-mail · čeká na ověření");
     setText("account-phone-chip", me.phone_number_verified ? "Telefon · ověřen" : "Telefon · čeká na ověření");
     setText("account-sync-chip", "Synchronizováno přes AHOJ420");
+    renderEmailVerificationBanner(me);
     setupNicknameEditor(me);
 
     const statusPill = document.getElementById("account-status-pill");
@@ -1852,6 +1966,14 @@ async function initMePage() {
     const publicLink = document.getElementById("profile-public-link");
     if (publicLink) {
         publicLink.href = buildPublicProfileURL(me.id);
+    }
+
+    const resendEmailButton = document.getElementById("resend-email-verification-btn");
+    if (resendEmailButton && !resendEmailButton.dataset.bound) {
+        resendEmailButton.dataset.bound = "1";
+        resendEmailButton.addEventListener("click", () => {
+            void resendEmailVerification();
+        });
     }
 
     const selfDeleteButton = document.getElementById("self-delete-btn");

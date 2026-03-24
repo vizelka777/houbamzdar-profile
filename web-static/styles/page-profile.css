@@ -43,6 +43,34 @@
     gap: 0.65rem;
 }
 
+.email-verification-banner {
+    display: grid;
+    gap: 1rem;
+    padding: 1rem 1.2rem;
+    border: 1px solid rgba(200, 116, 47, 0.22);
+    background: linear-gradient(135deg, rgba(238, 177, 109, 0.22), rgba(255, 255, 255, 0.72));
+}
+
+.email-verification-banner[hidden] {
+    display: none !important;
+}
+
+.email-verification-copy {
+    display: grid;
+    gap: 0.45rem;
+}
+
+.email-verification-copy h2 {
+    margin: 0;
+    color: var(--forest-950);
+}
+
+.email-verification-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.7rem;
+}
+
 .profile-houbicka-balance {
     display: grid;
     place-items: center;

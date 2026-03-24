@@ -836,7 +836,7 @@ function renderGallery(container) {
     }
 
     container.innerHTML = state.captures.map((capture, idx) => {
-        const avatarUrl = capture.author_avatar || "/default-avatar.png";
+        const avatarUrl = capture.author_avatar || DEFAULT_AVATAR_URL;
         const authorName = capture.author_name || "Neznámý houbař";
         const accessBadge = buildCaptureAccessBadgeHtml(capture);
         const authorURL = buildPublicProfileURL(capture.author_user_id);

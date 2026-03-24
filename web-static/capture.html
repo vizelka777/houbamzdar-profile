@@ -26,7 +26,20 @@
         <div style="text-align: center; margin-bottom: 1rem;">
             <p class="muted-copy" style="font-size: 0.9rem; margin-bottom: 0.25rem;">Uloženo v telefonu: <strong id="capture-total">0</strong></p>
             <p id="capture-status" class="status-message" aria-live="polite" style="margin-top: 0; min-height: 1.5rem;"></p>
+            <div id="capture-gps-status" class="capture-gps-status" aria-live="polite" hidden></div>
+            <div class="capture-gps-actions">
+                <button id="capture-refresh-gps" type="button" class="btn btn-secondary">Zkusit GPS znovu</button>
+            </div>
         </div>
+
+        <section class="capture-launcher" aria-labelledby="capture-launch-title">
+            <button id="capture-open-camera" type="button" class="capture-open-camera-button" disabled aria-describedby="capture-open-camera-state">
+                <span class="capture-open-camera-glyph" aria-hidden="true">📷</span>
+                <span id="capture-launch-title" class="capture-open-camera-label">Otevřít kameru</span>
+                <span id="capture-open-camera-state" class="capture-open-camera-state">Čekám na GPS do 100 m</span>
+            </button>
+            <input id="capture-camera-input" type="file" accept="image/*" capture="environment" multiple class="sr-only">
+        </section>
 
         <div id="capture-grid" class="capture-grid"></div>
 

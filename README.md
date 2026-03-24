@@ -90,3 +90,18 @@ Claims синхронизируются при логине, кроме поля
 - `docs/bunny-deploy.md` — рабочая памятка по деплою на Bunny и проверкам после выката.
 - `docs/likes.md` — рабочая документация по лайкам публикаций.
 - `docs/maps.md` — рабочая документация по картам и GPS.
+
+## Возврат legacy-регистрации
+
+Сейчас верхняя кнопка `Registrace` во frontend ведёт на `https://ahoj420.eu/register`, где пользователь zadá e-mail a pak pokračuje passkey flow na straně `AHOJ420`.
+
+Если понадобится вернуть старую прямую регистрацию через OIDC-hosted страницу `ahoj420.eu/?mode=register`, восстановите в [web-static/app.js](/home/houbamydar/houbamzdar-mvp/web-static/app.js) guest-header кнопку-ссылку вида:
+
+```js
+const registerURL = `https://ahoj420.eu/?mode=register&return_to=${encodeURIComponent(API_URL + "/auth/login")}&client_host=${encodeURIComponent(new URL(API_URL).host)}`;
+const registerButton = createIconLinkButton(registerURL, "Registrace", registerIcon, "btn-primary");
+registerButton.classList.add("header-control-button");
+authButtons.appendChild(registerButton);
+```
+
+Текущий registration flow на стороне `houbamzdar` собирается helper-ом `buildAhoj420RegisterURL()` в `web-static/app.js`.
