@@ -197,6 +197,15 @@ func TestCaptureCoordinateUnlockFlow(t *testing.T) {
 	if captureByID[freeCapture.ID].CoordinatesLocked {
 		t.Fatalf("expected free capture to stay unlocked for guest")
 	}
+	if captureByID[freeCapture.ID].Latitude == nil || captureByID[freeCapture.ID].Longitude == nil {
+		t.Fatalf("expected guest free capture to include mock coordinates")
+	}
+	if !captureByID[freeCapture.ID].CoordinatesMocked {
+		t.Fatalf("expected guest free capture to be marked with mocked coordinates")
+	}
+	if *captureByID[freeCapture.ID].Latitude == *freeCapture.Latitude || *captureByID[freeCapture.ID].Longitude == *freeCapture.Longitude {
+		t.Fatalf("expected guest free capture coordinates to differ from the real coordinates")
+	}
 
 	guestMapReq := httptest.NewRequest(http.MethodGet, "/api/public/map-captures?limit=10&offset=0", nil)
 	guestMapRec := httptest.NewRecorder()
@@ -216,7 +225,10 @@ func TestCaptureCoordinateUnlockFlow(t *testing.T) {
 		t.Fatalf("expected only free capture on guest map, got %+v", guestMapPayload.Captures)
 	}
 	if guestMapPayload.Captures[0].Latitude == nil || guestMapPayload.Captures[0].Longitude == nil || guestMapPayload.Captures[0].CoordinatesLocked {
-		t.Fatalf("expected free guest map capture to expose coordinates, got %+v", guestMapPayload.Captures[0])
+		t.Fatalf("expected free guest map capture to expose mock coordinates, got %+v", guestMapPayload.Captures[0])
+	}
+	if !guestMapPayload.Captures[0].CoordinatesMocked {
+		t.Fatalf("expected free guest map capture to be marked as mocked, got %+v", guestMapPayload.Captures[0])
 	}
 
 	guestPagedReq := httptest.NewRequest(http.MethodGet, "/api/public/captures?page=2&page_size=1", nil)
@@ -320,6 +332,9 @@ func TestCaptureCoordinateUnlockFlow(t *testing.T) {
 	if captureByID[paidCapture.ID].Latitude == nil || captureByID[paidCapture.ID].Longitude == nil {
 		t.Fatalf("expected unlocked coordinates in authenticated public list")
 	}
+	if captureByID[freeCapture.ID] == nil || captureByID[freeCapture.ID].CoordinatesMocked {
+		t.Fatalf("expected authenticated public list to keep real free coordinates")
+	}
 
 	authMapReq := httptest.NewRequest(http.MethodGet, "/api/public/map-captures?limit=10&offset=0", nil)
 	authMapReq.AddCookie(&http.Cookie{Name: cfg.SessionCookieName, Value: sessionID})
@@ -341,6 +356,9 @@ func TestCaptureCoordinateUnlockFlow(t *testing.T) {
 	}
 	if authMapPayload.Captures[0].Latitude == nil || authMapPayload.Captures[0].Longitude == nil || authMapPayload.Captures[0].CoordinatesLocked {
 		t.Fatalf("expected free capture to stay visible on authenticated public map, got %+v", authMapPayload.Captures[0])
+	}
+	if authMapPayload.Captures[0].CoordinatesMocked {
+		t.Fatalf("expected authenticated public map to keep real free coordinates, got %+v", authMapPayload.Captures[0])
 	}
 
 	viewedReq := httptest.NewRequest(http.MethodGet, "/api/me/viewed-captures?limit=10&offset=0", nil)
@@ -547,6 +565,15 @@ func TestProfileMapEndpointsUseDedicatedWholeMapPayloads(t *testing.T) {
 	if len(guestPublicMapPayload.Captures) != 1 || guestPublicMapPayload.Captures[0].ID != freePublicCapture.ID {
 		t.Fatalf("expected only free published capture on guest public map, got %+v", guestPublicMapPayload.Captures)
 	}
+	if guestPublicMapPayload.Captures[0].Latitude == nil || guestPublicMapPayload.Captures[0].Longitude == nil || guestPublicMapPayload.Captures[0].CoordinatesLocked {
+		t.Fatalf("expected guest public profile map capture to include mock coordinates, got %+v", guestPublicMapPayload.Captures[0])
+	}
+	if !guestPublicMapPayload.Captures[0].CoordinatesMocked {
+		t.Fatalf("expected guest public profile map capture to be marked as mocked, got %+v", guestPublicMapPayload.Captures[0])
+	}
+	if *guestPublicMapPayload.Captures[0].Latitude == *freePublicCapture.Latitude || *guestPublicMapPayload.Captures[0].Longitude == *freePublicCapture.Longitude {
+		t.Fatalf("expected guest public profile map capture to differ from the real coordinates")
+	}
 
 	viewerPublicMapReq := httptest.NewRequest(http.MethodGet, "/api/public/users/"+strconv.FormatInt(author.ID, 10)+"/map-captures", nil)
 	viewerPublicMapReq.AddCookie(&http.Cookie{Name: cfg.SessionCookieName, Value: viewerSession})
@@ -568,6 +595,9 @@ func TestProfileMapEndpointsUseDedicatedWholeMapPayloads(t *testing.T) {
 	}
 	if viewerPublicMapPayload.Captures[0].Latitude == nil || viewerPublicMapPayload.Captures[0].Longitude == nil {
 		t.Fatalf("expected free public profile map capture to include coordinates, got %+v", viewerPublicMapPayload.Captures[0])
+	}
+	if viewerPublicMapPayload.Captures[0].CoordinatesMocked {
+		t.Fatalf("expected authenticated public profile map capture to keep real coordinates, got %+v", viewerPublicMapPayload.Captures[0])
 	}
 }
 

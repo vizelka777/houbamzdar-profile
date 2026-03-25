@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>O Houbam Zdár | Houbam Zdar</title>
+    <meta name="description" content="Co je Houbam Zdár, pro koho je web určený a jak funguje přihlášení přes AHOJ420.">
+    <link rel="icon" href="/favicon.ico" sizes="any">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+    <link rel="stylesheet" href="styles/base.css">
+    <link rel="stylesheet" href="styles/page-home.css">
+</head>
+<body data-page="home" class="page-shell page-home">
+    <header class="site-header">
+        <a href="/info.html" class="brand-link" aria-label="Houbam Zdar">
+            <img src="/logo.png" alt="Logo Houbam Zdar" class="brand-mark">
+            <div class="brand-copy">
+                <span class="brand-eyebrow">O projektu</span>
+                <strong>Houbam Zdár</strong>
+            </div>
+        </a>
+        <div id="auth-buttons" class="header-actions"></div>
+    </header>
+
+    <main class="content-main">
+        <section class="hero-card">
+            <div class="hero-copy">
+                <p class="hero-kicker">O Houbam Zdár</p>
+                <h1>Houbam Zdár</h1>
+                <p class="hero-lead">
+                    Udržujte svůj profil po ruce, vracejte se ke komunitě během pár klepnutí
+                    a mějte své houbařské zázemí přehledně v mobilu.
+                </p>
+                <div class="hero-actions" id="hero-actions-container">
+                    <a id="hero-primary-action" href="https://ahoj420.eu/register?client_host=api.houbamzdar.cz&amp;return_client_host=houbamzdar.cz&amp;return_to=https%3A%2F%2Fapi.houbamzdar.cz%2Fauth%2Flogin&amp;return_profile_to=https%3A%2F%2Fhoubamzdar.cz%2Finfo.html&amp;return_after_save_to=https%3A%2F%2Fhoubamzdar.cz%2Freauth.html" class="btn btn-primary">
+                        Vytvořit účet
+                    </a>
+                    <a id="hero-secondary-action" href="https://api.houbamzdar.cz/auth/login" class="btn btn-secondary">
+                        Přihlásit se
+                    </a>
+                </div>
+                <p id="hero-secondary-note" class="hero-note">
+                    Přihlášení a správa identity běží bezpečně přes AHOJ420.
+                </p>
+            </div>
+
+            <aside class="hero-panel" aria-label="Přehled výhod">
+                <img src="/logo.png" alt="Znak Houbam Zdar" class="hero-logo">
+                <ul class="hero-list">
+                    <li>Rychlé přihlášení v telefonu</li>
+                    <li>Profil, který máte stále po ruce</li>
+                    <li>Připravené pro návrat po výpravě do lesa</li>
+                </ul>
+            </aside>
+        </section>
+
+        <section id="co-umi" class="feature-grid" aria-label="Hlavní výhody">
+            <article class="feature-card">
+                <span class="feature-tag">Mobilní první</span>
+                <h2>Navrženo pro malou obrazovku</h2>
+                <p>
+                    Velké dotykové plochy, krátké cesty a čitelný obsah. Web má být pohodlný
+                    v lese, v autě i doma na gauči.
+                </p>
+            </article>
+
+            <article class="feature-card">
+                <span class="feature-tag">Bez zmatku</span>
+                <h2>Jednoduchý profil</h2>
+                <p>
+                    Základní údaje najdete rychle na jednom místě a kdykoli je můžete bezpečně
+                    upravit přes AHOJ420.
+                </p>
+            </article>
+
+            <article class="feature-card">
+                <span class="feature-tag">Připraveno na návrat</span>
+                <h2>Rychlé pokračování</h2>
+                <p>
+                    Když už jste přihlášeni, pokračujete rovnou do svého profilu. Bez zbytečných
+                    kroků a bez ztráty orientace.
+                </p>
+            </article>
+        </section>
+
+        <section class="cta-card">
+            <div>
+                <p class="section-label">Začněte s Houbam Zdar</p>
+                <h2>Chcete se přidat?</h2>
+                <p>
+                    Vytvořte si profil nebo se vraťte tam, kde jste skončili. Houbam Zdar drží
+                    veřejnou stránku jednoduchou, rychlou a čitelnou.
+                </p>
+            </div>
+            <a href="https://api.houbamzdar.cz/auth/login" class="btn btn-primary">Otevřít přihlášení</a>
+        </section>
+    </main>
+
+    <script src="app.js" defer></script>
+</body>
+</html>

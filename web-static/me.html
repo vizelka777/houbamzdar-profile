@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Můj profil | Houbam Zdar</title>
-    <meta name="description" content="Profil uživatele Houbam Zdar.">
+    <meta name="description" content="Profil houbaře na Houbam Zdar.">
     <link rel="icon" href="/favicon.ico" sizes="any">
     <link rel="apple-touch-icon" href="/apple-touch-icon.png">
     <link rel="stylesheet" href="styles/base.css">
@@ -15,7 +15,7 @@
 </head>
 <body data-page="me" class="page-shell page-profile">
     <header class="site-header">
-        <a href="/" class="brand-link" aria-label="Houbam Zdar">
+        <a href="/info.html" class="brand-link" aria-label="Houbam Zdar">
             <img src="/logo.png" alt="Logo Houbam Zdar" class="brand-mark">
             <div class="brand-copy">
                 <span class="brand-eyebrow">Váš účet</span>
@@ -28,14 +28,14 @@
     <main class="content-main content-main-narrow">
         <div class="profile-shortcuts-row">
             <a href="/server-storage.html" class="btn btn-secondary">Nahrané fotky</a>
-            <a href="#profile-activity-card" class="btn btn-secondary">Moje mapa</a>
-            <a href="/following.html" class="btn btn-secondary">Sledovaní uživatelé</a>
+            <a href="/my-map.html" class="btn btn-secondary">Moje mapa</a>
+            <a href="/following.html" class="btn btn-secondary">Sledovaní houbaři</a>
         </div>
 
         <section class="account-card card">
             <div class="account-overview">
                 <div class="account-avatar-stack">
-                    <strong id="houbicka-balance" class="houbicka-balance profile-houbicka-balance">0 houbiček</strong>
+                    <strong id="houbicka-balance" class="profile-houbicka-balance">0 houbiček</strong>
                     <div id="profile-picture" class="profile-picture profile-picture-compact"></div>
                     <a id="profile-public-link" href="/public-profile.html" class="btn btn-secondary profile-avatar-link">Veřejný profil</a>
                 </div>
@@ -68,7 +68,7 @@
                 <h2>Účet je do potvrzení e-mailu omezený</h2>
                 <p class="muted-copy">
                     Dokud e-mail nepotvrdíte v AHOJ420, zůstává omezené nahrávání fotek, publikování příspěvků,
-                    komentáře a sledování dalších uživatelů.
+                    komentáře a sledování dalších houbařů.
                 </p>
             </div>
             <div class="email-verification-actions">
@@ -141,14 +141,6 @@
                     </p>
                 </div>
                 <ul id="houbicka-rules" class="dashboard-list"></ul>
-            </article>
-
-            <article id="profile-activity-card" class="dashboard-card card profile-activity-card" style="grid-column: 1 / -1;">
-                <p class="section-label">Moje mapa</p>
-                <div class="profile-activity-launch-grid">
-                    <button id="profile-activity-own-btn" type="button" class="btn btn-secondary profile-activity-launch-btn">Kde jsem hledal(a) · 0</button>
-                    <button id="profile-activity-viewed-btn" type="button" class="btn btn-secondary profile-activity-launch-btn">Prohlédnuté za houbičky · 0</button>
-                </div>
             </article>
         </section>
 

@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Houbaři | Houbam Zdar</title>
+    <meta name="description" content="Katalog houbařů aplikace Houbam Zdar.">
+    <link rel="icon" href="/favicon.ico" sizes="any">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+    <link rel="stylesheet" href="styles/base.css">
+    <link rel="stylesheet" href="styles/page-explore.css">
+    <link rel="stylesheet" href="styles/page-profile.css">
+    <style>
+        .users-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr));
+            gap: 1rem;
+        }
+
+        .user-card {
+            padding: 1rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.75rem;
+            text-align: center;
+            text-decoration: none;
+            color: var(--forest-950);
+        }
+
+        .user-card:hover, .user-card:focus-visible {
+            background: rgba(19, 38, 29, 0.04);
+            border-radius: 1.2rem;
+        }
+
+        .user-card-avatar {
+            width: 5.5rem;
+            height: 5.5rem;
+            border-radius: 1.6rem;
+            object-fit: cover;
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(223, 214, 196, 0.9));
+            border: 1px solid rgba(19, 38, 29, 0.08);
+            box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.5);
+        }
+
+        .user-card-name {
+            font-size: 1rem;
+            font-weight: 700;
+            margin: 0;
+            word-break: break-word;
+        }
+
+        .user-card-stats {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 0.4rem;
+            font-size: 0.82rem;
+            color: var(--muted);
+        }
+        
+        .user-card-stats span {
+            background: rgba(255, 255, 255, 0.5);
+            padding: 0.2rem 0.5rem;
+            border-radius: 999px;
+            border: 1px solid rgba(19, 38, 29, 0.08);
+        }
+
+        .users-page-stack {
+            display: grid;
+            gap: 1.5rem;
+        }
+    </style>
+</head>
+<body data-page="users" class="page-shell page-profile">
+    <header class="site-header">
+        <a href="/info.html" class="brand-link" aria-label="Houbam Zdar">
+            <img src="/logo.png" alt="Logo Houbam Zdar" class="brand-mark">
+            <div class="brand-copy">
+                <span class="brand-eyebrow">Komunita</span>
+                <strong>Houbam Zdar</strong>
+            </div>
+        </a>
+        <div id="auth-buttons" class="header-actions"></div>
+    </header>
+
+    <main class="content-main content-main-narrow">
+        <div class="users-page-stack">
+            <section class="page-intro card public-profile-intro">
+                <p class="section-label">Komunita</p>
+                <h1 class="page-title">Houbaři</h1>
+                <p id="users-summary" class="muted-copy">Načítám houbaře...</p>
+            </section>
+
+            <details class="accordion card">
+                <summary class="accordion-summary">
+                    <p class="accordion-title">Vyhledávání a řazení</p>
+                </summary>
+                <div class="accordion-body">
+                    <form id="users-filter-form" class="public-capture-filter-form" style="margin-top: 0;">
+                        <div class="public-capture-filter-grid">
+                            <label class="public-capture-filter-field">
+                                <span>Hledat podle jména</span>
+                                <input id="users-filter-query" type="search" placeholder="Zadejte jméno houbaře">
+                            </label>
+                            <label class="public-capture-filter-field">
+                                <span>Seřadit podle</span>
+                                <div class="select-wrapper">
+                                    <select id="users-filter-sort">
+                                        <option value="popularity">Nejoblíbenější (sledující)</option>
+                                        <option value="posts">Nejvíce publikací</option>
+                                        <option value="captures">Nejvíce fotografií</option>
+                                        <option value="comments">Nejvíce komentářů</option>
+                                    </select>
+                                </div>
+                            </label>
+                        </div>
+                        <div class="action-row" style="margin-top: 1rem;">
+                            <button type="submit" class="btn btn-primary">Hledat</button>
+                            <button id="users-filter-reset" type="button" class="btn btn-secondary">Vymazat</button>
+                        </div>
+                    </form>
+                </div>
+            </details>
+
+            <section class="card">
+                <div id="users-list" class="users-list"></div>
+                <div id="users-load-more" class="load-more-row" hidden>
+                    <button id="users-load-more-btn" type="button" class="btn btn-secondary">Načíst další houbaře</button>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <script src="app.js" defer></script>
+    <script src="users.js" defer></script>
+</body>
+</html>

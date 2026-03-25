@@ -52,6 +52,7 @@ type Capture struct {
 	AccuracyMeters                 *float64                  `json:"accuracy_meters,omitempty"`
 	CoordinatesFree                bool                      `json:"coordinates_free"`
 	CoordinatesLocked              bool                      `json:"coordinates_locked"`
+	CoordinatesMocked              bool                      `json:"coordinates_mocked,omitempty"`
 	Status                         string                    `json:"status"`
 	PublicationReviewStatus        string                    `json:"publication_review_status,omitempty"`
 	PublicationReviewReasonCode    string                    `json:"publication_review_reason_code,omitempty"`
@@ -255,6 +256,7 @@ type PublicUserProfile struct {
 	PhoneVerified       bool      `json:"phone_verified"`
 	PublicPostsCount    int       `json:"public_posts_count"`
 	PublicCapturesCount int       `json:"public_captures_count"`
+	PublicCommentsCount int       `json:"public_comments_count"`
 	FollowersCount      int       `json:"followers_count"`
 	FollowingCount      int       `json:"following_count"`
 	IsFollowedByMe      bool      `json:"is_followed_by_me"`

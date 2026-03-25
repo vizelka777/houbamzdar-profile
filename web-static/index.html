@@ -3,99 +3,247 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Houbam Zdár</title>
-    <meta name="description" content="Houbam Zdár je mobilní místo pro houbaře, výpravy do lesa a rychlé přihlášení přes AHOJ420.">
+    <title>Novinky | Houbam Zdar</title>
+    <meta name="description" content="Co se děje nového v aplikaci Houbam Zdar.">
     <link rel="icon" href="/favicon.ico" sizes="any">
     <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+    <link rel="canonical" href="https://houbamzdar.cz/">
     <link rel="stylesheet" href="styles/base.css">
-    <link rel="stylesheet" href="styles/page-home.css">
+    <link rel="stylesheet" href="styles/page-explore.css">
+    <link rel="stylesheet" href="styles/page-feed.css">
+    <link rel="stylesheet" href="styles/page-gallery.css">
+    <link rel="stylesheet" href="styles/page-map.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css">
+    <link rel="stylesheet" href="vendor/leaflet-markercluster/MarkerCluster.css">
+    <style>
+        body[data-page="news"] {
+            overflow-x: clip;
+        }
+
+        .news-section-head {
+            display: grid;
+            gap: 0.35rem;
+            margin-bottom: 1rem;
+        }
+
+        .news-section-card + .news-section-card {
+            margin-top: 2rem;
+        }
+
+        .news-section-card .action-row {
+            margin-top: 1rem;
+        }
+
+        .home-users-row {
+            display: flex;
+            flex-wrap: nowrap;
+            gap: 1rem;
+            overflow-x: auto;
+            padding-bottom: 0.5rem;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        .home-user-link {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.4rem;
+            flex: 0 0 auto;
+            width: 5rem;
+            text-decoration: none;
+            color: var(--forest-950);
+        }
+
+        .home-user-avatar {
+            width: 4rem;
+            height: 4rem;
+            border-radius: 1.2rem;
+            object-fit: cover;
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(223, 214, 196, 0.9));
+            border: 1px solid rgba(19, 38, 29, 0.08);
+            box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.5);
+        }
+
+        .home-user-name {
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-align: center;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            width: 100%;
+        }
+
+        @media (max-width: 700px) {
+            .news-section-head {
+                margin-bottom: 0.75rem;
+            }
+
+            #home-latest-post .feed-card {
+                padding: 0.95rem;
+            }
+
+            #home-latest-post .feed-header {
+                gap: 0.7rem;
+                margin-bottom: 0.8rem;
+                align-items: flex-start;
+            }
+
+            #home-latest-post .feed-avatar {
+                width: 2.6rem;
+                height: 2.6rem;
+            }
+
+            #home-latest-post .feed-author {
+                font-size: 0.94rem;
+            }
+
+            #home-latest-post .feed-date {
+                font-size: 0.78rem;
+            }
+
+            #home-latest-post .feed-gallery {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 0.35rem;
+            }
+
+            #home-latest-post .feed-actions {
+                gap: 0.55rem;
+                padding-top: 0.75rem;
+            }
+
+            #home-latest-photos.gallery-grid {
+                gap: 0.45rem;
+            }
+
+            #home-latest-photos .gallery-item-copy {
+                padding: 0.32rem 0.32rem 0.08rem 0.58rem;
+            }
+
+            #home-latest-photos .gallery-item-author {
+                font-size: 0.66rem;
+                line-height: 1.2;
+            }
+
+            .home-users-row {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(4.6rem, 1fr));
+                gap: 0.85rem 0.55rem;
+                overflow: visible;
+                padding-bottom: 0;
+            }
+
+            .home-user-link {
+                width: auto;
+                min-width: 0;
+            }
+
+            .home-user-avatar {
+                width: 3.35rem;
+                height: 3.35rem;
+            }
+
+            .home-user-name {
+                white-space: normal;
+                overflow: visible;
+                text-overflow: clip;
+                line-height: 1.2;
+                min-height: 1.8em;
+                overflow-wrap: anywhere;
+            }
+
+            body[data-page="news"] .action-row {
+                align-items: stretch;
+            }
+
+            body[data-page="news"] .action-row .btn {
+                width: 100%;
+                justify-content: center;
+            }
+        }
+
+        @media (max-width: 420px) {
+            #home-latest-photos.gallery-grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+        }
+    </style>
 </head>
-<body data-page="home" class="page-shell page-home">
+<body data-page="news" class="page-shell">
     <header class="site-header">
-        <a href="/" class="brand-link" aria-label="Houbam Zdar">
+        <a href="/info.html" class="brand-link" aria-label="Houbam Zdar">
             <img src="/logo.png" alt="Logo Houbam Zdar" class="brand-mark">
             <div class="brand-copy">
-                <span class="brand-eyebrow">Les. Komunita. Profil.</span>
-                <strong>Houbam Zdár</strong>
+                <span class="brand-eyebrow">Co se děje</span>
+                <strong>Novinky</strong>
             </div>
         </a>
         <div id="auth-buttons" class="header-actions"></div>
     </header>
 
-    <main class="content-main">
-        <section class="hero-card">
-            <div class="hero-copy">
-                <p class="hero-kicker">Místo pro každého, kdo vyráží s košíkem do lesa</p>
-                <h1>Houbam Zdár</h1>
-                <p class="hero-lead">
-                    Udržujte svůj profil po ruce, vracejte se ke komunitě během pár klepnutí
-                    a mějte své houbařské zázemí přehledně v mobilu.
-                </p>
-                <div class="hero-actions" id="hero-actions-container">
-                    <a id="hero-primary-action" href="https://ahoj420.eu/register?client_host=api.houbamzdar.cz&amp;return_client_host=houbamzdar.cz&amp;return_to=https%3A%2F%2Fapi.houbamzdar.cz%2Fauth%2Flogin&amp;return_profile_to=https%3A%2F%2Fhoubamzdar.cz%2F&amp;return_after_save_to=https%3A%2F%2Fhoubamzdar.cz%2Freauth.html" class="btn btn-primary">
-                        Vytvořit účet
-                    </a>
-                    <a id="hero-secondary-action" href="https://api.houbamzdar.cz/auth/login" class="btn btn-secondary">
-                        Přihlásit se
-                    </a>
-                </div>
-                <p id="hero-secondary-note" class="hero-note">
-                    Přihlášení a správa identity běží bezpečně přes AHOJ420.
-                </p>
+    <main class="content-main content-main-narrow">
+        <section class="cta-card card section-spaced news-section-card">
+            <div class="news-section-head">
+                <p class="section-label">Co se děje</p>
+                <h2>Nejnovější publikace</h2>
             </div>
-
-            <aside class="hero-panel" aria-label="Přehled výhod">
-                <img src="/logo.png" alt="Znak Houbam Zdar" class="hero-logo">
-                <ul class="hero-list">
-                    <li>Rychlé přihlášení v telefonu</li>
-                    <li>Profil, který máte stále po ruce</li>
-                    <li>Připravené pro návrat po výpravě do lesa</li>
-                </ul>
-            </aside>
+            <div id="home-latest-post" class="feed-list">
+                <p class="muted-copy">Načítám...</p>
+            </div>
+            <div class="action-row">
+                <a href="/feed.html" class="btn btn-secondary">Další publikace</a>
+            </div>
         </section>
 
-        <section id="co-umi" class="feature-grid" aria-label="Hlavní výhody">
-            <article class="feature-card">
-                <span class="feature-tag">Mobilní první</span>
-                <h2>Navrženo pro malou obrazovku</h2>
-                <p>
-                    Velké dotykové plochy, krátké cesty a čitelný obsah. Web má být pohodlný
-                    v lese, v autě i doma na gauči.
-                </p>
-            </article>
-
-            <article class="feature-card">
-                <span class="feature-tag">Bez zmatku</span>
-                <h2>Jednoduchý profil</h2>
-                <p>
-                    Základní údaje najdete rychle na jednom místě a kdykoli je můžete bezpečně
-                    upravit přes AHOJ420.
-                </p>
-            </article>
-
-            <article class="feature-card">
-                <span class="feature-tag">Připraveno na návrat</span>
-                <h2>Rychlé pokračování</h2>
-                <p>
-                    Když už jste přihlášeni, pokračujete rovnou do svého profilu. Bez zbytečných
-                    kroků a bez ztráty orientace.
-                </p>
-            </article>
+        <section class="cta-card card section-spaced news-section-card">
+            <div class="news-section-head">
+                <p class="section-label">Co se děje</p>
+                <h2>Nejnovější fotografie</h2>
+            </div>
+            <div id="home-latest-photos" class="gallery-grid">
+                <p class="muted-copy">Načítám...</p>
+            </div>
+            <div class="action-row">
+                <a href="/gallery.html" class="btn btn-secondary">Další fotky</a>
+            </div>
         </section>
 
-        <section class="cta-card">
-            <div>
-                <p class="section-label">Připraveno pro první krok</p>
-                <h2>Chcete začít?</h2>
-                <p>
-                    Vytvořte si profil nebo se vraťte tam, kde jste skončili. Houbam Zdar drží
-                    veřejnou stránku jednoduchou, rychlou a čitelnou.
-                </p>
+        <section class="cta-card card section-spaced news-section-card">
+            <div class="news-section-head">
+                <p class="section-label">Komunita</p>
+                <h2>Noví houbaři</h2>
             </div>
-            <a href="https://api.houbamzdar.cz/auth/login" class="btn btn-primary">Otevřít přihlášení</a>
+            <div id="home-latest-users">
+                <p class="muted-copy">Načítám...</p>
+            </div>
+            <div class="action-row">
+                <a href="/users.html" class="btn btn-secondary">Další houbaři</a>
+            </div>
         </section>
     </main>
 
+    <div id="news-species-modal" class="capture-species-modal" hidden aria-hidden="true">
+        <div class="capture-species-modal-backdrop" data-close-news-species-modal></div>
+        <div class="capture-species-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="news-species-title">
+            <div class="capture-species-modal-head">
+                <div>
+                    <p class="section-label">Rozpoznané druhy</p>
+                    <h2 id="news-species-title">Houby na fotografii</h2>
+                </div>
+                <button id="news-species-close" type="button" class="capture-species-modal-close" aria-label="Zavřít okno s druhy">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <p id="news-species-meta" class="capture-species-meta"></p>
+            <div id="news-species-body"></div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script src="vendor/leaflet-markercluster/leaflet.markercluster.js"></script>
+    <script src="map-clusters.js"></script>
     <script src="app.js" defer></script>
+    <script src="feed.js" defer></script>
+    <script src="news.js" defer></script>
 </body>
 </html>

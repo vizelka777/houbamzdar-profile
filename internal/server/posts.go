@@ -378,10 +378,14 @@ func (s *Server) handleListPosts(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleListPublicPosts(w http.ResponseWriter, r *http.Request) {
 	limit, offset := parseLimitOffset(r, 10)
+	sort := r.URL.Query().Get("sort")
+	if sort != "comments" {
+		sort = "recent"
+	}
 
 	currentUserID := s.currentUserIDFromOptionalSession(r)
 
-	posts, err := s.DB.ListPublicPosts(limit, offset, currentUserID)
+	posts, err := s.DB.ListPublicPosts(limit, offset, currentUserID, sort)
 	if err != nil {
 		http.Error(w, "failed to list public posts", http.StatusInternalServerError)
 		return

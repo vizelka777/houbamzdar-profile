@@ -11,7 +11,8 @@ const state = {
 const FEED_SORT_VALUES = new Set([
     "latest_desc",
     "likes_desc",
-    "comments_desc"
+    "comments_desc",
+    "latest_comments_desc"
 ]);
 
 function activeSession() {
@@ -59,6 +60,20 @@ function sortFeedPosts(posts, sortValue = state.sort) {
             }
         }
 
+        if (sort === "latest_comments_desc") {
+            const getLatestActivity = (post) => {
+                const postTime = getPostCreatedTime(post);
+                const comments = Array.isArray(post?.comments) ? post.comments : [];
+                if (!comments.length) return postTime;
+                const maxCommentTime = Math.max(...comments.map(c => Date.parse(c.created_at || "") || 0));
+                return Math.max(postTime, maxCommentTime);
+            };
+            const activityDiff = getLatestActivity(right) - getLatestActivity(left);
+            if (activityDiff !== 0) {
+                return activityDiff;
+            }
+        }
+
         return getPostCreatedTime(right) - getPostCreatedTime(left);
     });
 }
@@ -91,7 +106,15 @@ function applyFeedSort(sortValue, options = {}) {
         select.value = state.sort;
     }
 
-    renderFeedState();
+    // Reset pagination and reload from backend so sorting applies globally
+    state.posts = [];
+    state.page = 1;
+    state.hasMore = true;
+    const container = document.getElementById("feed-container");
+    if (container) {
+        container.innerHTML = "";
+    }
+    loadFeed(false);
 
     if (options.closeOnMobile) {
         const panel = document.getElementById("feed-sort-panel");
@@ -221,7 +244,7 @@ function buildCommentsSectionHtml(post, isOpen = false) {
                     required
                 ></textarea>
                 <div class="comment-form-row">
-                    <p class="comment-help">Komentář mohou přidávat jen přihlášení uživatelé.</p>
+                    <p class="comment-help">Komentář mohou přidávat jen přihlášení houbaři.</p>
                     <button type="submit" class="btn btn-secondary comment-submit-btn">Odeslat komentář</button>
                 </div>
                 <p class="status-message comment-status" aria-live="polite"></p>
@@ -229,7 +252,7 @@ function buildCommentsSectionHtml(post, isOpen = false) {
         `
         : `
             <p class="comment-login-note">
-                Komentovat mohou jen přihlášení uživatelé.
+                Komentovat mohou jen přihlášení houbaři.
                 <a href="${API_URL}/auth/login">Přihlásit se</a> nebo
                 <a href="${buildAhoj420RegisterURL()}">Vytvořit účet</a>
             </p>
@@ -756,7 +779,8 @@ async function loadFeed(append = false) {
 
     try {
         const offset = (state.page - 1) * state.pageSize;
-        const res = await apiGet(`/api/public/posts?limit=${state.pageSize}&offset=${offset}`);
+        const apiSort = state.sort === 'latest_comments_desc' ? 'comments' : 'recent';
+        const res = await apiGet(`/api/public/posts?limit=${state.pageSize}&offset=${offset}&sort=${apiSort}`);
 
         if (!res || !res.ok) {
             throw new Error("Nepodařilo se načíst příspěvky.");
@@ -800,6 +824,11 @@ async function initFeedPage() {
     }
     setAppIdentity(state.session, state.me);
     renderHeader(state.session, state.me);
+
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("sort") === "comments") {
+        state.sort = "latest_comments_desc";
+    }
 
     const sortSelect = document.getElementById("feed-sort-select");
     const sortForm = document.getElementById("feed-sort-form");

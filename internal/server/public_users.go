@@ -28,6 +28,36 @@ func parseURLInt64Param(r *http.Request, name string) (int64, error) {
 	return strconv.ParseInt(chi.URLParam(r, name), 10, 64)
 }
 
+func (s *Server) handleListPublicUsers(w http.ResponseWriter, r *http.Request) {
+	limit, offset := parseLimitOffset(r, 48)
+	sortBy := r.URL.Query().Get("sort")
+	if sortBy != "posts" && sortBy != "captures" && sortBy != "comments" {
+		sortBy = "popularity" // default to popularity (followers)
+	}
+	query := r.URL.Query().Get("q")
+	
+	currentUserID := s.currentUserIDFromOptionalSession(r)
+
+	users, err := s.DB.ListPublicUsers(limit, offset, currentUserID, sortBy, query)
+	if err != nil {
+		http.Error(w, "failed to list public users", http.StatusInternalServerError)
+		return
+	}
+
+	if users == nil {
+		users = []*models.PublicUserProfile{}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"ok":       true,
+		"users":    users,
+		"limit":    limit,
+		"offset":   offset,
+		"has_more": len(users) == limit, // Approximate pagination
+	})
+}
+
 func (s *Server) handleGetPublicUserProfile(w http.ResponseWriter, r *http.Request) {
 	userID, err := parseURLInt64Param(r, "userID")
 	if err != nil || userID <= 0 {

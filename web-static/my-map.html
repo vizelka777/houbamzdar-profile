@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Moje mapa | Houbam Zdar</title>
+    <meta name="description" content="Moje mapa houbařských úlovků.">
+    <link rel="icon" href="/favicon.ico" sizes="any">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+    <link rel="stylesheet" href="styles/base.css">
+    <link rel="stylesheet" href="styles/page-explore.css">
+    <link rel="stylesheet" href="styles/page-map.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <link rel="stylesheet" href="vendor/leaflet-markercluster/MarkerCluster.css" />
+</head>
+<body data-page="my-map" class="page-shell">
+    <div class="capture-map-viewer-dialog" style="height: 100dvh; width: 100vw; background: linear-gradient(180deg, rgba(255, 252, 247, 0.98), rgba(245, 239, 229, 0.96));">
+        <header class="site-header" style="background: none; box-shadow: none; padding-bottom: 0;">
+            <a href="/me.html" class="btn btn-secondary btn-icon" aria-label="Zpět na profil" style="border-radius: 999px;">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="19" y1="12" x2="5" y2="12"></line>
+                    <polyline points="12 19 5 12 12 5"></polyline>
+                </svg>
+            </a>
+            <div id="auth-buttons" class="header-actions"></div>
+        </header>
+
+        <div class="capture-map-viewer-head" style="padding: 0 0.9rem;">
+            <div class="profile-activity-launch-grid" style="grid-template-columns: repeat(2, minmax(0, 1fr)); display: grid; gap: 0.75rem;">
+                <button id="profile-activity-own-btn" type="button" class="btn btn-primary profile-activity-launch-btn">Kde jsem hledal(a) · 0</button>
+                <button id="profile-activity-viewed-btn" type="button" class="btn btn-secondary profile-activity-launch-btn">Prohlédnuté za houbičky · 0</button>
+            </div>
+            <p id="capture-map-viewer-note" class="capture-map-viewer-note muted-copy" style="margin-top: 0.5rem;"></p>
+        </div>
+        <div id="my-map-container" class="capture-map-viewer-map" style="margin: 0.5rem 0.9rem 1rem;"></div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script src="vendor/leaflet-markercluster/leaflet.markercluster.js"></script>
+    <script src="map-clusters.js"></script>
+    <script src="app.js" defer></script>
+    <script src="my-map.js" defer></script>
+</body>
+</html>

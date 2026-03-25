@@ -60,6 +60,7 @@ func (s *Server) setupRoutes() {
 	s.Router.Post("/auth/logout", s.handleLogout)
 
 	s.Router.Get("/api/session", s.handleSession)
+	s.Router.Get("/api/public/users", s.handleListPublicUsers)
 	s.Router.Get("/api/public/users/{userID}", s.handleGetPublicUserProfile)
 	s.Router.Get("/api/public/users/{userID}/posts", s.handleListPublicUserPosts)
 	s.Router.Get("/api/public/users/{userID}/captures", s.handleListPublicUserCaptures)

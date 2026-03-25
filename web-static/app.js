@@ -590,6 +590,128 @@ function ensureHeaderMenuAutoClose() {
     });
 }
 
+function createTabbedHeaderMenuButton(label, iconSVG, className, tabs, options = {}) {
+    const { hideLabel = false, lead = null } = options;
+    ensureHeaderMenuAutoClose();
+    const details = document.createElement("details");
+    details.className = "header-menu";
+
+    const summary = document.createElement("summary");
+    summary.className = `btn ${className} btn-icon header-control-button${hideLabel ? "" : " btn-icon-labeled"}`;
+    summary.setAttribute("aria-label", label);
+    summary.innerHTML = `
+        <span class="btn-icon-glyph" aria-hidden="true">${iconSVG}</span>
+        ${hideLabel ? '' : `<span class="btn-icon-label">${escapeHtml(label)}</span>`}
+    `;
+    details.appendChild(summary);
+
+    const panel = document.createElement("div");
+    panel.className = "header-menu-panel";
+
+    if (lead) {
+        const leadNode = document.createElement("div");
+        leadNode.className = "header-menu-lead";
+        leadNode.innerHTML = `
+            ${lead.eyebrow ? `<span class="section-label">${escapeHtml(lead.eyebrow)}</span>` : ""}
+            ${lead.title ? `<strong>${escapeHtml(lead.title)}</strong>` : ""}
+            ${lead.copy ? `<p>${escapeHtml(lead.copy)}</p>` : ""}
+        `;
+        panel.appendChild(leadNode);
+    }
+
+    const tabsContainer = document.createElement("div");
+    tabsContainer.className = "header-menu-tabs";
+
+    const contentContainer = document.createElement("div");
+    contentContainer.className = "header-menu-tabs-contents";
+
+    tabs.forEach((tab, index) => {
+        const tabBtn = document.createElement("button");
+        tabBtn.type = "button";
+        tabBtn.className = `header-menu-tab-btn ${index === 0 ? "is-active" : ""}`;
+        tabBtn.innerHTML = tab.htmlLabel || escapeHtml(tab.label);
+        tabsContainer.appendChild(tabBtn);
+
+        const tabContent = document.createElement("div");
+        tabContent.className = `header-menu-tab-content ${index === 0 ? "is-active" : ""}`;
+
+        tab.items.forEach((item) => {
+            if (item.type === "action" && typeof item.handler === "function") {
+                const button = document.createElement("button");
+                button.type = "button";
+                button.className = `btn ${item.className || "btn-secondary"} header-menu-action`;
+                button.innerHTML = `
+                    ${buildHeaderMenuIconMarkup(item.icon)}
+                    <span>${escapeHtml(item.label || "Akce")}</span>
+                `;
+                button.addEventListener("click", async () => {
+                    details.removeAttribute("open");
+                    await item.handler();
+                });
+                tabContent.appendChild(button);
+                return;
+            }
+
+            if (item.type === "file-input" && typeof item.handler === "function") {
+                const labelNode = document.createElement("label");
+                labelNode.className = "header-menu-item";
+                labelNode.style.cursor = "pointer";
+                labelNode.innerHTML = `
+                    ${buildHeaderMenuIconMarkup(item.icon)}
+                    <span class="header-menu-item-copy">
+                        <span>${escapeHtml(item.label)}</span>
+                        ${item.note ? `<small class="header-menu-note">${escapeHtml(item.note)}</small>` : ""}
+                    </span>
+                `;
+
+                const input = document.createElement("input");
+                input.type = "file";
+                input.accept = "image/*";
+                input.capture = "environment";
+                input.multiple = true;
+                input.className = "sr-only";
+                input.addEventListener("change", (e) => {
+                    details.removeAttribute("open");
+                    item.handler(e);
+                });
+                labelNode.appendChild(input);
+                tabContent.appendChild(labelNode);
+                return;
+            }
+
+            const link = document.createElement("a");
+            link.className = "header-menu-item";
+            link.href = item.href;
+            link.innerHTML = `
+                ${buildHeaderMenuIconMarkup(item.icon)}
+                <span class="header-menu-item-copy">
+                    <span>${escapeHtml(item.label)}</span>
+                    ${item.note ? `<small class="header-menu-note">${escapeHtml(item.note)}</small>` : ""}
+                </span>
+            `;
+            link.addEventListener("click", () => {
+                details.removeAttribute("open");
+            });
+            tabContent.appendChild(link);
+        });
+
+        contentContainer.appendChild(tabContent);
+
+        tabBtn.addEventListener("click", () => {
+            tabsContainer.querySelectorAll(".header-menu-tab-btn").forEach(b => b.classList.remove("is-active"));
+            contentContainer.querySelectorAll(".header-menu-tab-content").forEach(c => c.classList.remove("is-active"));
+            tabBtn.classList.add("is-active");
+            tabContent.classList.add("is-active");
+        });
+    });
+
+    panel.appendChild(tabsContainer);
+    panel.appendChild(contentContainer);
+    details.appendChild(panel);
+
+    return details;
+}
+
 function createHeaderMenuButton(label, iconSVG, className, items, options = {}) {
     const { hideLabel = false, lead = null } = options;
     ensureHeaderMenuAutoClose();
@@ -950,6 +1072,14 @@ function captureHasCoordinates(capture) {
     );
 }
 
+function captureHasMockCoordinates(capture) {
+    return Boolean(capture && capture.coordinates_mocked);
+}
+
+function captureMockCoordinatesNote() {
+    return "Ukázkové souřadnice pro návštěvníky. Skutečné souřadnice se zobrazí až po registraci.";
+}
+
 function buildCaptureMapData(capture) {
     if (!captureHasCoordinates(capture)) return null;
     return {
@@ -1080,7 +1210,11 @@ function formatCaptureCoordinates(capture) {
         return "Souřadnice nejsou k dispozici.";
     }
 
-    return `${Number(capture.latitude).toFixed(5)}, ${Number(capture.longitude).toFixed(5)}`;
+    const formatted = `${Number(capture.latitude).toFixed(5)}, ${Number(capture.longitude).toFixed(5)}`;
+    if (captureHasMockCoordinates(capture)) {
+        return `${formatted} • ${captureMockCoordinatesNote()}`;
+    }
+    return formatted;
 }
 
 function formatCaptureProbability(probability) {
@@ -1157,8 +1291,9 @@ function buildCaptureRegionLabel(capture) {
 
     const parts = [];
     const krajName = String(capture.kraj_name || "").trim();
-    const okresName = capture.coordinates_free ? String(capture.okres_name || "").trim() : "";
-    const obecName = capture.coordinates_free ? String(capture.obec_name || "").trim() : "";
+    const canUseDetailedRegion = Boolean(capture.coordinates_free) && !captureHasMockCoordinates(capture);
+    const okresName = canUseDetailedRegion ? String(capture.okres_name || "").trim() : "";
+    const obecName = canUseDetailedRegion ? String(capture.obec_name || "").trim() : "";
 
     if (obecName) {
         parts.push(obecName);
@@ -1181,6 +1316,10 @@ function buildCaptureKrajLabel(capture) {
 function buildCaptureRegionSearchNote(capture) {
     if (!capture) return "";
 
+    if (captureHasMockCoordinates(capture)) {
+        return "Ukázkové souřadnice pro návštěvníky. Skutečné až po registraci.";
+    }
+
     if (capture.coordinates_free) {
         if (String(capture.obec_name || "").trim()) {
             return "Vyhledatelné až po obec";
@@ -1199,6 +1338,10 @@ function buildCaptureRegionSearchNote(capture) {
 
 function buildCaptureAccessBadgeHtml(capture) {
     if (!capture) return "";
+
+    if (captureHasMockCoordinates(capture)) {
+        return '<span class="capture-access-badge capture-access-badge-guest">Po registraci</span>';
+    }
 
     if (capture.coordinates_free && (captureHasCoordinates(capture) || capture.coordinates_locked)) {
         return '<span class="capture-access-badge capture-access-badge-free">Zdarma</span>';
@@ -1550,26 +1693,38 @@ function renderHeader(session, profile = null) {
     const profileIcon = buildAvatarImageHtml(avatarUrl, "Avatar", "", 'loading="lazy"');
 
     if (session && session.logged_in) {
-        const menuItems = [
-            { href: "/create-post.html", label: "Vytvořit publikaci", icon: "✍️" },
-            { href: "/capture.html?source=camera", label: "Vyfotit nový nález", note: "nejdřív ověření GPS do 100 m", icon: "📷" },
-            { href: "/capture.html", label: "Zpracování fotek", note: "lokální snímky, výběr a nahrání na server", icon: "🧺" },
-            { href: "/server-storage.html", label: "Nahrané fotky", note: "to, co už je uložené v Bunny", icon: "🗂️" },
+        const leftTabItems = [
+            { href: "/", label: "Novinky", icon: "🔥" },
+            { href: "/info.html", label: "O Houbam Zdar", icon: "ℹ️" },
             { href: "/feed.html", label: "Zeď úlovků", icon: "📰" },
             { href: "/gallery.html", label: "Galerie", icon: "🖼️" },
+            { href: "/users.html", label: "Houbaři", icon: "🍄" },
             { type: "action", label: "Mapa", icon: "🗺️", handler: openHeaderGlobalMap },
+            { href: "/create-post.html", label: "Vytvořit publikaci", icon: "✍️" },
+            { href: "/capture.html?source=camera", label: "Vyfotit nový nález", note: "nejdřív ověření GPS do 100 m", icon: "📷" }
+        ];
+
+        const rightTabItems = [
+            { href: "/public-profile.html", label: "Veřejný profil", icon: "🌍" },
+            { href: "/me.html", label: "Můj profil", icon: profileIcon },
+            { href: "/capture.html", label: "Zpracování fotek", note: "lokální snímky, výběr a nahrání na server", icon: "🧺" },
+            { href: "/server-storage.html", label: "Nahrané fotky", note: "to, co už je uložené v Bunny", icon: "🗂️" },
+            { href: "/my-map.html", label: "Moje mapa", icon: "📍" },
+            { href: "/following.html", label: "Sledovaní houbaři", icon: "👥" }
         ];
 
         if (userCanModerateClient(identity)) {
-            menuItems.push({ href: "/moderation.html", label: "Moderace", icon: "🛡️" });
+            rightTabItems.push({ href: "/moderation.html", label: "Moderace", icon: "🛡️" });
         }
         if (userCanAdminClient(identity)) {
-            menuItems.push({ href: "/admin.html", label: "Administrace", icon: "⚙️" });
+            rightTabItems.push({ href: "/admin.html", label: "Administrace", icon: "⚙️" });
         }
+        rightTabItems.push({ type: "action", label: "Odhlásit", className: "btn-danger", handler: logoutFlow, icon: "↪" });
 
-        const menuProfileIcon = buildAvatarImageHtml(avatarUrl, "Avatar", "", 'loading="lazy"');
-
-        menuItems.push({ href: "/me.html", label: "Můj profil", icon: menuProfileIcon });
+        const tabs = [
+            { label: "Hlavní menu", htmlLabel: "Hlavní menu", items: leftTabItems },
+            { label: "Můj profil", htmlLabel: `${profileIcon} Můj profil`, items: rightTabItems }
+        ];
 
         const cameraButton = createDirectCameraButton("Přidat úlovek", cameraIcon, "btn-secondary");
         cameraButton.classList.add("header-control-button");
@@ -1584,10 +1739,7 @@ function renderHeader(session, profile = null) {
         logoutButton.classList.add("header-control-button");
 
         const username = session.user?.preferred_username || identity?.preferred_username || "hoste";
-        const menuButton = createHeaderMenuButton("Menu", menuIcon, "btn-secondary", [
-            ...menuItems,
-            { type: "action", label: "Odhlásit", className: "btn-danger", handler: logoutFlow, icon: "↪" }
-        ], {
+        const menuButton = createTabbedHeaderMenuButton("Menu", menuIcon, "btn-secondary", tabs, {
             hideLabel: true,
             lead: {
                 eyebrow: "Menu",
@@ -1603,13 +1755,26 @@ function renderHeader(session, profile = null) {
         return;
     }
 
-    const menuItems = [
+    const leftTabItems = [
+        { href: "/", label: "Novinky", icon: "🔥" },
+        { href: "/info.html", label: "O Houbam Zdar", icon: "ℹ️" },
         { href: "/feed.html", label: "Zeď úlovků", icon: "📰" },
         { href: "/gallery.html", label: "Galerie", icon: "🖼️" },
-        { type: "action", label: "Mapa", icon: "🗺️", handler: openHeaderGlobalMap },
-        { href: buildAhoj420AddDeviceQRURL(), label: "Přidání zařízení přes QR", note: "otevře QR stránku pro přidání passkey na tomto zařízení", icon: "📲" },
+        { href: "/users.html", label: "Houbaři", icon: "🍄" },
+        { type: "action", label: "Mapa", icon: "🗺️", handler: openHeaderGlobalMap }
+    ];
+
+    const rightTabItems = [
+        { href: `${API_URL}/auth/login`, label: "Přihlášení", icon: "🔑" },
+        { href: buildAhoj420RegisterURL(), label: "Registrace", icon: "📝" },
         { href: buildAhoj420QRLoginURL(), label: "Přihlášení přes QR", note: "otevře QR stránku a po potvrzení vrátí zpět", icon: "📲" },
-        { href: buildAhoj420RecoveryURL(), label: "Obnovení účtu", note: "spustí obnovení v samostatné stránce a po dokončení vrátí zpět", icon: "🛟" },
+        { href: buildAhoj420AddDeviceQRURL(), label: "Přidání zařízení přes QR", note: "otevře QR stránku pro přidání passkey na tomto zařízení", icon: "📲" },
+        { href: buildAhoj420RecoveryURL(), label: "Obnovení účtu", note: "spustí obnovení v samostatné stránce a po dokončení vrátí zpět", icon: "🛟" }
+    ];
+
+    const tabs = [
+        { label: "Hlavní menu", htmlLabel: "Hlavní menu", items: leftTabItems },
+        { label: "Přihlášení / Registrace", htmlLabel: "Přihlášení / Registrace", items: rightTabItems }
     ];
 
     const loginIcon = `
@@ -1637,12 +1802,12 @@ function renderHeader(session, profile = null) {
     const cameraButton = createDirectCameraButton("Přidat úlovek", cameraIcon, "btn-secondary");
     cameraButton.classList.add("header-control-button");
 
-    const menuButton = createHeaderMenuButton("Menu", menuIcon, "btn-secondary", menuItems, {
+    const menuButton = createTabbedHeaderMenuButton("Menu", menuIcon, "btn-secondary", tabs, {
         hideLabel: true,
         lead: {
             eyebrow: "Veřejné menu",
             title: "Houbam Zdar",
-            copy: "Galerie, mapa a zeď úlovků jsou dostupné i bez přihlášení."
+            copy: "Skutečné souřadnice fotografií uvidíte až po registraci."
         }
     });
 
@@ -2522,7 +2687,7 @@ async function togglePublicProfileFollow() {
         setText("public-profile-stats", buildPublicProfileStatsText(profile));
         setStatusMessage(
             nodes.status,
-            profile.is_followed_by_me ? "Uživatele teď sledujete." : "Sledování bylo zrušeno.",
+            profile.is_followed_by_me ? "Houbaře teď sledujete." : "Sledování bylo zrušeno.",
             "success"
         );
     } catch (error) {
@@ -2761,7 +2926,7 @@ function renderPublicProfileGallery() {
     }
 
     const captures = Array.isArray(publicProfileState.galleryCaptures) ? publicProfileState.galleryCaptures : [];
-    const authorName = String(publicProfileState.user?.preferred_username || "uživatele").trim();
+    const authorName = String(publicProfileState.user?.preferred_username || "houbaře").trim();
 
     if (publicProfileState.galleryLoading && captures.length === 0) {
         summary.textContent = "Načítám fotografie...";
@@ -2771,7 +2936,7 @@ function renderPublicProfileGallery() {
     }
 
     if (!captures.length) {
-        summary.textContent = `Uživatel ${authorName} zatím nemá žádné zveřejněné fotografie.`;
+        summary.textContent = `Houbař ${authorName} zatím nemá žádné zveřejněné fotografie.`;
         container.innerHTML = '<p class="muted-copy gallery-grid-status">Zatím tu nejsou žádné zveřejněné fotografie.</p>';
         renderPublicProfileGalleryPagination();
         return;
@@ -2870,7 +3035,7 @@ async function loadPublicProfileGallery(page = publicProfileState.galleryPage) {
         const offset = (publicProfileState.galleryPage - 1) * limit;
         const result = await apiGet(`/api/public/users/${encodeURIComponent(publicProfileState.requestedUserID)}/captures?limit=${limit}&offset=${offset}`);
         if (!result || !result.ok) {
-            throw new Error("Nepodařilo se načíst galerii uživatele.");
+            throw new Error("Nepodařilo se načíst galerii houbaře.");
         }
 
         publicProfileState.galleryCaptures = Array.isArray(result.captures) ? result.captures : [];
@@ -3175,9 +3340,9 @@ function openPublicProfileMapViewer() {
         return false;
     }
 
-    const authorName = publicProfileState.user?.preferred_username || "uživatele";
+    const authorName = publicProfileState.user?.preferred_username || "houbaře";
     return window.HZDMapUI.openViewer(captures, null, {
-        title: `Mapa uživatele ${authorName}`,
+        title: `Mapa houbaře ${authorName}`,
         note: `${captures.length} veřejných bodů na mapě.`,
         onCaptureActivate: (capture) => {
             openPublicProfileMapLightbox(capture.id);
@@ -3315,7 +3480,7 @@ async function initPublicProfilePage() {
     const requestedUserID = resolveRequestedPublicProfileUserID(params, me);
     if (!requestedUserID) {
         setText("public-profile-name", "Profil nenalezen");
-        setText("public-profile-trust", "Odkaz na veřejný profil je neplatný nebo chybí identita uživatele.");
+        setText("public-profile-trust", "Odkaz na veřejný profil je neplatný nebo chybí identita houbaře.");
         return;
     }
 
@@ -3428,7 +3593,7 @@ function renderFollowingPageSummary() {
     }
 
     if (followingPageState.loading && followingPageState.users.length === 0) {
-        summaryNode.textContent = "Načítám seznam uživatelů, které sledujete...";
+        summaryNode.textContent = "Načítám seznam houbařů, které sledujete...";
         return;
     }
 
@@ -3437,7 +3602,7 @@ function renderFollowingPageSummary() {
         return;
     }
 
-    summaryNode.textContent = `Sledujete ${followingPageState.total} uživatelů.`;
+    summaryNode.textContent = `Sledujete ${followingPageState.total} houbařů.`;
 }
 
 function renderFollowingUsers() {
@@ -3450,7 +3615,7 @@ function renderFollowingUsers() {
     renderFollowingPageSummary();
 
     if (followingPageState.loading && followingPageState.users.length === 0) {
-        container.innerHTML = '<div class="viewed-capture-empty">Načítám sledované uživatele...</div>';
+        container.innerHTML = '<div class="viewed-capture-empty">Načítám sledované houbaře...</div>';
         if (loadMoreButton) loadMoreButton.hidden = true;
         return;
     }
@@ -3468,7 +3633,7 @@ function renderFollowingUsers() {
     container.innerHTML = followingPageState.users.map((user) => `
         <article class="following-user-card card" data-following-user-card="${escapeHtml(String(user.id))}">
             <div class="following-user-head">
-                <a class="following-user-avatar" href="${escapeHtml(buildPublicProfileURL(user.id))}" aria-label="Otevřít veřejný profil uživatele ${escapeHtml(user.preferred_username || "uživatel")}">
+                <a class="following-user-avatar" href="${escapeHtml(buildPublicProfileURL(user.id))}" aria-label="Otevřít veřejný profil houbaře ${escapeHtml(user.preferred_username || "houbař")}">
                     <img src="${escapeHtml(user.picture || DEFAULT_AVATAR_URL)}" alt="${escapeHtml(user.preferred_username || "Profilová fotka")}">
                 </a>
                 <div class="following-user-copy">
@@ -3525,7 +3690,7 @@ async function loadFollowingUsers(loadMore = false) {
     try {
         const result = await apiGet(`/api/me/following?limit=${followingPageState.limit}&offset=${nextOffset}`);
         if (!result || !result.ok) {
-            throw new Error("Nepodařilo se načíst sledované uživatele.");
+            throw new Error("Nepodařilo se načíst sledované houbaře.");
         }
 
         const users = Array.isArray(result.users) ? result.users : [];
@@ -3537,9 +3702,9 @@ async function loadFollowingUsers(loadMore = false) {
         console.error("Failed to load following users", error);
         const container = document.getElementById("following-users-list");
         if (container && !followingPageState.users.length) {
-            container.innerHTML = '<div class="viewed-capture-empty">Nepodařilo se načíst sledované uživatele.</div>';
+            container.innerHTML = '<div class="viewed-capture-empty">Nepodařilo se načíst sledované houbaře.</div>';
         }
-        showToast(error.message || "Nepodařilo se načíst sledované uživatele.", { kind: "error" });
+        showToast(error.message || "Nepodařilo se načíst sledované houbaře.", { kind: "error" });
     } finally {
         followingPageState.loading = false;
         renderFollowingUsers();
@@ -3564,7 +3729,7 @@ async function handleFollowingPageUnfollow(userID) {
         followingPageState.users = followingPageState.users.filter((user) => Number(user.id) !== numericUserID);
         followingPageState.total = Math.max(0, followingPageState.total - 1);
         renderFollowingUsers();
-        showToast("Uživatel byl odebrán ze sledování.", { kind: "success" });
+        showToast("Houbař byl odebrán ze sledování.", { kind: "success" });
     } catch (error) {
         console.error("Failed to unfollow user from following page", error);
         showToast(error.message || "Sledování se nepodařilo zrušit.", { kind: "error" });
@@ -3889,9 +4054,18 @@ function resolveCaptureMapViewerNote(entries, options = {}) {
     const [entry] = entries;
     const capture = entry?.capture || null;
     const locationLabel = buildCaptureRegionLabel(capture);
+    const hasMockCoordinates = entries.some((item) => captureHasMockCoordinates(item?.capture));
 
+    if (entries.length > 1 && hasMockCoordinates) {
+        return "Ukázkové body pro návštěvníky. Skutečné souřadnice se zobrazí až po registraci.";
+    }
     if (entries.length > 1) {
         return `${entries.length} bodů na mapě.`;
+    }
+    if (hasMockCoordinates) {
+        return locationLabel
+            ? `${captureMockCoordinatesNote()} Kraj: ${locationLabel}.`
+            : captureMockCoordinatesNote();
     }
     if (capture?.coordinates_free) {
         return locationLabel
@@ -4207,8 +4381,8 @@ function updateLightboxMap() {
             };
             setLightboxMessage(
                 locationLabel
-                    ? `Kraj: ${locationLabel}. Souřadnice si mohou odemykat jen přihlášení uživatelé.`
-                    : "Souřadnice si mohou odemykat jen přihlášení uživatelé."
+                    ? `Kraj: ${locationLabel}. Souřadnice si mohou odemykat jen přihlášení houbaři.`
+                    : "Souřadnice si mohou odemykat jen přihlášení houbaři."
             );
         }
         return;
@@ -4222,9 +4396,16 @@ function updateLightboxMap() {
     }
 
     mapBtn.style.display = "block";
-    mapBtn.textContent = "Zobrazit na mapě";
+    mapBtn.textContent = captureHasMockCoordinates(capture) ? "Zobrazit ukázku na mapě" : "Zobrazit na mapě";
 
-    if (capture.coordinates_free) {
+    if (captureHasMockCoordinates(capture)) {
+        setLightboxMessage(
+            locationLabel
+                ? `Kraj: ${locationLabel}. ${captureMockCoordinatesNote()}`
+                : captureMockCoordinatesNote(),
+            "success"
+        );
+    } else if (capture.coordinates_free) {
         setLightboxMessage(
             locationLabel
                 ? `Lokalita: ${locationLabel}. Souřadnice této fotografie jsou zdarma.`

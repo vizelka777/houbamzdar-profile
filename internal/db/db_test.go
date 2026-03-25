@@ -1043,7 +1043,7 @@ func TestPostsSupportComments(t *testing.T) {
 		t.Fatalf("create second comment: %v", err)
 	}
 
-	publicPosts, err := database.ListPublicPosts(10, 0, 0)
+	publicPosts, err := database.ListPublicPosts(10, 0, 0, "recent")
 	if err != nil {
 		t.Fatalf("list public posts: %v", err)
 	}
@@ -1171,7 +1171,7 @@ func TestPostLikesSupportFeedStateAndDeleteCleanup(t *testing.T) {
 		t.Fatalf("unexpected toggle like result: count=%d isLiked=%v", likesCount, isLiked)
 	}
 
-	likedPosts, err := database.ListPublicPosts(10, 0, liker.ID)
+	likedPosts, err := database.ListPublicPosts(10, 0, liker.ID, "recent")
 	if err != nil {
 		t.Fatalf("list public posts for liker: %v", err)
 	}
@@ -1182,7 +1182,7 @@ func TestPostLikesSupportFeedStateAndDeleteCleanup(t *testing.T) {
 		t.Fatalf("unexpected liker feed state: likes=%d likedByMe=%v", likedPosts[0].LikesCount, likedPosts[0].IsLikedByMe)
 	}
 
-	guestPosts, err := database.ListPublicPosts(10, 0, 0)
+	guestPosts, err := database.ListPublicPosts(10, 0, 0, "recent")
 	if err != nil {
 		t.Fatalf("list public posts for guest: %v", err)
 	}
@@ -1473,10 +1473,16 @@ func TestListPublicCapturesMasksPaidCoordinatesAndLeavesFreeVisible(t *testing.T
 		t.Fatalf("expected free capture to appear in guest list")
 	}
 	if captureByID[freeCapture.ID].CoordinatesLocked {
-		t.Fatalf("expected free capture coordinates to stay visible")
+		t.Fatalf("expected free capture coordinates to stay unlocked for guests")
 	}
 	if captureByID[freeCapture.ID].Latitude == nil || captureByID[freeCapture.ID].Longitude == nil {
-		t.Fatalf("expected free capture coordinates to be visible for guests")
+		t.Fatalf("expected free capture coordinates to be replaced with mock values for guests")
+	}
+	if !captureByID[freeCapture.ID].CoordinatesMocked {
+		t.Fatalf("expected free capture coordinates to be marked as mocked for guests")
+	}
+	if *captureByID[freeCapture.ID].Latitude == *freeCapture.Latitude || *captureByID[freeCapture.ID].Longitude == *freeCapture.Longitude {
+		t.Fatalf("expected guest free capture coordinates to differ from the real coordinates")
 	}
 
 	if _, _, err := database.UnlockCaptureCoordinates(viewer.ID, paidCapture.ID); err != nil {
@@ -1501,6 +1507,9 @@ func TestListPublicCapturesMasksPaidCoordinatesAndLeavesFreeVisible(t *testing.T
 	}
 	if captureByID[paidCapture.ID].Latitude == nil || captureByID[paidCapture.ID].Longitude == nil {
 		t.Fatalf("expected paid capture coordinates after unlock")
+	}
+	if captureByID[freeCapture.ID] == nil || captureByID[freeCapture.ID].CoordinatesMocked {
+		t.Fatalf("expected authenticated viewer to receive real free coordinates")
 	}
 }
 
@@ -1797,6 +1806,9 @@ func TestListPublicCapturesWithFiltersRespectsGeoPrivacyAndSpeciesSearch(t *test
 		if capture.Latitude == nil || capture.Longitude == nil || capture.CoordinatesLocked {
 			t.Fatalf("expected visible coordinates in map captures, got %+v", capture)
 		}
+		if !capture.CoordinatesMocked {
+			t.Fatalf("expected guest map captures to use mocked coordinates, got %+v", capture)
+		}
 	}
 
 	mapSpeciesMatches, err := database.ListPublicMapCapturesWithFilters(PublicCaptureFilters{
@@ -1914,7 +1926,7 @@ func TestModerationHidesPublicContentAndBannedProfiles(t *testing.T) {
 		t.Fatalf("create comment: %v", err)
 	}
 
-	publicPosts, err := database.ListPublicPosts(10, 0, 0)
+	publicPosts, err := database.ListPublicPosts(10, 0, 0, "recent")
 	if err != nil {
 		t.Fatalf("list public posts before moderation: %v", err)
 	}
@@ -1926,7 +1938,7 @@ func TestModerationHidesPublicContentAndBannedProfiles(t *testing.T) {
 		t.Fatalf("hide comment: %v", err)
 	}
 
-	publicPosts, err = database.ListPublicPosts(10, 0, 0)
+	publicPosts, err = database.ListPublicPosts(10, 0, 0, "recent")
 	if err != nil {
 		t.Fatalf("list public posts after comment moderation: %v", err)
 	}
@@ -1959,7 +1971,7 @@ func TestModerationHidesPublicContentAndBannedProfiles(t *testing.T) {
 		t.Fatalf("expected 0 public captures after moderation, got %d", totalCaptures)
 	}
 
-	publicPosts, err = database.ListPublicPosts(10, 0, 0)
+	publicPosts, err = database.ListPublicPosts(10, 0, 0, "recent")
 	if err != nil {
 		t.Fatalf("list public posts after capture moderation: %v", err)
 	}
@@ -1971,7 +1983,7 @@ func TestModerationHidesPublicContentAndBannedProfiles(t *testing.T) {
 		t.Fatalf("hide post: %v", err)
 	}
 
-	publicPosts, err = database.ListPublicPosts(10, 0, 0)
+	publicPosts, err = database.ListPublicPosts(10, 0, 0, "recent")
 	if err != nil {
 		t.Fatalf("list public posts after post moderation: %v", err)
 	}

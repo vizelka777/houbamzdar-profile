@@ -1036,7 +1036,6 @@ func (db *DB) listPublicCapturesWithFilters(filters PublicCaptureFilters, viewer
 			}
 			capture.CoordinatesLocked = false
 		}
-		return captures, nil
 	}
 
 	if err := db.maskCaptureCoordinatesForViewer(viewerUserID, captures); err != nil {

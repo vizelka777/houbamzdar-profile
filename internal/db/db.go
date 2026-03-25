@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/fnv"
+	"math"
 	"strings"
 	"time"
 
@@ -77,6 +79,47 @@ func moderationNowRFC3339() string {
 
 func publicUserNotBannedClause(alias string) string {
 	return fmt.Sprintf("(COALESCE(%s.banned_until, '') = '' OR %s.banned_until <= ?)", alias, alias)
+}
+
+func buildGuestMockCoordinates(capture *models.Capture) (float64, float64, bool) {
+	if capture == nil || capture.Latitude == nil || capture.Longitude == nil {
+		return 0, 0, false
+	}
+
+	hasher := fnv.New64a()
+	_, _ = hasher.Write([]byte(strings.TrimSpace(capture.ID)))
+	sum := hasher.Sum64()
+
+	bearingRadians := (float64(sum%36000) / 100) * (math.Pi / 180)
+	distanceMeters := 18000 + float64((sum>>16)%22001)
+	angularDistance := distanceMeters / 6371000
+
+	originLat := *capture.Latitude * (math.Pi / 180)
+	originLon := *capture.Longitude * (math.Pi / 180)
+
+	mockLat := math.Asin(
+		math.Sin(originLat)*math.Cos(angularDistance) +
+			math.Cos(originLat)*math.Sin(angularDistance)*math.Cos(bearingRadians),
+	)
+	mockLon := originLon + math.Atan2(
+		math.Sin(bearingRadians)*math.Sin(angularDistance)*math.Cos(originLat),
+		math.Cos(angularDistance)-math.Sin(originLat)*math.Sin(mockLat),
+	)
+
+	mockLatDegrees := mockLat * (180 / math.Pi)
+	mockLonDegrees := mockLon * (180 / math.Pi)
+	for mockLonDegrees > 180 {
+		mockLonDegrees -= 360
+	}
+	for mockLonDegrees < -180 {
+		mockLonDegrees += 360
+	}
+
+	if math.IsNaN(mockLatDegrees) || math.IsNaN(mockLonDegrees) || math.IsInf(mockLatDegrees, 0) || math.IsInf(mockLonDegrees, 0) {
+		return 0, 0, false
+	}
+
+	return mockLatDegrees, mockLonDegrees, true
 }
 
 func New(cfg *config.Config) (*DB, error) {
@@ -1199,6 +1242,109 @@ func (db *DB) GetPublicUserProfileForViewer(id int64, viewerUserID int64) (*mode
 	return &profile, nil
 }
 
+func (db *DB) ListPublicUsers(limit, offset int, viewerUserID int64, sortBy, query string) ([]*models.PublicUserProfile, error) {
+	now := moderationNowRFC3339()
+
+	orderClause := "followers_count DESC, id DESC"
+	switch sortBy {
+	case "posts":
+		orderClause = "public_posts_count DESC, id DESC"
+	case "captures":
+		orderClause = "public_captures_count DESC, id DESC"
+	case "comments":
+		orderClause = "public_comments_count DESC, id DESC"
+	}
+
+	whereClause := publicUserNotBannedClause("users")
+	var args []interface{}
+	args = append(args, now, now, viewerUserID, viewerUserID, viewerUserID, now)
+
+	if query != "" {
+		whereClause += " AND preferred_username LIKE ?"
+		args = append(args, "%"+query+"%")
+	}
+
+	args = append(args, limit, offset)
+
+	rows, err := db.Query(fmt.Sprintf(`
+		SELECT
+			id,
+			COALESCE(preferred_username, ''),
+			COALESCE(picture, ''),
+			COALESCE(about_me, ''),
+			email_verified,
+			phone_number_verified,
+			created_at,
+			(SELECT COUNT(*) FROM posts WHERE user_id = users.id AND status = 'published' AND COALESCE(moderator_hidden, 0) = 0) as public_posts_count,
+			(SELECT COUNT(*) FROM photo_captures WHERE user_id = users.id AND status = 'published' AND COALESCE(moderator_hidden, 0) = 0 AND COALESCE(private_storage_key, '') != '') as public_captures_count,
+			(SELECT COUNT(*) FROM post_comments WHERE user_id = users.id AND COALESCE(moderator_hidden, 0) = 0) as public_comments_count,
+			(
+				SELECT COUNT(*)
+				FROM user_follows uf
+				JOIN users follower_users ON follower_users.id = uf.follower_user_id
+				WHERE uf.followed_user_id = users.id AND %s
+			) as followers_count,
+			(
+				SELECT COUNT(*)
+				FROM user_follows uf
+				JOIN users followed_users ON followed_users.id = uf.followed_user_id
+				WHERE uf.follower_user_id = users.id AND %s
+			) as following_count,
+			CASE
+				WHEN ? > 0 AND ? != users.id AND EXISTS (
+					SELECT 1
+					FROM user_follows
+					WHERE follower_user_id = ? AND followed_user_id = users.id
+				) THEN 1
+				ELSE 0
+			END
+		FROM users
+		WHERE %s
+		ORDER BY %s
+		LIMIT ? OFFSET ?
+	`, publicUserNotBannedClause("follower_users"), publicUserNotBannedClause("followed_users"), whereClause, orderClause), args...)
+
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var users []*models.PublicUserProfile
+	for rows.Next() {
+		var profile models.PublicUserProfile
+		var createdAtRaw string
+		var emailVerifiedInt, phoneNumberVerifiedInt, isFollowedByMeInt int
+
+		err := rows.Scan(
+			&profile.ID,
+			&profile.PreferredUsername,
+			&profile.Picture,
+			&profile.AboutMe,
+			&emailVerifiedInt,
+			&phoneNumberVerifiedInt,
+			&createdAtRaw,
+			&profile.PublicPostsCount,
+			&profile.PublicCapturesCount,
+			&profile.PublicCommentsCount,
+			&profile.FollowersCount,
+			&profile.FollowingCount,
+			&isFollowedByMeInt,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		profile.EmailVerified = emailVerifiedInt == 1
+		profile.PhoneVerified = phoneNumberVerifiedInt == 1
+		profile.IsFollowedByMe = isFollowedByMeInt == 1
+		profile.JoinedAt, _ = time.Parse(time.RFC3339, createdAtRaw)
+
+		users = append(users, &profile)
+	}
+
+	return users, nil
+}
+
 func (db *DB) UpdateAboutMe(id int64, aboutMe string) error {
 	_, err := db.Exec("UPDATE users SET about_me = ?, updated_at = datetime('now') WHERE id = ?", aboutMe, id)
 	return err
@@ -1879,8 +2025,14 @@ func (db *DB) ListPosts(userID int64, limit, offset int) ([]*models.Post, error)
 	return posts, nil
 }
 
-func (db *DB) ListPublicPosts(limit, offset int, currentUserID int64) ([]*models.Post, error) {
+func (db *DB) ListPublicPosts(limit, offset int, currentUserID int64, sortBy string) ([]*models.Post, error) {
 	now := moderationNowRFC3339()
+
+	orderClause := "p.created_at DESC"
+	if sortBy == "comments" {
+		orderClause = "COALESCE((SELECT MAX(created_at) FROM post_comments WHERE post_id = p.id AND status = 'published' AND COALESCE(moderator_hidden, 0) = 0), p.created_at) DESC, p.created_at DESC"
+	}
+
 	rows, err := db.Query(fmt.Sprintf(`
 		SELECT p.id, p.user_id, u.preferred_username, COALESCE(u.picture, ''), p.content, p.status, p.created_at, p.updated_at,
                (SELECT COUNT(*) FROM post_likes WHERE post_id = p.id) as likes_count,
@@ -1890,9 +2042,9 @@ func (db *DB) ListPublicPosts(limit, offset int, currentUserID int64) ([]*models
 		WHERE p.status = 'published'
 			AND COALESCE(p.moderator_hidden, 0) = 0
 			AND %s
-		ORDER BY p.created_at DESC
+		ORDER BY %s
 		LIMIT ? OFFSET ?
-	`, publicUserNotBannedClause("u")), currentUserID, now, limit, offset)
+	`, publicUserNotBannedClause("u"), orderClause), currentUserID, now, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -2105,7 +2257,7 @@ func (db *DB) ListPublicCapturesByUser(userID int64, limit, offset int, viewerUs
 	return captures, nil
 }
 
-func (db *DB) ListPublicMapCapturesByUser(userID int64, _ int64) ([]*models.Capture, error) {
+func (db *DB) ListPublicMapCapturesByUser(userID int64, viewerUserID int64) ([]*models.Capture, error) {
 	now := moderationNowRFC3339()
 	rows, err := db.Query(fmt.Sprintf(`
 		SELECT c.id, c.user_id, COALESCE(u.preferred_username, ''), COALESCE(u.picture, ''), COALESCE(c.client_local_id, ''), c.original_file_name, c.content_type, c.size_bytes, c.width, c.height,
@@ -2147,6 +2299,10 @@ func (db *DB) ListPublicMapCapturesByUser(userID int64, _ int64) ([]*models.Capt
 		captures = append(captures, &c)
 	}
 	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	if err := db.maskCaptureCoordinatesForViewer(viewerUserID, captures); err != nil {
 		return nil, err
 	}
 
@@ -2322,8 +2478,25 @@ func (db *DB) maskCaptureCoordinatesForViewer(viewerUserID int64, captures []*mo
 		if capture == nil {
 			continue
 		}
+		capture.CoordinatesMocked = false
 		hasCoordinates := capture.Latitude != nil && capture.Longitude != nil
 		if !hasCoordinates {
+			capture.CoordinatesLocked = false
+			continue
+		}
+		if viewerUserID == 0 && capture.CoordinatesFree {
+			mockLat, mockLon, ok := buildGuestMockCoordinates(capture)
+			if ok {
+				capture.Latitude = &mockLat
+				capture.Longitude = &mockLon
+				capture.AccuracyMeters = nil
+				capture.CoordinatesLocked = false
+				capture.CoordinatesMocked = true
+				continue
+			}
+			capture.Latitude = nil
+			capture.Longitude = nil
+			capture.AccuracyMeters = nil
 			capture.CoordinatesLocked = false
 			continue
 		}
