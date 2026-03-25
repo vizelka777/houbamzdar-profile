@@ -108,7 +108,7 @@ func (s *Server) ensureVerifiedEmail(w http.ResponseWriter, user *models.User) b
 	if user != nil && user.EmailVerified {
 		return true
 	}
-	http.Error(w, "confirm your email in AHOJ420 before using this action", http.StatusForbidden)
+	http.Error(w, "confirm your email before using this action", http.StatusForbidden)
 	return false
 }
 

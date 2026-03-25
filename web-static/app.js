@@ -1399,11 +1399,11 @@ function buildProfileInsights(user) {
     }
 
     if (!user.email_verified) {
-        alerts.push("Potvrďte e-mail v AHOJ420 pro důvěryhodnější profil.");
+        alerts.push("Potvrďte e-mail ve správě účtu pro důvěryhodnější profil.");
     }
 
     if (!user.phone_number_verified) {
-        alerts.push("Potvrďte telefon v AHOJ420, ať se profil posune výš.");
+        alerts.push("Potvrďte telefon ve správě účtu, ať se profil posune výš.");
     }
 
     if (!user.picture) {
@@ -1838,13 +1838,13 @@ function updateHomeHero(session) {
         secondaryAction.href = `${API_URL}/auth/login`;
         secondaryAction.textContent = "Už mám účet? Přihlásit se";
     }
-    secondaryNote.textContent = "Přihlášení a správa identity běží bezpečně через AHOJ420.";
+    secondaryNote.textContent = "Přihlášení a správa účtu běží odděleně a bezpečně.";
 }
 
 async function logoutFlow() {
     const res = await apiPost("/auth/logout");
     if (res && res.idp_logout_url) {
-        const alsoAhoj = window.confirm("Odhlásit se i z ahoj420.eu?");
+        const alsoAhoj = window.confirm("Odhlásit se i ze správy účtu?");
         window.location.href = alsoAhoj ? res.idp_logout_url : "/";
         return;
     }
@@ -2110,7 +2110,7 @@ async function initMePage() {
     refreshHoubickaBalanceViews();
     setText("account-email-chip", me.email_verified ? "E-mail · ověřen" : "E-mail · čeká na ověření");
     setText("account-phone-chip", me.phone_number_verified ? "Telefon · ověřen" : "Telefon · čeká na ověření");
-    setText("account-sync-chip", "Synchronizováno přes AHOJ420");
+    setText("account-sync-chip", "Údaje spravované zvlášť");
     renderEmailVerificationBanner(me);
     setupNicknameEditor(me);
 

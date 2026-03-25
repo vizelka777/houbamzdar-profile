@@ -30,7 +30,7 @@ export const ui = {
                 <div style="font-size: 5rem; margin-bottom: 20px;">🔐</div>
                 <h3 style="color: #333; margin-bottom: 15px;">Vítejte v Houbám Zdar!</h3>
                 <p style="color: #666; margin-bottom: 30px; line-height: 1.5;">
-                    Přihlášení a správa identity běží bezpečně přes systém <strong>AHOJ420</strong>.
+                    Přihlášení a správa účtu běží odděleně a bezpečně.
                 </p>
                 <button class="btn-primary" id="real-login-btn" style="background-color: var(--secondary-color);">
                     Přihlásit se

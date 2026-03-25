@@ -83,7 +83,7 @@ export async function logout() {
     document.dispatchEvent(new Event('auth-changed'));
     
     if (res && res.idp_logout_url) {
-        const alsoAhoj = window.confirm("Odhlásit se i z ahoj420.eu?");
+        const alsoAhoj = window.confirm("Odhlásit se i ze správy účtu?");
         if (alsoAhoj) {
             window.location.href = res.idp_logout_url;
         } else {
