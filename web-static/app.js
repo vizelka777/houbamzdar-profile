@@ -37,11 +37,15 @@ function buildAhoj420FlowURL(path, {
     return url.toString();
 }
 
-function buildAhoj420RegisterURL() {
+function buildAhoj420DirectRegisterURL() {
     return buildAhoj420FlowURL("/register", {
         profileReturnPath: "/",
         afterSavePath: "/reauth.html"
     });
+}
+
+function buildAhoj420RegisterURL() {
+    return buildAbsoluteFrontURL("/register.html");
 }
 
 function buildAhoj420QRLoginURL() {
@@ -1695,7 +1699,7 @@ function renderHeader(session, profile = null) {
     if (session && session.logged_in) {
         const leftTabItems = [
             { href: "/", label: "Novinky", icon: "🔥" },
-            { href: "/info.html", label: "O Houbam Zdar", icon: "ℹ️" },
+            { href: "/info.html", label: "O Houbám Zdar", icon: "ℹ️" },
             { href: "/feed.html", label: "Zeď úlovků", icon: "📰" },
             { href: "/gallery.html", label: "Galerie", icon: "🖼️" },
             { href: "/users.html", label: "Houbaři", icon: "🍄" },
@@ -1757,7 +1761,7 @@ function renderHeader(session, profile = null) {
 
     const leftTabItems = [
         { href: "/", label: "Novinky", icon: "🔥" },
-        { href: "/info.html", label: "O Houbam Zdar", icon: "ℹ️" },
+        { href: "/info.html", label: "O Houbám Zdar", icon: "ℹ️" },
         { href: "/feed.html", label: "Zeď úlovků", icon: "📰" },
         { href: "/gallery.html", label: "Galerie", icon: "🖼️" },
         { href: "/users.html", label: "Houbaři", icon: "🍄" },
@@ -1806,7 +1810,7 @@ function renderHeader(session, profile = null) {
         hideLabel: true,
         lead: {
             eyebrow: "Veřejné menu",
-            title: "Houbam Zdar",
+            title: "Houbám Zdar",
             copy: "Skutečné souřadnice fotografií uvidíte až po registraci."
         }
     });
@@ -1836,7 +1840,7 @@ function updateHomeHero(session) {
     if (secondaryAction) {
         secondaryAction.style.display = "inline-flex";
         secondaryAction.href = `${API_URL}/auth/login`;
-        secondaryAction.textContent = "Už mám účet? Přihlásit se";
+        secondaryAction.textContent = "Už máte účet? Přihlaste se";
     }
     secondaryNote.textContent = "Přihlášení a správa účtu běží odděleně a bezpečně.";
 }
@@ -2174,7 +2178,7 @@ async function handleSelfDeleteAccount(me) {
         setStatusMessage(statusNode, "Potvrzení nesouhlasí. Účet zůstal beze změny.", "error");
         return;
     }
-    if (!window.confirm("Opravdu chcete nevratně smazat svůj účet na Houbam Zdar?")) {
+    if (!window.confirm("Opravdu chcete nevratně smazat svůj účet na Houbám Zdar?")) {
         return;
     }
 
@@ -4462,6 +4466,32 @@ function lightboxPrev() {
     updateLightboxMap();
 }
 
+const LEGAL_FOOTER_HTML = `
+    <footer class="site-footer-legal">
+        <nav aria-label="Právní informace">
+            <a href="/info.html">O projektu</a>
+            <span>·</span>
+            <a href="/terms.html">Podmínky</a>
+            <span>·</span>
+            <a href="/privacy.html">Soukromí</a>
+            <span>·</span>
+            <a href="/cookies.html">Cookies</a>
+            <span>·</span>
+            <a href="/rules.html">Pravidla komunity</a>
+        </nav>
+        <p class="footer-note">Sdílené fotografie a GPS souřadnice nálezů jsou určeny ke zpřístupnění ostatním uživatelům služby.</p>
+    </footer>
+`;
+
+function initLegalFooter() {
+    const page = document.body?.dataset?.page || "";
+    if (page === "my-map") return;
+    if (document.querySelector(".site-footer-legal")) return;
+    const main = document.querySelector("main");
+    if (!main) return;
+    main.insertAdjacentHTML("afterend", LEGAL_FOOTER_HTML);
+}
+
 document.addEventListener("DOMContentLoaded", () => {
     if (!document.getElementById("lightbox")) {
         const lightboxHTML = `
@@ -4560,6 +4590,59 @@ async function initCreatePostPage() {
     );
 }
 
+async function initRegisterConsentPage() {
+    const session = await apiGet("/api/session");
+    let profile = null;
+    if (session && session.logged_in) {
+        profile = await apiGet("/api/me");
+    }
+
+    setAppIdentity(session, profile);
+    renderHeader(session, profile);
+
+    const termsCheckbox = document.getElementById("register-consent-terms");
+    const publicCheckbox = document.getElementById("register-consent-public-posts");
+    const continueButton = document.getElementById("register-consent-continue");
+    const statusNode = document.getElementById("register-consent-status");
+
+    if (!continueButton || !termsCheckbox || !publicCheckbox) {
+        return;
+    }
+
+    if (session && session.logged_in) {
+        continueButton.disabled = false;
+        continueButton.textContent = "Jste přihlášeni";
+        setStatusMessage(statusNode, "Účet už máte aktivní. Pokud chcete pokračovat, otevřete svůj profil.");
+        continueButton.addEventListener("click", () => {
+            window.location.href = "/me.html";
+        });
+        return;
+    }
+
+    const syncRegisterConsentState = () => {
+        const ready = termsCheckbox.checked && publicCheckbox.checked;
+        continueButton.disabled = !ready;
+        setStatusMessage(
+            statusNode,
+            ready
+                ? "Můžete pokračovat do registrace."
+                : "Pro pokračování potvrďte oba body."
+        );
+    };
+
+    termsCheckbox.addEventListener("change", syncRegisterConsentState);
+    publicCheckbox.addEventListener("change", syncRegisterConsentState);
+    continueButton.addEventListener("click", () => {
+        if (continueButton.disabled) {
+            syncRegisterConsentState();
+            return;
+        }
+        window.location.href = buildAhoj420DirectRegisterURL();
+    });
+
+    syncRegisterConsentState();
+}
+
 async function performReauth() {
     const status = document.getElementById("reauth-status");
     setStatusMessage(status, "Odhlašuji lokální relaci...");
@@ -4585,6 +4668,8 @@ function initReauthPage() {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+    initLegalFooter();
+
     const page = document.body.dataset.page;
     if (page === "home") {
         initIndexPage();
@@ -4598,6 +4683,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
     if (page === "reauth") {
         initReauthPage();
+        return;
+    }
+
+    if (page === "register-consent") {
+        initRegisterConsentPage();
         return;
     }
 

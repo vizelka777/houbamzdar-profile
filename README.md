@@ -1,4 +1,4 @@
-# Houbam Zdar MVP
+# Houbám Zdar MVP
 
 Backend (BFF) и Frontend статика для сайта houbamzdar.cz.
 
@@ -59,8 +59,7 @@ Backend (BFF) и Frontend статика для сайта houbamzdar.cz.
 ### Секреты и manifests
 
 - Файлы `app*.json` в репозитории должны оставаться шаблонами без реальных секретов.
-- Реальные значения `OIDC_CLIENT_SECRET` и `DB_TOKEN` нужно задавать только в Bunny, а не коммитить в git.
-- Для Bunny Database токен берётся из `Database -> Access -> Generate Tokens -> Add Secrets to Magic Container App`.
+- Реальные значения `OIDC_CLIENT_SECRET`, `DB_TOKEN` и storage keys не должны попадать в git.
 - Не коммитьте экспорт live-конфигурации из Bunny без предварительной санации секретов.
 
 ## Структура БД

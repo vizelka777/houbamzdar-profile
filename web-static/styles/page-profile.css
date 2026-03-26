@@ -423,9 +423,14 @@
     align-items: center;
 }
 
+.public-profile-card {
+    padding: 1.25rem;
+}
+
 .public-profile-identity {
     display: grid;
     gap: 0.55rem;
+    min-width: 0;
 }
 
 .public-profile-follow-actions {
@@ -461,6 +466,7 @@
 .public-profile-body {
     display: grid;
     gap: 0.7rem;
+    min-width: 0;
 }
 
 .public-profile-body h2 {
@@ -483,6 +489,8 @@
     color: var(--muted);
     line-height: 1.7;
     white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 
 .following-users-list {
@@ -521,6 +529,7 @@
 .following-user-copy {
     display: grid;
     gap: 0.8rem;
+    min-width: 0;
 }
 
 .following-user-title-row {

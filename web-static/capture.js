@@ -1,6 +1,7 @@
 const PHOTO_DB_NAME = "hzd-photo-vault";
 const PHOTO_STORE_NAME = "captures";
 const GPS_TARGET_ACCURACY_METERS = 100;
+const CAPTURE_UPLOAD_DISCLOSURE_ACK_KEY = "hzd-capture-upload-disclosure-ack-v1";
 const GPS_REQUEST_OPTIONS = {
     enableHighAccuracy: true,
     timeout: 12000,
@@ -19,12 +20,37 @@ const captureGpsState = {
     flushingPendingFiles: false
 };
 
+const captureUploadDisclosureState = {
+    resolve: null,
+    lastActiveElement: null
+};
+
 function captureUploadEnabled() {
     return Boolean(window.appSession && window.appSession.logged_in);
 }
 
 function indexedDbAvailable() {
     return typeof window !== "undefined" && typeof window.indexedDB !== "undefined";
+}
+
+function captureUploadDisclosureRemembered() {
+    try {
+        return window.localStorage.getItem(CAPTURE_UPLOAD_DISCLOSURE_ACK_KEY) === "1";
+    } catch (error) {
+        return false;
+    }
+}
+
+function setCaptureUploadDisclosureRemembered(remembered) {
+    try {
+        if (remembered) {
+            window.localStorage.setItem(CAPTURE_UPLOAD_DISCLOSURE_ACK_KEY, "1");
+        } else {
+            window.localStorage.removeItem(CAPTURE_UPLOAD_DISCLOSURE_ACK_KEY);
+        }
+    } catch (error) {
+        // Ignore localStorage failures.
+    }
 }
 
 function openPhotoVault() {
@@ -868,12 +894,136 @@ async function uploadCaptureToServer(capture) {
     return response.json();
 }
 
+function ensureCaptureUploadDisclosureDialog() {
+    if (document.getElementById("capture-upload-disclosure-modal")) {
+        return;
+    }
+
+    document.body.insertAdjacentHTML("beforeend", `
+        <div id="capture-upload-disclosure-modal" class="capture-upload-disclosure-modal" hidden aria-hidden="true">
+            <div class="capture-upload-disclosure-backdrop" data-close-capture-upload-disclosure></div>
+            <div class="capture-upload-disclosure-dialog" role="dialog" aria-modal="true" aria-labelledby="capture-upload-disclosure-title">
+                <button type="button" id="capture-upload-disclosure-close" class="capture-upload-disclosure-close" aria-label="Zavřít upozornění">&times;</button>
+                <div class="capture-upload-disclosure-head">
+                    <p class="section-label">Nahrání na server</p>
+                    <h2 id="capture-upload-disclosure-title">Než budete pokračovat</h2>
+                </div>
+                <p id="capture-upload-disclosure-body" class="muted-copy"></p>
+                <label class="check-row capture-upload-disclosure-check">
+                    <input id="capture-upload-disclosure-skip" type="checkbox">
+                    <span>Příště už nezobrazovat</span>
+                </label>
+                <div class="action-row capture-upload-disclosure-actions">
+                    <button type="button" id="capture-upload-disclosure-cancel" class="btn btn-secondary">Zrušit</button>
+                    <button type="button" id="capture-upload-disclosure-confirm" class="btn btn-primary">Pokračovat</button>
+                </div>
+            </div>
+        </div>
+    `);
+
+    const modal = document.getElementById("capture-upload-disclosure-modal");
+    const closeButton = document.getElementById("capture-upload-disclosure-close");
+    const cancelButton = document.getElementById("capture-upload-disclosure-cancel");
+    const confirmButton = document.getElementById("capture-upload-disclosure-confirm");
+
+    const closeDialog = (accepted) => {
+        const activeModal = document.getElementById("capture-upload-disclosure-modal");
+        if (!activeModal || activeModal.hidden) {
+            return;
+        }
+
+        const rememberCheckbox = document.getElementById("capture-upload-disclosure-skip");
+        if (accepted && rememberCheckbox?.checked) {
+            setCaptureUploadDisclosureRemembered(true);
+        }
+
+        activeModal.hidden = true;
+        activeModal.setAttribute("aria-hidden", "true");
+        document.body.classList.remove("capture-upload-disclosure-open");
+
+        const resolve = captureUploadDisclosureState.resolve;
+        captureUploadDisclosureState.resolve = null;
+        if (typeof resolve === "function") {
+            resolve(Boolean(accepted));
+        }
+
+        if (captureUploadDisclosureState.lastActiveElement instanceof HTMLElement) {
+            captureUploadDisclosureState.lastActiveElement.focus();
+        }
+        captureUploadDisclosureState.lastActiveElement = null;
+    };
+
+    modal?.addEventListener("click", (event) => {
+        if (event.target instanceof HTMLElement && event.target.hasAttribute("data-close-capture-upload-disclosure")) {
+            closeDialog(false);
+        }
+    });
+    closeButton?.addEventListener("click", () => closeDialog(false));
+    cancelButton?.addEventListener("click", () => closeDialog(false));
+    confirmButton?.addEventListener("click", () => closeDialog(true));
+
+    document.addEventListener("keydown", (event) => {
+        const activeModal = document.getElementById("capture-upload-disclosure-modal");
+        if (!activeModal || activeModal.hidden) {
+            return;
+        }
+        if (event.key === "Escape") {
+            event.preventDefault();
+            closeDialog(false);
+        }
+    });
+}
+
+function captureUploadDisclosureMessage(count = 1) {
+    if (count > 1) {
+        return `Na server Houbám Zdar chcete nahrát ${count} fotografií včetně jejich GPS souřadnic. Po nahrání budou uložené ve službě a pokud je později zveřejníte, zpřístupní se ostatním uživatelům.`;
+    }
+
+    return "Na server Houbám Zdar chcete nahrát fotografii včetně jejích GPS souřadnic. Po nahrání bude uložená ve službě a pokud ji později zveřejníte, zpřístupní se ostatním uživatelům.";
+}
+
+async function confirmCaptureUploadDisclosure(count = 1) {
+    if (captureUploadDisclosureRemembered()) {
+        return true;
+    }
+
+    ensureCaptureUploadDisclosureDialog();
+
+    const modal = document.getElementById("capture-upload-disclosure-modal");
+    const body = document.getElementById("capture-upload-disclosure-body");
+    const rememberCheckbox = document.getElementById("capture-upload-disclosure-skip");
+    const confirmButton = document.getElementById("capture-upload-disclosure-confirm");
+    if (!modal || !body || !rememberCheckbox) {
+        return true;
+    }
+
+    body.textContent = captureUploadDisclosureMessage(count);
+    rememberCheckbox.checked = false;
+    captureUploadDisclosureState.lastActiveElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+
+    modal.hidden = false;
+    modal.setAttribute("aria-hidden", "false");
+    document.body.classList.add("capture-upload-disclosure-open");
+
+    window.requestAnimationFrame(() => {
+        confirmButton?.focus();
+    });
+
+    return new Promise((resolve) => {
+        captureUploadDisclosureState.resolve = resolve;
+    });
+}
+
 async function uploadQueuedCaptures() {
     const items = await getAllCaptures();
     const queuedItems = items.filter((item) => item.queued && !item.serverCaptureId);
 
     if (!queuedItems.length) {
         throw new Error("Nejdřív označte snímky, které chcete nahrát na server.");
+    }
+
+    if (!(await confirmCaptureUploadDisclosure(queuedItems.length))) {
+        throw new Error("Nahrání na server bylo zrušeno.");
     }
 
     for (const capture of queuedItems) {
@@ -972,6 +1122,8 @@ async function initCapturePage() {
         footerLink.textContent = "Přejít k nahraným fotkám";
     }
 
+    ensureCaptureUploadDisclosureDialog();
+
     syncCaptureGpsUi();
     startCaptureGpsWatch();
 
@@ -1040,11 +1192,16 @@ async function initCapturePage() {
                 }
                 const id = sendBtn.dataset.id;
                 try {
-                    setStatusMessage(statusNode, "Nahrávám snímek na server...");
                     const items = await getAllCaptures();
                     const target = items.find(i => i.id === id);
                     if (!target) throw new Error("Snímek nebyl nalezen.");
-                    
+
+                    if (!(await confirmCaptureUploadDisclosure())) {
+                        setStatusMessage(statusNode, "Nahrání na server bylo zrušeno.");
+                        return;
+                    }
+
+                    setStatusMessage(statusNode, "Nahrávám snímek na server...");
                     const result = await uploadCaptureToServer(target);
                     if (result.capture?.id) {
                         await deleteCaptures([id]);

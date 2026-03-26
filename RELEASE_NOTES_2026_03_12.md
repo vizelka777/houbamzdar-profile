@@ -1,6 +1,6 @@
 # Přehled provedených prací – 12. března 2026
 
-Dnes byla provedena rozsáhlá aktualizace projektu Houbam Zdar, která vyřešila kritické problémy s nahráváním fotografií a přidala klíčové sociální funkce.
+Dnes byla provedena rozsáhlá aktualizace projektu Houbám Zdar, která vyřešila kritické problémy s nahráváním fotografií a přidala klíčové sociální funkce.
 
 ## 1. Opravy nahrávání a zpracování fotografií
 - **Podpora iPhone (HEIC)**: Implementována knihovna `heic2any` na frontendu. iPhony nyní automaticky převádějí fotky do JPEG před odesláním, což šetří data a zajišťuje kompatibilitu.

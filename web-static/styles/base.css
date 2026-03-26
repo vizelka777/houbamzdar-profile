@@ -774,6 +774,71 @@ textarea {
     font-weight: 700;
 }
 
+.site-footer-legal {
+    width: min(100%, var(--page-frame-width));
+    margin: 0.25rem auto 0;
+    padding: 1rem 0 0.6rem;
+    border-top: 1px solid rgba(19, 38, 29, 0.12);
+    font-size: 0.95rem;
+    color: var(--muted);
+}
+
+.site-footer-legal nav {
+    display: flex;
+    gap: 0.45rem;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.site-footer-legal a {
+    color: var(--forest-700);
+    text-decoration: none;
+}
+
+.site-footer-legal a:hover,
+.site-footer-legal a:focus-visible {
+    text-decoration: underline;
+}
+
+.footer-note {
+    margin: 0.5rem 0 0;
+    max-width: 78ch;
+}
+
+.register-legal-box {
+    margin-top: 1rem;
+    padding: 1rem;
+    border: 1px solid rgba(19, 38, 29, 0.12);
+    border-radius: 1rem;
+    background: rgba(255, 255, 255, 0.72);
+}
+
+.check-row {
+    display: flex;
+    gap: 0.75rem;
+    align-items: flex-start;
+    margin: 0 0 0.9rem;
+}
+
+.check-row input {
+    margin-top: 0.25rem;
+}
+
+.register-legal-help {
+    margin: 0.2rem 0 0;
+    color: var(--muted);
+    font-size: 0.95rem;
+}
+
+.public-warning-card {
+    margin: 1rem 0;
+    padding: 1rem;
+    border-left: 4px solid var(--forest-700);
+    background: rgba(238, 245, 238, 0.96);
+    border-radius: 0.9rem;
+    color: var(--forest-950);
+}
+
 .status-message {
     min-height: 1.4rem;
     color: var(--muted);

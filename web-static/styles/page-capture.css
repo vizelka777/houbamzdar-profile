@@ -641,7 +641,99 @@ body[data-page="server-storage"] .storage-gallery-footer {
     margin-top: 0.25rem;
 }
 
+.capture-upload-disclosure-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 1225;
+    display: grid;
+    place-items: center;
+    padding: 1rem;
+}
+
+.capture-upload-disclosure-modal[hidden] {
+    display: none !important;
+}
+
+.capture-upload-disclosure-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(7, 12, 9, 0.72);
+}
+
+.capture-upload-disclosure-dialog {
+    position: relative;
+    width: min(100%, 32rem);
+    padding: 1.15rem;
+    border-radius: 1.4rem;
+    background: linear-gradient(180deg, rgba(255, 252, 247, 0.98), rgba(245, 239, 229, 0.96));
+    box-shadow: 0 24px 60px rgba(21, 34, 24, 0.24);
+    border: 1px solid rgba(255, 255, 255, 0.5);
+    display: grid;
+    gap: 0.9rem;
+    z-index: 1;
+}
+
+.capture-upload-disclosure-head {
+    display: grid;
+    gap: 0.3rem;
+}
+
+.capture-upload-disclosure-head h2 {
+    margin: 0;
+    color: var(--forest-950);
+}
+
+.capture-upload-disclosure-check {
+    margin: 0;
+    padding: 0.75rem 0.85rem;
+    border-radius: 1rem;
+    background: rgba(255, 255, 255, 0.72);
+    border: 1px solid rgba(19, 38, 29, 0.08);
+}
+
+.capture-upload-disclosure-check input {
+    accent-color: var(--forest-700);
+}
+
+.capture-upload-disclosure-actions {
+    justify-content: flex-end;
+}
+
+.capture-upload-disclosure-close {
+    position: absolute;
+    top: 0.7rem;
+    right: 0.7rem;
+    width: 2.3rem;
+    height: 2.3rem;
+    border: none;
+    border-radius: 999px;
+    background: rgba(19, 38, 29, 0.08);
+    color: var(--forest-950);
+    font-size: 1.5rem;
+    line-height: 1;
+    cursor: pointer;
+}
+
 @media (max-width: 720px) {
+    .capture-upload-disclosure-modal {
+        padding: 0.75rem;
+    }
+
+    .capture-upload-disclosure-dialog {
+        width: 100%;
+        padding: calc(0.95rem + env(safe-area-inset-top, 0rem)) 0.9rem calc(0.9rem + env(safe-area-inset-bottom, 0rem));
+        border-radius: 1.1rem;
+    }
+
+    .capture-upload-disclosure-actions {
+        align-items: stretch;
+    }
+
+    .capture-upload-disclosure-actions .btn {
+        width: 100%;
+        justify-content: center;
+    }
+
     body[data-page="server-storage"] .content-main {
         gap: 0.5rem;
         margin-top: 0.55rem;
