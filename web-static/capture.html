@@ -23,9 +23,9 @@
     </header>
 
     <main class="content-main content-main-narrow">
-        <div style="text-align: center; margin-bottom: 1rem;">
-            <p class="muted-copy" style="font-size: 0.9rem; margin-bottom: 0.25rem;">Uloženo v telefonu: <strong id="capture-total">0</strong></p>
-            <p id="capture-status" class="status-message" aria-live="polite" style="margin-top: 0; min-height: 1.5rem;"></p>
+        <div class="capture-overview">
+            <p class="muted-copy capture-overview-total">Uloženo v telefonu: <strong id="capture-total">0</strong></p>
+            <p id="capture-status" class="status-message capture-overview-status" aria-live="polite"></p>
             <div id="capture-gps-status" class="capture-gps-status" aria-live="polite" hidden></div>
             <div class="capture-gps-actions">
                 <button id="capture-refresh-gps" type="button" class="btn btn-secondary">Zkusit GPS znovu</button>
@@ -43,7 +43,7 @@
 
         <div id="capture-grid" class="capture-grid"></div>
 
-        <div style="text-align: center; margin-top: 2rem;">
+        <div class="capture-footer-row">
             <a id="capture-footer-link" href="/server-storage.html" class="btn btn-secondary">Přejít k nahraným fotkám</a>
         </div>
     </main>

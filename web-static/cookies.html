@@ -4,20 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Cookies | Houbám Zdar</title>
-  <style>
-    :root{--bg:#f4f1e8;--card:#fffdf8;--text:#243226;--muted:#5e6d60;--accent:#406343;--border:#d7dfd4}
-    *{box-sizing:border-box}body{margin:0;font:16px/1.65 system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:var(--text)}
-    .wrap{max-width:900px;margin:0 auto;padding:32px 18px 64px}.card{background:var(--card);border:1px solid var(--border);border-radius:18px;padding:28px;box-shadow:0 8px 24px rgba(0,0,0,.05)}
-    h1,h2{line-height:1.25}h1{font-size:2rem;margin:0 0 12px}h2{margin-top:28px;font-size:1.2rem}p,li{max-width:80ch}.meta,.muted{color:var(--muted)}
-    a{color:var(--accent)} table{width:100%;border-collapse:collapse;margin:16px 0}th,td{border:1px solid var(--border);padding:10px;vertical-align:top;text-align:left}th{background:#eef5ee}
-  </style>
+  <link rel="stylesheet" href="styles/page-legal.css">
 </head>
-<body>
-  <main class="wrap">
-    <article class="card">
-      <p><a href="/">← Zpět na Houbám Zdar</a></p>
+<body class="legal-page">
+  <main class="legal-wrap">
+    <article class="legal-card">
+      <p><a id="legal-top-link" href="/">← Zpět na Houbám Zdar</a></p>
       <h1>Informace o cookies</h1>
-      <p class="meta">Účinnost od: 26. 3. 2026</p>
+      <p class="meta legal-meta">Účinnost od: 26. 3. 2026</p>
 
       <p>Houbám Zdar používá pouze technické a funkční cookies, které jsou nezbytné pro provoz webu, přihlášení, bezpečnost a správné fungování základních funkcí služby.</p>
       <p>Na tomto webu nepoužíváme reklamní cookies ani jiné netechnické cookies, které by sloužily k marketingu nebo profilování návštěvníků.</p>
@@ -43,8 +37,9 @@
       <h2>Kontakt</h2>
       <p>Dotazy ke cookies můžete zaslat na <a href="mailto:houbamzdar@gmail.com">houbamzdar@gmail.com</a>.</p>
 
-      <p class="muted">Poznámka pro provozovatele: pokud později přidáte analytiku, reklamní systémy, embedded mapy třetích stran se samostatnými trackery nebo sociální pluginy, přehodnoťte tuto stránku i cookie banner.</p>
+      <p class="muted legal-muted">Poznámka pro provozovatele: pokud později přidáte analytiku, reklamní systémy, embedded mapy třetích stran se samostatnými trackery nebo sociální pluginy, přehodnoťte tuto stránku i cookie banner.</p>
     </article>
   </main>
+  <script src="legal.js" defer></script>
 </body>
 </html>

@@ -14,9 +14,9 @@
     <link rel="stylesheet" href="vendor/leaflet-markercluster/MarkerCluster.css" />
 </head>
 <body data-page="my-map" class="page-shell">
-    <div class="capture-map-viewer-dialog" style="height: 100dvh; width: 100vw; background: linear-gradient(180deg, rgba(255, 252, 247, 0.98), rgba(245, 239, 229, 0.96));">
-        <header class="site-header" style="background: none; box-shadow: none; padding-bottom: 0;">
-            <a href="/me.html" class="btn btn-secondary btn-icon" aria-label="Zpět na profil" style="border-radius: 999px;">
+    <div class="capture-map-viewer-dialog">
+        <header class="site-header my-map-header">
+            <a href="/me.html" class="btn btn-secondary btn-icon my-map-back-link" aria-label="Zpět na profil">
                 <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <line x1="19" y1="12" x2="5" y2="12"></line>
                     <polyline points="12 19 5 12 12 5"></polyline>
@@ -25,14 +25,14 @@
             <div id="auth-buttons" class="header-actions"></div>
         </header>
 
-        <div class="capture-map-viewer-head" style="padding: 0 0.9rem;">
-            <div class="profile-activity-launch-grid" style="grid-template-columns: repeat(2, minmax(0, 1fr)); display: grid; gap: 0.75rem;">
+        <div class="capture-map-viewer-head my-map-head">
+            <div class="profile-activity-launch-grid">
                 <button id="profile-activity-own-btn" type="button" class="btn btn-primary profile-activity-launch-btn">Kde jsem hledal(a) · 0</button>
                 <button id="profile-activity-viewed-btn" type="button" class="btn btn-secondary profile-activity-launch-btn">Prohlédnuté za houbičky · 0</button>
             </div>
-            <p id="capture-map-viewer-note" class="capture-map-viewer-note muted-copy" style="margin-top: 0.5rem;"></p>
+            <p id="capture-map-viewer-note" class="capture-map-viewer-note muted-copy my-map-note"></p>
         </div>
-        <div id="my-map-container" class="capture-map-viewer-map" style="margin: 0.5rem 0.9rem 1rem;"></div>
+        <div id="my-map-container" class="capture-map-viewer-map my-map-container"></div>
     </div>
 
     <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
