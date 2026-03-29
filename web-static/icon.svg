@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Houbám Zdar</title>
+  <desc id="desc">Ikona aplikace Houbám Zdar</desc>
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2f5a42"/>
+      <stop offset="100%" stop-color="#6d8b50"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="30%" cy="25%" r="65%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.24"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="512" height="512" rx="128" fill="url(#bg)"/>
+  <rect width="512" height="512" rx="128" fill="url(#glow)"/>
+  <circle cx="256" cy="256" r="176" fill="#ffffff" fill-opacity="0.12"/>
+  <image href="logo.png" x="112" y="112" width="288" height="288" preserveAspectRatio="xMidYMid meet"/>
+</svg>

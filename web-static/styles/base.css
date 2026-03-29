@@ -932,6 +932,13 @@ textarea {
     max-width: 78ch;
 }
 
+.footer-credit {
+    margin: 0.35rem 0 0;
+    max-width: 78ch;
+    font-size: 0.88rem;
+    color: var(--forest-700);
+}
+
 .register-legal-box {
     margin-top: 1rem;
     padding: 1rem;

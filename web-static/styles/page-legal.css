@@ -96,6 +96,12 @@ body.legal-page {
     font-size: 0.95rem;
 }
 
+.legal-credit {
+    margin: 0.7rem 0 0;
+    font-size: 0.9rem;
+    color: var(--legal-text);
+}
+
 @media (max-width: 700px) {
     .legal-wrap {
         padding: 24px 14px 40px;

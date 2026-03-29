@@ -5731,6 +5731,7 @@ const LEGAL_FOOTER_HTML = `
             <a href="/rules.html">Pravidla komunity</a>
         </nav>
         <p class="footer-note">Sdílené fotografie a GPS souřadnice nálezů jsou určeny ke zpřístupnění ostatním uživatelům služby.</p>
+        <p class="footer-credit">Ing. Stanislav Vizelka @ vibe coding 2026</p>
     </footer>
 `;
 
