@@ -11,7 +11,9 @@ const SITE_ASSISTANT_HISTORY_KEY = "hzd_site_assistant_history_v1";
 const SITE_ASSISTANT_THREAD_KEY = "hzd_site_assistant_thread_v1";
 const SITE_ASSISTANT_CLIENT_KEY = "hzd_site_assistant_client_v1";
 const SITE_ASSISTANT_POSITION_KEY = "hzd_site_assistant_position_v1";
+const SITE_ASSISTANT_HIDDEN_KEY = "hzd_site_assistant_hidden_v1";
 const SITE_ASSISTANT_MAX_MESSAGES = 12;
+const SITE_ASSISTANT_MAX_INPUT_CHARS = 2000;
 let emailVerificationResendUntil = 0;
 let emailVerificationResendTimer = null;
 const headerChatUnreadState = {
@@ -31,6 +33,7 @@ const siteAssistantState = {
     config: null,
     configLoadingPromise: null,
     launcherPosition: null,
+    launcherHidden: false,
     drag: {
         active: false,
         pointerId: null,
@@ -508,6 +511,27 @@ function saveSiteAssistantLauncherPosition(position) {
     }
 }
 
+function loadSiteAssistantLauncherHidden() {
+    try {
+        return window.localStorage.getItem(SITE_ASSISTANT_HIDDEN_KEY) === "1";
+    } catch (_error) {
+        return false;
+    }
+}
+
+function saveSiteAssistantLauncherHidden(hidden) {
+    siteAssistantState.launcherHidden = Boolean(hidden);
+    try {
+        if (siteAssistantState.launcherHidden) {
+            window.localStorage.setItem(SITE_ASSISTANT_HIDDEN_KEY, "1");
+            return;
+        }
+        window.localStorage.removeItem(SITE_ASSISTANT_HIDDEN_KEY);
+    } catch (_error) {
+        // Ignore localStorage failures and keep the current in-memory visibility.
+    }
+}
+
 async function loadSiteAssistantConfig(forceRefresh = false) {
     if (!forceRefresh && siteAssistantState.configLoadingPromise) {
         return siteAssistantState.configLoadingPromise;
@@ -696,6 +720,7 @@ function renderSiteAssistantMessages() {
     const messagesNode = siteAssistantState.elements?.messages;
     const suggestionsNode = siteAssistantState.elements?.suggestions;
     const emptyStateNode = siteAssistantState.elements?.emptyState;
+    const panelNode = siteAssistantState.elements?.panel;
     if (!messagesNode || !suggestionsNode || !emptyStateNode) {
         return;
     }
@@ -736,6 +761,10 @@ function renderSiteAssistantMessages() {
                 <div class="site-assistant-message-bubble">Přemýšlím…</div>
             </article>
         `);
+    }
+
+    if (panelNode instanceof HTMLElement) {
+        panelNode.classList.toggle("is-intro-only", !siteAssistantState.history.length && !siteAssistantState.loading);
     }
 
     emptyStateNode.hidden = true;
@@ -790,9 +819,9 @@ function scrollSiteAssistantToLatest(behavior = "smooth") {
 }
 
 function clampSiteAssistantLauncherPosition(x, y) {
-    const launcher = siteAssistantState.elements?.launcher;
-    const width = launcher instanceof HTMLElement ? launcher.offsetWidth || 212 : 212;
-    const height = launcher instanceof HTMLElement ? launcher.offsetHeight || 56 : 56;
+    const launcherWrap = siteAssistantState.elements?.launcherWrap;
+    const width = launcherWrap instanceof HTMLElement ? launcherWrap.offsetWidth || 96 : 96;
+    const height = launcherWrap instanceof HTMLElement ? launcherWrap.offsetHeight || 56 : 56;
     const margin = 8;
     const maxX = Math.max(margin, window.innerWidth - width - margin);
     const maxY = Math.max(margin, window.innerHeight - height - margin);
@@ -803,16 +832,16 @@ function clampSiteAssistantLauncherPosition(x, y) {
 }
 
 function applySiteAssistantLauncherPosition() {
-    const launcher = siteAssistantState.elements?.launcher;
-    if (!(launcher instanceof HTMLElement)) {
+    const launcherWrap = siteAssistantState.elements?.launcherWrap;
+    if (!(launcherWrap instanceof HTMLElement)) {
         return;
     }
 
     if (!siteAssistantState.launcherPosition) {
-        launcher.style.removeProperty("left");
-        launcher.style.removeProperty("top");
-        launcher.style.removeProperty("right");
-        launcher.style.removeProperty("bottom");
+        launcherWrap.style.removeProperty("left");
+        launcherWrap.style.removeProperty("top");
+        launcherWrap.style.removeProperty("right");
+        launcherWrap.style.removeProperty("bottom");
         return;
     }
 
@@ -821,10 +850,77 @@ function applySiteAssistantLauncherPosition() {
         Number(siteAssistantState.launcherPosition.y || 0)
     );
     siteAssistantState.launcherPosition = clamped;
-    launcher.style.left = `${clamped.x}px`;
-    launcher.style.top = `${clamped.y}px`;
-    launcher.style.right = "auto";
-    launcher.style.bottom = "auto";
+    launcherWrap.style.left = `${clamped.x}px`;
+    launcherWrap.style.top = `${clamped.y}px`;
+    launcherWrap.style.right = "auto";
+    launcherWrap.style.bottom = "auto";
+    if (siteAssistantState.open) {
+        applySiteAssistantPanelPosition();
+    }
+}
+
+function syncSiteAssistantLauncherVisibility() {
+    const launcherWrap = siteAssistantState.elements?.launcherWrap;
+    if (!(launcherWrap instanceof HTMLElement)) {
+        return;
+    }
+    launcherWrap.hidden = siteAssistantState.launcherHidden;
+    launcherWrap.setAttribute("aria-hidden", siteAssistantState.launcherHidden ? "true" : "false");
+}
+
+function clampSiteAssistantPanelPosition(left, top, width, height) {
+    const margin = window.innerWidth <= 720 ? 8 : 12;
+    const maxLeft = Math.max(margin, window.innerWidth - width - margin);
+    const maxTop = Math.max(margin, window.innerHeight - height - margin);
+    return {
+        left: Math.min(Math.max(margin, left), maxLeft),
+        top: Math.min(Math.max(margin, top), maxTop)
+    };
+}
+
+function applySiteAssistantPanelPosition() {
+    const panel = siteAssistantState.elements?.panel;
+    const launcherWrap = siteAssistantState.elements?.launcherWrap;
+    if (!(panel instanceof HTMLElement) || !(launcherWrap instanceof HTMLElement) || panel.hidden) {
+        return;
+    }
+
+    panel.style.removeProperty("width");
+    panel.style.removeProperty("left");
+    panel.style.removeProperty("top");
+    panel.style.removeProperty("right");
+    panel.style.removeProperty("bottom");
+
+    const launcherRect = launcherWrap.getBoundingClientRect();
+    const panelRect = panel.getBoundingClientRect();
+    const panelWidth = Math.max(280, Math.round(panelRect.width || Math.min(432, window.innerWidth - 24)));
+    const panelHeight = Math.max(280, Math.round(panelRect.height || Math.min(window.innerHeight - 24, 640)));
+    const gap = window.innerWidth <= 720 ? 10 : 14;
+    const preferLeft = launcherRect.left >= window.innerWidth / 2;
+    const preferAbove = launcherRect.top >= window.innerHeight / 2;
+
+    let left = preferLeft ? launcherRect.right - panelWidth : launcherRect.left;
+    let top = preferAbove ? launcherRect.top - panelHeight - gap : launcherRect.bottom + gap;
+
+    if (!preferAbove && top + panelHeight > window.innerHeight - gap) {
+        top = launcherRect.top - panelHeight - gap;
+    } else if (preferAbove && top < gap) {
+        top = launcherRect.bottom + gap;
+    }
+
+    if (!preferLeft && left + panelWidth > window.innerWidth - gap) {
+        left = launcherRect.right - panelWidth;
+    } else if (preferLeft && left < gap) {
+        left = launcherRect.left;
+    }
+
+    const clamped = clampSiteAssistantPanelPosition(left, top, panelWidth, panelHeight);
+    panel.style.width = `${panelWidth}px`;
+    panel.style.left = `${clamped.left}px`;
+    panel.style.top = `${clamped.top}px`;
+    panel.style.right = "auto";
+    panel.style.bottom = "auto";
+    panel.style.transformOrigin = `${preferLeft ? "right" : "left"} ${preferAbove ? "bottom" : "top"}`;
 }
 
 function setSiteAssistantOpen(nextOpen) {
@@ -844,29 +940,38 @@ function setSiteAssistantOpen(nextOpen) {
     launcher.setAttribute("aria-expanded", siteAssistantState.open ? "true" : "false");
 
     if (siteAssistantState.open) {
+        applySiteAssistantPanelPosition();
         renderSiteAssistantMessages();
         syncSiteAssistantStatus();
         scrollSiteAssistantToLatest(siteAssistantState.history.length ? "smooth" : "auto");
+        window.requestAnimationFrame(() => {
+            applySiteAssistantPanelPosition();
+        });
         void loadSiteAssistantThreadHistory(false).then(() => {
+            applySiteAssistantPanelPosition();
             renderSiteAssistantMessages();
             scrollSiteAssistantToLatest(siteAssistantState.history.length ? "smooth" : "auto");
         });
         if (textarea instanceof HTMLTextAreaElement) {
-            window.setTimeout(() => textarea.focus(), 40);
+            window.setTimeout(() => {
+                textarea.focus();
+                textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+            }, 40);
         }
     }
 }
 
 function startSiteAssistantLauncherDrag(event) {
     const launcher = siteAssistantState.elements?.launcher;
-    if (!(launcher instanceof HTMLElement) || siteAssistantState.open) {
+    const launcherWrap = siteAssistantState.elements?.launcherWrap;
+    if (!(launcher instanceof HTMLElement) || !(launcherWrap instanceof HTMLElement) || siteAssistantState.open) {
         return;
     }
     if (typeof event.button === "number" && event.button !== 0) {
         return;
     }
 
-    const rect = launcher.getBoundingClientRect();
+    const rect = launcherWrap.getBoundingClientRect();
     siteAssistantState.drag.active = true;
     siteAssistantState.drag.pointerId = event.pointerId;
     siteAssistantState.drag.startX = event.clientX;
@@ -940,13 +1045,14 @@ function endSiteAssistantLauncherDrag(event) {
 
 window.openSiteAssistant = function openSiteAssistant(prefill = "") {
     initSiteAssistant();
+    saveSiteAssistantLauncherHidden(false);
+    syncSiteAssistantLauncherVisibility();
+    applySiteAssistantLauncherPosition();
     setSiteAssistantOpen(true);
     const textarea = siteAssistantState.elements?.textarea;
     if (prefill && textarea instanceof HTMLTextAreaElement) {
-        textarea.value = String(prefill);
+        textarea.value = String(prefill).slice(0, SITE_ASSISTANT_MAX_INPUT_CHARS);
         resizeSiteAssistantTextarea();
-        textarea.focus();
-        textarea.setSelectionRange(textarea.value.length, textarea.value.length);
     }
 };
 
@@ -1096,35 +1202,33 @@ function initSiteAssistant() {
     siteAssistantState.threadId = loadSiteAssistantThreadId();
     siteAssistantState.history = loadSiteAssistantHistory();
     siteAssistantState.launcherPosition = loadSiteAssistantLauncherPosition();
+    siteAssistantState.launcherHidden = loadSiteAssistantLauncherHidden();
 
     document.body.insertAdjacentHTML("beforeend", `
         <div id="site-assistant-root" class="site-assistant">
             <button id="site-assistant-backdrop" type="button" class="site-assistant-backdrop" hidden aria-label="Zavřít asistenta"></button>
-            <button id="site-assistant-launcher" type="button" class="site-assistant-launcher" aria-label="Otevřít asistenta" aria-expanded="false" aria-controls="site-assistant-panel">
-                <span class="site-assistant-launcher-icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M21 15a3 3 0 0 1-3 3H9l-4 3v-3H5a3 3 0 0 1-3-3V7a3 3 0 0 1 3-3h13a3 3 0 0 1 3 3z"></path>
-                        <path d="M8 10h8"></path>
-                        <path d="M8 14h5"></path>
-                    </svg>
-                </span>
-                <span class="site-assistant-launcher-copy">
-                    <strong>Asistent</strong>
-                    <small>Pomoc se stránkou</small>
-                </span>
-            </button>
+            <div id="site-assistant-launcher-wrap" class="site-assistant-launcher-wrap">
+                <button id="site-assistant-launcher" type="button" class="site-assistant-launcher" aria-label="Otevřít asistenta" aria-expanded="false" aria-controls="site-assistant-panel">
+                    <span class="site-assistant-launcher-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 15a3 3 0 0 1-3 3H9l-4 3v-3H5a3 3 0 0 1-3-3V7a3 3 0 0 1 3-3h13a3 3 0 0 1 3 3z"></path>
+                            <path d="M8 10h8"></path>
+                            <path d="M8 14h5"></path>
+                        </svg>
+                    </span>
+                </button>
+                <button id="site-assistant-launcher-dismiss" type="button" class="site-assistant-launcher-dismiss" aria-label="Skrýt ikonu asistenta">&times;</button>
+            </div>
             <section id="site-assistant-panel" class="site-assistant-panel" hidden aria-labelledby="site-assistant-title">
                 <div class="site-assistant-panel-head">
                     <div>
-                        <p class="section-label">Houbám Zdar</p>
-                        <h2 id="site-assistant-title">Asistent</h2>
+                        <p id="site-assistant-title" class="section-label">Asistent</p>
                     </div>
                     <div class="site-assistant-panel-actions">
                         <button id="site-assistant-reset" type="button" class="btn btn-secondary site-assistant-head-btn">Nový chat</button>
                         <button id="site-assistant-close" type="button" class="site-assistant-close" aria-label="Zavřít asistenta">&times;</button>
                     </div>
                 </div>
-                <p class="site-assistant-note">Pomohu s používáním webu.</p>
                 <div id="site-assistant-messages" class="site-assistant-messages" role="log" aria-live="polite"></div>
                 <div id="site-assistant-empty" class="site-assistant-empty">
                     <p>Zkuste se zeptat na registraci, přihlášení, chat, fotografie nebo publikování nálezů.</p>
@@ -1132,7 +1236,7 @@ function initSiteAssistant() {
                 <div id="site-assistant-suggestions" class="site-assistant-suggestions"></div>
                 <form id="site-assistant-form" class="site-assistant-form">
                     <label for="site-assistant-input" class="sr-only">Dotaz pro asistenta</label>
-                    <textarea id="site-assistant-input" class="site-assistant-input" rows="1" maxlength="2000" placeholder="Napište dotaz k používání Houbám Zdar"></textarea>
+                    <textarea id="site-assistant-input" class="site-assistant-input" rows="1" maxlength="${SITE_ASSISTANT_MAX_INPUT_CHARS}" placeholder="Napište dotaz k používání Houbám Zdar"></textarea>
                     <div class="site-assistant-form-foot">
                         <p id="site-assistant-status" class="site-assistant-status" hidden></p>
                         <button id="site-assistant-submit" type="submit" class="btn btn-primary site-assistant-submit">Odeslat</button>
@@ -1145,7 +1249,9 @@ function initSiteAssistant() {
     siteAssistantState.elements = {
         root: document.getElementById("site-assistant-root"),
         backdrop: document.getElementById("site-assistant-backdrop"),
+        launcherWrap: document.getElementById("site-assistant-launcher-wrap"),
         launcher: document.getElementById("site-assistant-launcher"),
+        launcherDismiss: document.getElementById("site-assistant-launcher-dismiss"),
         panel: document.getElementById("site-assistant-panel"),
         messages: document.getElementById("site-assistant-messages"),
         suggestions: document.getElementById("site-assistant-suggestions"),
@@ -1169,6 +1275,13 @@ function initSiteAssistant() {
     siteAssistantState.elements.launcher?.addEventListener("pointermove", moveSiteAssistantLauncherDrag);
     siteAssistantState.elements.launcher?.addEventListener("pointerup", endSiteAssistantLauncherDrag);
     siteAssistantState.elements.launcher?.addEventListener("pointercancel", endSiteAssistantLauncherDrag);
+    siteAssistantState.elements.launcherDismiss?.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        saveSiteAssistantLauncherHidden(true);
+        setSiteAssistantOpen(false);
+        syncSiteAssistantLauncherVisibility();
+    });
     siteAssistantState.elements.backdrop?.addEventListener("click", () => {
         setSiteAssistantOpen(false);
     });
@@ -1228,11 +1341,24 @@ function initSiteAssistant() {
             setSiteAssistantOpen(false);
         }
     });
+    window.addEventListener("resize", () => {
+        applySiteAssistantLauncherPosition();
+        if (siteAssistantState.open) {
+            applySiteAssistantPanelPosition();
+        }
+    });
+    window.visualViewport?.addEventListener("resize", () => {
+        applySiteAssistantLauncherPosition();
+        if (siteAssistantState.open) {
+            applySiteAssistantPanelPosition();
+        }
+    });
 
     renderSiteAssistantMessages();
     resizeSiteAssistantTextarea();
     syncSiteAssistantBusyState();
     setSiteAssistantOpen(false);
+    syncSiteAssistantLauncherVisibility();
     applySiteAssistantLauncherPosition();
     void loadSiteAssistantConfig(false);
 }
@@ -2773,21 +2899,20 @@ function renderHeader(session, profile = null) {
     const avatarUrl = identity?.picture;
     const profileIcon = buildAvatarImageHtml(avatarUrl, "Avatar", "", 'loading="lazy"');
     const brandMenuIcon = '<img src="/logo.png" alt="" loading="lazy">';
+    const primaryMenuItems = [
+        { href: "/feed.html", label: "Zeď úlovků", icon: "📰" },
+        { href: "/gallery.html", label: "Galerie", icon: "🖼️" },
+        { type: "action", label: "Mapa", icon: "🗺️", handler: openHeaderGlobalMap },
+        { href: "/create-post.html", label: "Vytvořit publikaci", icon: "✍️" },
+        { href: "/capture.html?source=camera", label: "Vyfotit nový nález", note: "nejdřív ověření GPS do 100 m", icon: "📷" },
+        { href: "/users.html", label: "Houbaři", icon: "🍄" },
+        { href: "/chat.html", label: "Chat", icon: "💬" },
+        { href: "/", label: "Novinky", icon: "🔥" },
+        { type: "action", label: "Asistent", icon: "🤖", handler: () => window.openSiteAssistant?.() },
+        { href: "/faq.html", label: "Časté dotazy", icon: "❓" }
+    ];
 
     if (session && session.logged_in) {
-        const leftTabItems = [
-            { href: "/", label: "Novinky", icon: "🔥" },
-            { href: "/faq.html", label: "Časté dotazy", icon: "❓" },
-            { type: "action", label: "Asistent", icon: "🤖", handler: () => window.openSiteAssistant?.() },
-            { href: "/feed.html", label: "Zeď úlovků", icon: "📰" },
-            { href: "/chat.html", label: "Chat", icon: "💬" },
-            { href: "/gallery.html", label: "Galerie", icon: "🖼️" },
-            { href: "/users.html", label: "Houbaři", icon: "🍄" },
-            { type: "action", label: "Mapa", icon: "🗺️", handler: openHeaderGlobalMap },
-            { href: "/create-post.html", label: "Vytvořit publikaci", icon: "✍️" },
-            { href: "/capture.html?source=camera", label: "Vyfotit nový nález", note: "nejdřív ověření GPS do 100 m", icon: "📷" }
-        ];
-
         const rightTabItems = [
             { href: "/public-profile.html", label: "Veřejný profil", icon: "🌍" },
             { href: "/me.html", label: "Můj profil", icon: profileIcon },
@@ -2816,11 +2941,10 @@ function renderHeader(session, profile = null) {
             {
                 label: "Hlavní menu",
                 htmlLabel: "Hlavní menu",
-                items: leftTabItems,
+                items: primaryMenuItems,
                 lead: {
                     href: "/info.html",
                     title: "O Houbám Zdar",
-                    copy: "Jak funguje projekt, sdílení nálezů a pravidla komunity.",
                     icon: brandMenuIcon
                 }
             },
@@ -2880,17 +3004,6 @@ function renderHeader(session, profile = null) {
     setHeaderChatUnreadBadges(0);
     setHeaderHoubickaBadges(0);
 
-    const leftTabItems = [
-        { href: "/", label: "Novinky", icon: "🔥" },
-        { href: "/faq.html", label: "Časté dotazy", icon: "❓" },
-        { type: "action", label: "Asistent", icon: "🤖", handler: () => window.openSiteAssistant?.() },
-        { href: "/feed.html", label: "Zeď úlovků", icon: "📰" },
-        { href: "/chat.html", label: "Chat", icon: "💬" },
-        { href: "/gallery.html", label: "Galerie", icon: "🖼️" },
-        { href: "/users.html", label: "Houbaři", icon: "🍄" },
-        { type: "action", label: "Mapa", icon: "🗺️", handler: openHeaderGlobalMap }
-    ];
-
     const rightTabItems = [
         { href: `${API_URL}/auth/login`, label: "Přihlášení", icon: "🔑" },
         { href: buildAhoj420RegisterURL(), label: "Registrace", icon: "📝" },
@@ -2903,11 +3016,10 @@ function renderHeader(session, profile = null) {
         {
             label: "Hlavní menu",
             htmlLabel: "Hlavní menu",
-            items: leftTabItems,
+            items: primaryMenuItems,
             lead: {
                 href: "/info.html",
                 title: "O Houbám Zdar",
-                copy: "Jak funguje projekt, sdílení nálezů a co čekat po registraci.",
                 icon: brandMenuIcon
             }
         },
