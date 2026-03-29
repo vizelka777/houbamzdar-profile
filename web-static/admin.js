@@ -22,6 +22,20 @@ const adminPageState = {
         query: "",
         role: "",
         status: ""
+    },
+    assistant: {
+        overview: null,
+        frequentQuestions: [],
+        threads: [],
+        total: 0,
+        limit: 10,
+        offset: 0,
+        hasMore: false,
+        loadingThreads: false,
+        loadingThreadID: "",
+        selectedThreadID: "",
+        selectedThread: null,
+        messages: []
     }
 };
 
@@ -160,6 +174,171 @@ function renderAdminSystemStatus() {
         latestBackup.storage_key ? latestBackup.storage_key : ""
     ].filter(Boolean);
     latestBackupText.textContent = meta.join(" · ");
+}
+
+function renderAdminAssistantOverview() {
+    const overview = adminPageState.assistant.overview || {};
+    setText("admin-assistant-stat-threads", String(overview.total_threads || 0));
+    setText("admin-assistant-stat-messages", String(overview.total_messages || 0));
+    setText("admin-assistant-stat-clients", String(overview.unique_clients || 0));
+    setText(
+        "admin-assistant-stat-feedback",
+        `${Number(overview.feedback_up || 0)} / ${Number(overview.feedback_down || 0)}`
+    );
+
+    const summary = document.getElementById("admin-assistant-summary");
+    if (!summary) {
+        return;
+    }
+
+    if (!adminPageState.assistant.overview) {
+        summary.textContent = "Načítám assistant statistiky...";
+        return;
+    }
+
+    const parts = [
+        `${Number(overview.threads_today || 0)} threadů dnes`,
+        `${Number(overview.messages_today || 0)} zpráv dnes`,
+        overview.last_message_at ? `poslední aktivita ${formatDateTime(overview.last_message_at)}` : ""
+    ].filter(Boolean);
+    summary.textContent = parts.join(" · ") || "Zatím bez assistant provozu.";
+}
+
+function renderAdminAssistantFrequentQuestions() {
+    const summaryNode = document.getElementById("admin-assistant-faq-summary");
+    const listNode = document.getElementById("admin-assistant-faq-list");
+    if (!summaryNode || !listNode) {
+        return;
+    }
+
+    const items = Array.isArray(adminPageState.assistant.frequentQuestions)
+        ? adminPageState.assistant.frequentQuestions
+        : [];
+
+    if (!items.length) {
+        summaryNode.textContent = "Zatím bez uložených dotazů.";
+        listNode.innerHTML = '<p class="moderation-dashboard-empty">V assistant databázi zatím nejsou žádné user otázky.</p>';
+        return;
+    }
+
+    summaryNode.textContent = `Top ${items.length} opakovaných dotazů.`;
+    listNode.innerHTML = items.map((item) => `
+        <article class="admin-assistant-faq-item">
+            <div>
+                <h4>${escapeHtml(item.question || "Bez textu")}</h4>
+                <p class="muted-copy">${item.last_asked_at ? `Naposledy ${escapeHtml(formatDateTime(item.last_asked_at))}` : "Bez času"}</p>
+            </div>
+            <span class="capture-access-badge capture-access-badge-map">${escapeHtml(String(item.count || 0))}×</span>
+        </article>
+    `).join("");
+}
+
+function renderAdminAssistantThreads() {
+    const summaryNode = document.getElementById("admin-assistant-threads-summary");
+    const listNode = document.getElementById("admin-assistant-threads-list");
+    const loadMoreButton = document.getElementById("admin-assistant-threads-load-more");
+    if (!summaryNode || !listNode || !loadMoreButton) {
+        return;
+    }
+
+    const state = adminPageState.assistant;
+    if (state.loadingThreads && state.threads.length === 0) {
+        summaryNode.textContent = "Načítám dialogy...";
+        listNode.innerHTML = '<p class="moderation-dashboard-empty">Načítám dialogy...</p>';
+        loadMoreButton.style.display = "none";
+        return;
+    }
+
+    if (!state.threads.length) {
+        summaryNode.textContent = "Zatím není uložená žádná konverzace.";
+        listNode.innerHTML = '<p class="moderation-dashboard-empty">Assistant zatím nemá uložené žádné dialogy.</p>';
+        loadMoreButton.style.display = "none";
+        return;
+    }
+
+    summaryNode.textContent = `Načteno ${state.threads.length} z ${state.total} dialogů.`;
+    listNode.innerHTML = state.threads.map((thread) => {
+        const isActive = state.selectedThreadID && String(state.selectedThreadID) === String(thread.id);
+        const meta = [
+            thread.page_context || "",
+            thread.last_message_at ? formatDateTime(thread.last_message_at) : "",
+            thread.locale ? thread.locale.toUpperCase() : ""
+        ].filter(Boolean);
+
+        return `
+            <article class="admin-assistant-thread-item${isActive ? " is-active" : ""}">
+                <div class="admin-assistant-thread-copy">
+                    <h4>${escapeHtml(thread.last_user_message || "Bez user zprávy")}</h4>
+                    <p class="muted-copy">${escapeHtml(meta.join(" · "))}</p>
+                    ${thread.last_assistant_message ? `<p>${escapeHtml(thread.last_assistant_message)}</p>` : ""}
+                </div>
+                <div class="admin-assistant-thread-actions">
+                    <div class="admin-user-badges">
+                        <span class="capture-access-badge">${escapeHtml(String(thread.total_messages || 0))} zpráv</span>
+                        ${thread.last_feedback_vote === "up" ? '<span class="capture-access-badge capture-access-badge-free">👍</span>' : ""}
+                        ${thread.last_feedback_vote === "down" ? '<span class="capture-access-badge capture-access-badge-paid">👎</span>' : ""}
+                    </div>
+                    <button
+                        type="button"
+                        class="btn btn-secondary"
+                        data-admin-assistant-thread="${escapeHtml(thread.id)}"
+                        ${state.loadingThreadID === thread.id ? "disabled" : ""}
+                    >
+                        ${state.loadingThreadID === thread.id ? "Načítám..." : "Otevřít"}
+                    </button>
+                </div>
+            </article>
+        `;
+    }).join("");
+
+    loadMoreButton.style.display = state.hasMore ? "inline-flex" : "none";
+    loadMoreButton.disabled = state.loadingThreads;
+}
+
+function renderAdminAssistantThreadDetail() {
+    const titleNode = document.getElementById("admin-assistant-thread-title");
+    const metaNode = document.getElementById("admin-assistant-thread-meta");
+    const badgesNode = document.getElementById("admin-assistant-thread-badges");
+    const messagesNode = document.getElementById("admin-assistant-thread-messages");
+    if (!titleNode || !metaNode || !badgesNode || !messagesNode) {
+        return;
+    }
+
+    const thread = adminPageState.assistant.selectedThread;
+    const messages = Array.isArray(adminPageState.assistant.messages) ? adminPageState.assistant.messages : [];
+    if (!thread) {
+        titleNode.textContent = "Vyberte dialog";
+        metaNode.textContent = "Po kliknutí na dialog se zobrazí celá konverzace.";
+        badgesNode.innerHTML = "";
+        messagesNode.innerHTML = '<p class="moderation-dashboard-empty">Zatím není vybraný žádný dialog.</p>';
+        return;
+    }
+
+    titleNode.textContent = `Thread ${thread.id}`;
+    metaNode.textContent = [
+        thread.page_context || "",
+        thread.created_at ? `vznik ${formatDateTime(thread.created_at)}` : "",
+        thread.last_message_at ? `poslední zpráva ${formatDateTime(thread.last_message_at)}` : ""
+    ].filter(Boolean).join(" · ");
+
+    badgesNode.innerHTML = [
+        `<span class="capture-access-badge">client ${escapeHtml(thread.client_id || "n/a")}</span>`,
+        `<span class="capture-access-badge capture-access-badge-map">${escapeHtml(String(thread.total_messages || 0))} zpráv</span>`,
+        thread.last_feedback_vote === "up" ? '<span class="capture-access-badge capture-access-badge-free">Poslední feedback 👍</span>' : "",
+        thread.last_feedback_vote === "down" ? '<span class="capture-access-badge capture-access-badge-paid">Poslední feedback 👎</span>' : ""
+    ].filter(Boolean).join("");
+
+    messagesNode.innerHTML = messages.length ? messages.map((message) => `
+        <article class="admin-assistant-message ${message.role === "user" ? "is-user" : "is-assistant"}">
+            <div class="admin-assistant-message-meta">
+                <strong>${message.role === "user" ? "Uživatel" : "Asistent"}</strong>
+                <span>${message.created_at ? escapeHtml(formatDateTime(message.created_at)) : ""}</span>
+                ${message.feedback_vote ? `<span class="capture-access-badge ${message.feedback_vote === "up" ? "capture-access-badge-free" : "capture-access-badge-paid"}">${message.feedback_vote === "up" ? "👍" : "👎"}</span>` : ""}
+            </div>
+            <div class="admin-assistant-message-bubble">${escapeHtml(message.content || "").replace(/\n/g, "<br>")}</div>
+            ${message.model ? `<p class="muted-copy">Model: ${escapeHtml(message.model)}</p>` : ""}
+        </article>
+    `).join("") : '<p class="moderation-dashboard-empty">Vybraný dialog zatím neobsahuje žádné zprávy.</p>';
 }
 
 function renderAdminUsersSummary() {
@@ -406,6 +585,16 @@ async function loadAdminOverview() {
     renderAdminSystemStatus();
 }
 
+async function loadAdminAssistantOverview() {
+    const payload = await apiJsonRequest("/api/admin/assistant/overview");
+    adminPageState.assistant.overview = payload?.overview || null;
+    adminPageState.assistant.frequentQuestions = Array.isArray(payload?.frequent_questions)
+        ? payload.frequent_questions
+        : [];
+    renderAdminAssistantOverview();
+    renderAdminAssistantFrequentQuestions();
+}
+
 function buildAdminUsersPath() {
     const offset = (adminPageState.page - 1) * adminPageState.pageSize;
     const params = new URLSearchParams({
@@ -463,6 +652,93 @@ async function loadAdminBackups({ append = false } = {}) {
     } finally {
         state.loading = false;
         renderAdminBackups();
+    }
+}
+
+async function loadAdminAssistantThreads({ append = false } = {}) {
+    const state = adminPageState.assistant;
+    if (state.loadingThreads) {
+        return;
+    }
+
+    if (!append) {
+        state.threads = [];
+        state.offset = 0;
+        state.total = 0;
+        state.hasMore = false;
+    }
+
+    state.loadingThreads = true;
+    renderAdminAssistantThreads();
+    try {
+        const payload = await apiJsonRequest(`/api/admin/assistant/threads?limit=${state.limit}&offset=${state.offset}`);
+        const items = Array.isArray(payload?.threads) ? payload.threads : [];
+        state.threads = append ? state.threads.concat(items) : items;
+        state.offset = state.threads.length;
+        state.total = Number(payload?.total || 0);
+        state.hasMore = Boolean(payload?.has_more);
+    } finally {
+        state.loadingThreads = false;
+        renderAdminAssistantThreads();
+    }
+}
+
+async function openAdminAssistantThread(threadID) {
+    const normalizedThreadID = String(threadID || "").trim();
+    if (!normalizedThreadID || adminPageState.assistant.loadingThreadID) {
+        return;
+    }
+
+    adminPageState.assistant.loadingThreadID = normalizedThreadID;
+    renderAdminAssistantThreads();
+    try {
+        const payload = await apiJsonRequest(`/api/admin/assistant/threads/${encodeURIComponent(normalizedThreadID)}`);
+        adminPageState.assistant.selectedThreadID = normalizedThreadID;
+        adminPageState.assistant.selectedThread = payload?.thread || null;
+        adminPageState.assistant.messages = Array.isArray(payload?.messages) ? payload.messages : [];
+        renderAdminAssistantThreadDetail();
+        renderAdminAssistantThreads();
+    } catch (error) {
+        console.error("Failed to load assistant thread", error);
+        const messagesNode = document.getElementById("admin-assistant-thread-messages");
+        if (messagesNode) {
+            messagesNode.innerHTML = `<p class="moderation-dashboard-empty">${escapeHtml(error.message || "Dialog se nepodařilo načíst.")}</p>`;
+        }
+    } finally {
+        adminPageState.assistant.loadingThreadID = "";
+        renderAdminAssistantThreads();
+    }
+}
+
+async function loadAdminAssistantPanel() {
+    try {
+        await Promise.all([
+            loadAdminAssistantOverview(),
+            loadAdminAssistantThreads({ append: false })
+        ]);
+    } catch (error) {
+        console.error("Failed to load assistant admin panel", error);
+        const summaryNode = document.getElementById("admin-assistant-summary");
+        const faqSummaryNode = document.getElementById("admin-assistant-faq-summary");
+        const threadsSummaryNode = document.getElementById("admin-assistant-threads-summary");
+        const faqListNode = document.getElementById("admin-assistant-faq-list");
+        const threadsListNode = document.getElementById("admin-assistant-threads-list");
+
+        if (summaryNode) {
+            summaryNode.textContent = error.message || "Assistant statistiky se nepodařilo načíst.";
+        }
+        if (faqSummaryNode) {
+            faqSummaryNode.textContent = "Assistant FAQ nejsou dostupné.";
+        }
+        if (threadsSummaryNode) {
+            threadsSummaryNode.textContent = "Assistant dialogy nejsou dostupné.";
+        }
+        if (faqListNode) {
+            faqListNode.innerHTML = `<p class="moderation-dashboard-empty">${escapeHtml(error.message || "Assistant FAQ nejsou dostupné.")}</p>`;
+        }
+        if (threadsListNode) {
+            threadsListNode.innerHTML = `<p class="moderation-dashboard-empty">${escapeHtml(error.message || "Assistant dialogy nejsou dostupné.")}</p>`;
+        }
     }
 }
 
@@ -559,6 +835,8 @@ function attachAdminPageEvents() {
     const pruneBackupsButton = document.getElementById("admin-prune-backups");
     const loadMoreBackupsButton = document.getElementById("admin-backups-load-more");
     const usersList = document.getElementById("admin-users-list");
+    const assistantThreadsList = document.getElementById("admin-assistant-threads-list");
+    const assistantLoadMoreButton = document.getElementById("admin-assistant-threads-load-more");
 
     if (filtersForm) {
         filtersForm.addEventListener("submit", async (event) => {
@@ -618,6 +896,10 @@ function attachAdminPageEvents() {
         loadMoreBackupsButton.addEventListener("click", () => loadAdminBackups({ append: true }));
     }
 
+    if (assistantLoadMoreButton) {
+        assistantLoadMoreButton.addEventListener("click", () => loadAdminAssistantThreads({ append: true }));
+    }
+
     if (usersList) {
         usersList.addEventListener("click", (event) => {
             const button = event.target instanceof Element ? event.target.closest("[data-admin-delete-user]") : null;
@@ -625,6 +907,16 @@ function attachAdminPageEvents() {
                 return;
             }
             deleteAdminUser(button.getAttribute("data-admin-delete-user"), button.getAttribute("data-admin-delete-username"));
+        });
+    }
+
+    if (assistantThreadsList) {
+        assistantThreadsList.addEventListener("click", (event) => {
+            const button = event.target instanceof Element ? event.target.closest("[data-admin-assistant-thread]") : null;
+            if (!button) {
+                return;
+            }
+            openAdminAssistantThread(button.getAttribute("data-admin-assistant-thread"));
         });
     }
 }
@@ -660,9 +952,18 @@ async function initAdminPage() {
     }
 
     attachAdminPageEvents();
+    renderAdminAssistantOverview();
+    renderAdminAssistantFrequentQuestions();
+    renderAdminAssistantThreads();
+    renderAdminAssistantThreadDetail();
 
     try {
-        await Promise.all([loadAdminOverview(), loadAdminUsers(), loadAdminBackups({ append: false })]);
+        await Promise.all([
+            loadAdminOverview(),
+            loadAdminUsers(),
+            loadAdminBackups({ append: false }),
+            loadAdminAssistantPanel()
+        ]);
     } catch (error) {
         console.error("Failed to initialize admin page", error);
         showAdminPageError(error.message || "Administraci se nepodařilo načíst.");

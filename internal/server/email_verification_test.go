@@ -59,7 +59,7 @@ func newEmailVerificationTestServer(t *testing.T, emailVerified bool) (*Server, 
 		t.Fatalf("create session: %v", err)
 	}
 
-	return New(cfg, database, nil, nil), cfg, database, user, sessionID
+	return New(cfg, database, nil, nil, nil), cfg, database, user, sessionID
 }
 
 func TestCreatePostRequiresVerifiedEmail(t *testing.T) {

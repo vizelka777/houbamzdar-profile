@@ -155,7 +155,7 @@ func TestCaptureCoordinateUnlockFlow(t *testing.T) {
 		t.Fatalf("create free capture: %v", err)
 	}
 
-	srv := New(cfg, database, nil, nil)
+	srv := New(cfg, database, nil, nil, nil)
 
 	guestListReq := httptest.NewRequest(http.MethodGet, "/api/public/captures?limit=10&offset=0", nil)
 	guestListRec := httptest.NewRecorder()
@@ -494,7 +494,7 @@ func TestProfileMapEndpointsUseDedicatedWholeMapPayloads(t *testing.T) {
 		t.Fatalf("create viewer session: %v", err)
 	}
 
-	srv := New(cfg, database, nil, nil)
+	srv := New(cfg, database, nil, nil, nil)
 
 	authorOwnMapReq := httptest.NewRequest(http.MethodGet, "/api/me/map-captures", nil)
 	authorOwnMapReq.AddCookie(&http.Cookie{Name: cfg.SessionCookieName, Value: authorSession})
@@ -693,7 +693,7 @@ func TestPublicCapturesIncludeAllDetectedMushroomSpecies(t *testing.T) {
 		t.Fatalf("finalize capture: %v", err)
 	}
 
-	srv := New(cfg, database, nil, nil)
+	srv := New(cfg, database, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/public/captures?limit=10&offset=0", nil)
 	rec := httptest.NewRecorder()
@@ -808,7 +808,7 @@ func TestAdminID20CanSeeAllMapMarkers(t *testing.T) {
 	hiddenPublished := makeCapture("admin-map-hidden", "published", "captures/published/hidden.jpg", false, true, 49.75, 13.38)
 	privateCapture := makeCapture("admin-map-private", "private", "", false, false, 49.59, 17.25)
 
-	srv := New(cfg, database, nil, nil)
+	srv := New(cfg, database, nil, nil, nil)
 
 	guestReq := httptest.NewRequest(http.MethodGet, "/api/public/map-captures?limit=10&offset=0", nil)
 	guestRec := httptest.NewRecorder()
@@ -956,7 +956,7 @@ func TestHandlePublishCaptureQueuesValidation(t *testing.T) {
 		t.Fatalf("create capture: %v", err)
 	}
 
-	srv := New(cfg, database, nil, &media.BunnyStorage{})
+	srv := New(cfg, database, nil, nil, &media.BunnyStorage{})
 
 	req := httptest.NewRequest(http.MethodPost, "/api/captures/"+capture.ID+"/publish", nil)
 	req.AddCookie(&http.Cookie{Name: cfg.SessionCookieName, Value: sessionID})
@@ -1063,7 +1063,7 @@ func TestHandlePublishCaptureRejectsMissingCoordinates(t *testing.T) {
 		t.Fatalf("create capture: %v", err)
 	}
 
-	srv := New(cfg, database, nil, &media.BunnyStorage{})
+	srv := New(cfg, database, nil, nil, &media.BunnyStorage{})
 
 	req := httptest.NewRequest(http.MethodPost, "/api/captures/"+capture.ID+"/publish", nil)
 	req.AddCookie(&http.Cookie{Name: cfg.SessionCookieName, Value: sessionID})
@@ -1232,7 +1232,7 @@ func TestHandleModeratorRecheckCaptureUpdatesPublishedAnalysis(t *testing.T) {
 		t.Fatalf("create capture: %v", err)
 	}
 
-	srv := New(cfg, database, nil, &media.BunnyStorage{})
+	srv := New(cfg, database, nil, nil, &media.BunnyStorage{})
 
 	req := httptest.NewRequest(http.MethodPost, "/api/captures/"+capture.ID+"/moderator-recheck", nil)
 	req.AddCookie(&http.Cookie{Name: cfg.SessionCookieName, Value: sessionID})
@@ -1400,7 +1400,7 @@ func TestModeratorCanOverrideCaptureTaxonomy(t *testing.T) {
 		t.Fatalf("create capture: %v", err)
 	}
 
-	srv := New(cfg, database, nil, &media.BunnyStorage{})
+	srv := New(cfg, database, nil, nil, &media.BunnyStorage{})
 
 	req := httptest.NewRequest(
 		http.MethodPost,
@@ -1590,7 +1590,7 @@ func TestModeratorGeoEditingRespectsUnlockPrivacy(t *testing.T) {
 		t.Fatalf("insert geo index: %v", err)
 	}
 
-	srv := New(cfg, database, nil, &media.BunnyStorage{})
+	srv := New(cfg, database, nil, nil, &media.BunnyStorage{})
 
 	getReq := httptest.NewRequest(http.MethodGet, "/api/moderation/captures/"+capture.ID+"/geo", nil)
 	getReq.AddCookie(&http.Cookie{Name: cfg.SessionCookieName, Value: sessionID})

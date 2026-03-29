@@ -15,7 +15,7 @@ func TestCORSPreflightAllowsDeleteForCaptures(t *testing.T) {
 	srv := New(&config.Config{
 		FrontOrigin:       "https://houbamzdar.cz",
 		SessionCookieName: "hzd_session",
-	}, nil, nil, nil)
+	}, nil, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodOptions, "/api/captures/test-capture", nil)
 	req.Header.Set("Origin", "https://houbamzdar.cz")

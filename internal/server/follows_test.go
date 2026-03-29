@@ -61,7 +61,7 @@ func TestFollowEndpointsAndPublicProfileState(t *testing.T) {
 		t.Fatalf("create session: %v", err)
 	}
 
-	srv := New(cfg, database, nil, nil)
+	srv := New(cfg, database, nil, nil, nil)
 
 	guestReq := httptest.NewRequest(http.MethodPost, "/api/users/"+strconv.FormatInt(target.ID, 10)+"/follow", nil)
 	guestRec := httptest.NewRecorder()
@@ -122,9 +122,9 @@ func TestFollowEndpointsAndPublicProfileState(t *testing.T) {
 	}
 
 	var followingPayload struct {
-		OK    bool                         `json:"ok"`
+		OK    bool                          `json:"ok"`
 		Users []*models.FollowedUserProfile `json:"users"`
-		Total int                          `json:"total"`
+		Total int                           `json:"total"`
 	}
 	if err := json.NewDecoder(followingRec.Body).Decode(&followingPayload); err != nil {
 		t.Fatalf("decode following payload: %v", err)

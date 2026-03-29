@@ -359,3 +359,57 @@ type AdminSystemStatus struct {
 	ValidatorConfigReachable bool         `json:"validator_config_reachable"`
 	ValidatorConfigError     string       `json:"validator_config_error,omitempty"`
 }
+
+type AssistantAdminOverview struct {
+	TotalThreads   int       `json:"total_threads"`
+	OpenThreads    int       `json:"open_threads"`
+	UniqueClients  int       `json:"unique_clients"`
+	TotalMessages  int       `json:"total_messages"`
+	UserMessages   int       `json:"user_messages"`
+	AssistantPosts int       `json:"assistant_messages"`
+	FeedbackUp     int       `json:"feedback_up"`
+	FeedbackDown   int       `json:"feedback_down"`
+	ThreadsToday   int       `json:"threads_today"`
+	MessagesToday  int       `json:"messages_today"`
+	LastMessageAt  time.Time `json:"last_message_at,omitempty"`
+}
+
+type AssistantFrequentQuestion struct {
+	NormalizedQuestion string    `json:"normalized_question,omitempty"`
+	Question           string    `json:"question"`
+	Count              int       `json:"count"`
+	LastAskedAt        time.Time `json:"last_asked_at,omitempty"`
+}
+
+type AssistantThreadSummary struct {
+	ID                   string    `json:"id"`
+	ClientID             string    `json:"client_id,omitempty"`
+	PageContext          string    `json:"page_context,omitempty"`
+	Locale               string    `json:"locale,omitempty"`
+	Status               string    `json:"status,omitempty"`
+	CreatedAt            time.Time `json:"created_at,omitempty"`
+	UpdatedAt            time.Time `json:"updated_at,omitempty"`
+	LastMessageAt        time.Time `json:"last_message_at,omitempty"`
+	TotalMessages        int       `json:"total_messages"`
+	UserMessages         int       `json:"user_messages"`
+	AssistantMessages    int       `json:"assistant_messages"`
+	LastUserMessage      string    `json:"last_user_message,omitempty"`
+	LastAssistantMessage string    `json:"last_assistant_message,omitempty"`
+	LastFeedbackVote     string    `json:"last_feedback_vote,omitempty"`
+}
+
+type AssistantThreadMessage struct {
+	ID           string    `json:"id"`
+	ThreadID     string    `json:"thread_id"`
+	Role         string    `json:"role"`
+	Content      string    `json:"content"`
+	Model        string    `json:"model,omitempty"`
+	ResponseID   string    `json:"response_id,omitempty"`
+	CreatedAt    time.Time `json:"created_at,omitempty"`
+	FeedbackVote string    `json:"feedback_vote,omitempty"`
+}
+
+type AssistantThreadDetail struct {
+	Thread   *AssistantThreadSummary   `json:"thread,omitempty"`
+	Messages []*AssistantThreadMessage `json:"messages,omitempty"`
+}

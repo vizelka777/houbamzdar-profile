@@ -93,7 +93,7 @@ func TestListPublicPostsIncludesCapturePublicURLs(t *testing.T) {
 		t.Fatalf("create post: %v", err)
 	}
 
-	srv := New(cfg, database, nil, media.NewBunnyStorage(cfg))
+	srv := New(cfg, database, nil, nil, media.NewBunnyStorage(cfg))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/public/posts?limit=10&offset=0", nil)
 	rec := httptest.NewRecorder()
@@ -174,7 +174,7 @@ func TestCreatePostTrimsContentAndRejectsTooLongContent(t *testing.T) {
 		t.Fatalf("create session: %v", err)
 	}
 
-	srv := New(cfg, database, nil, nil)
+	srv := New(cfg, database, nil, nil, nil)
 
 	createBody, err := json.Marshal(models.CreatePostRequest{
 		Content: "  Obsah publikace s mezerami  ",
@@ -288,7 +288,7 @@ func TestCreatePostCommentRequiresAuthAndAppearsInPublicFeed(t *testing.T) {
 		t.Fatalf("create post: %v", err)
 	}
 
-	srv := New(cfg, database, nil, nil)
+	srv := New(cfg, database, nil, nil, nil)
 
 	guestReq := httptest.NewRequest(
 		http.MethodPost,
@@ -449,7 +449,7 @@ func TestModeratorCanHidePostViaEndpoint(t *testing.T) {
 		t.Fatalf("create post: %v", err)
 	}
 
-	srv := New(cfg, database, nil, nil)
+	srv := New(cfg, database, nil, nil, nil)
 
 	hideReq := httptest.NewRequest(
 		http.MethodPost,
@@ -538,7 +538,7 @@ func TestUpdatePostRejectsTooLongContent(t *testing.T) {
 		t.Fatalf("create session: %v", err)
 	}
 
-	srv := New(cfg, database, nil, nil)
+	srv := New(cfg, database, nil, nil, nil)
 
 	updateBody, err := json.Marshal(models.CreatePostRequest{
 		Content: strings.Repeat("ž", maxPostContentLength+1),
@@ -623,7 +623,7 @@ func TestUpdateAndDeletePostComment(t *testing.T) {
 		t.Fatalf("create post: %v", err)
 	}
 
-	srv := New(cfg, database, nil, nil)
+	srv := New(cfg, database, nil, nil, nil)
 
 	createSession := func(id string, userID int64) {
 		if err := database.CreateSession(&models.Session{
@@ -853,7 +853,7 @@ func TestPublicUserProfileRoutes(t *testing.T) {
 		t.Fatalf("create post: %v", err)
 	}
 
-	srv := New(cfg, database, nil, media.NewBunnyStorage(cfg))
+	srv := New(cfg, database, nil, nil, media.NewBunnyStorage(cfg))
 
 	profileReq := httptest.NewRequest(http.MethodGet, "/api/public/users/"+strconv.FormatInt(user.ID, 10), nil)
 	profileRec := httptest.NewRecorder()

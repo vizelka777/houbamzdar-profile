@@ -156,6 +156,87 @@
                     <button id="admin-backups-load-more" type="button" class="btn btn-secondary" style="display: none;">Načíst starší zálohy</button>
                 </div>
             </section>
+
+            <section class="card admin-assistant-section">
+                <div class="about-head">
+                    <div>
+                        <p class="section-label">Asistent</p>
+                        <h2>Dialogy a časté otázky</h2>
+                        <p class="muted-copy">Přehled toho, na co se uživatelé ptají site assistant-a, a detail uložených konverzací z nové assistant databáze.</p>
+                    </div>
+                    <p id="admin-assistant-summary" class="muted-copy">Načítám assistant statistiky...</p>
+                </div>
+
+                <section class="admin-overview-grid admin-assistant-overview-grid">
+                    <article class="card admin-overview-card">
+                        <p class="section-label">Thready</p>
+                        <h2 id="admin-assistant-stat-threads">0</h2>
+                        <p class="muted-copy">Celkem uložených konverzací</p>
+                    </article>
+                    <article class="card admin-overview-card">
+                        <p class="section-label">Zprávy</p>
+                        <h2 id="admin-assistant-stat-messages">0</h2>
+                        <p class="muted-copy">User + assistant dohromady</p>
+                    </article>
+                    <article class="card admin-overview-card">
+                        <p class="section-label">Klienti</p>
+                        <h2 id="admin-assistant-stat-clients">0</h2>
+                        <p class="muted-copy">Unikátní browser identity</p>
+                    </article>
+                    <article class="card admin-overview-card">
+                        <p class="section-label">Feedback</p>
+                        <h2 id="admin-assistant-stat-feedback">0 / 0</h2>
+                        <p class="muted-copy">Pomohlo / nepomohlo</p>
+                    </article>
+                </section>
+
+                <div class="admin-assistant-layout">
+                    <div class="admin-assistant-column">
+                        <div class="admin-assistant-card">
+                            <div class="about-head">
+                                <div>
+                                    <p class="section-label">Časté otázky</p>
+                                    <h3>Nejčastější dotazy</h3>
+                                </div>
+                                <p id="admin-assistant-faq-summary" class="muted-copy">Načítám dotazy...</p>
+                            </div>
+                            <div id="admin-assistant-faq-list" class="admin-assistant-faq-list">
+                                <p class="moderation-dashboard-empty">Načítám dotazy...</p>
+                            </div>
+                        </div>
+
+                        <div class="admin-assistant-card">
+                            <div class="about-head">
+                                <div>
+                                    <p class="section-label">Konverzace</p>
+                                    <h3>Poslední dialogy</h3>
+                                </div>
+                                <p id="admin-assistant-threads-summary" class="muted-copy">Načítám dialogy...</p>
+                            </div>
+                            <div id="admin-assistant-threads-list" class="admin-assistant-threads-list">
+                                <p class="moderation-dashboard-empty">Načítám dialogy...</p>
+                            </div>
+                            <div class="action-row">
+                                <button id="admin-assistant-threads-load-more" type="button" class="btn btn-secondary" style="display: none;">Načíst další dialogy</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <aside class="admin-assistant-detail-card">
+                        <div class="about-head">
+                            <div>
+                                <p class="section-label">Detail</p>
+                                <h3 id="admin-assistant-thread-title">Vyberte dialog</h3>
+                            </div>
+                            <p id="admin-assistant-thread-meta" class="muted-copy">Po kliknutí na dialog se zobrazí celá konverzace.</p>
+                        </div>
+                        <div id="admin-assistant-thread-badges" class="admin-user-badges"></div>
+                        <div id="admin-assistant-thread-messages" class="admin-assistant-thread-messages">
+                            <p class="moderation-dashboard-empty">Zatím není vybraný žádný dialog.</p>
+                        </div>
+                    </aside>
+                </div>
+            </section>
         </div>
     </main>
 

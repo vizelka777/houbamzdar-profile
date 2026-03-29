@@ -1,12 +1,48 @@
 const API_URL = "https://api.houbamzdar.cz";
+const CHAT_API_URL = "https://chat.houbamzdar.cz";
+const AI_ASSISTANT_URL = "https://ai-mwjmq.bunny.run";
 const AHOJ420_URL = "https://ahoj420.eu";
 const FRONT_URL = "https://houbamzdar.cz";
 const DEFAULT_AVATAR_URL = "https://houbamzdar.cz/default-avatar.png";
 const PROFILE_LAST_VISIT_KEY = "hzd_last_profile_visit_at";
 const PHOTO_INTAKE_DB_NAME = "hzd-photo-intake";
 const PHOTO_INTAKE_STORE_NAME = "pending-files";
+const SITE_ASSISTANT_HISTORY_KEY = "hzd_site_assistant_history_v1";
+const SITE_ASSISTANT_THREAD_KEY = "hzd_site_assistant_thread_v1";
+const SITE_ASSISTANT_CLIENT_KEY = "hzd_site_assistant_client_v1";
+const SITE_ASSISTANT_POSITION_KEY = "hzd_site_assistant_position_v1";
+const SITE_ASSISTANT_MAX_MESSAGES = 12;
 let emailVerificationResendUntil = 0;
 let emailVerificationResendTimer = null;
+const headerChatUnreadState = {
+    total: 0,
+    lastLoadedAt: 0,
+    loadingPromise: null
+};
+const siteAssistantState = {
+    initialized: false,
+    open: false,
+    loading: false,
+    history: [],
+    threadId: "",
+    clientId: "",
+    historyLoaded: false,
+    historyLoadingPromise: null,
+    config: null,
+    configLoadingPromise: null,
+    launcherPosition: null,
+    drag: {
+        active: false,
+        pointerId: null,
+        startX: 0,
+        startY: 0,
+        originX: 0,
+        originY: 0,
+        moved: false,
+        suppressClick: false
+    },
+    elements: null
+};
 
 function buildAbsoluteFrontURL(path) {
     return new URL(path || "/", FRONT_URL).toString();
@@ -265,6 +301,940 @@ async function apiJsonRequest(path, options = {}) {
         throw new Error(payload?.error || payload?.message || `HTTP error ${response.status}`);
     }
     return payload;
+}
+
+function setHeaderChatUnreadBadges(total) {
+    const unreadTotal = Math.max(0, Number(total || 0));
+    document.querySelectorAll("[data-header-chat-unread-total]").forEach((node) => {
+        if (!(node instanceof HTMLElement)) {
+            return;
+        }
+        node.textContent = unreadTotal > 99 ? "99+" : String(unreadTotal);
+        node.hidden = unreadTotal <= 0;
+    });
+    document.querySelectorAll("[data-header-chat-unread-lead]").forEach((node) => {
+        if (!(node instanceof HTMLElement)) {
+            return;
+        }
+        node.textContent = unreadTotal > 99 ? "99+" : String(unreadTotal);
+    });
+}
+
+function setHeaderHoubickaBadges(total) {
+    const balanceTotal = Math.max(0, Number(total || 0));
+    document.querySelectorAll("[data-header-houbicka-total]").forEach((node) => {
+        if (!(node instanceof HTMLElement)) {
+            return;
+        }
+        node.textContent = balanceTotal > 999 ? "999+" : String(balanceTotal);
+    });
+}
+
+async function loadHeaderChatUnreadCount(forceRefresh = false) {
+    const loggedIn = Boolean(window.appSession && window.appSession.logged_in && window.appMe);
+    if (!loggedIn) {
+        headerChatUnreadState.total = 0;
+        headerChatUnreadState.lastLoadedAt = 0;
+        setHeaderChatUnreadBadges(0);
+        return 0;
+    }
+
+    if (!forceRefresh && headerChatUnreadState.loadingPromise) {
+        return headerChatUnreadState.loadingPromise;
+    }
+
+    if (!forceRefresh && headerChatUnreadState.lastLoadedAt && Date.now() - headerChatUnreadState.lastLoadedAt < 45000) {
+        setHeaderChatUnreadBadges(headerChatUnreadState.total);
+        return headerChatUnreadState.total;
+    }
+
+    headerChatUnreadState.loadingPromise = (async () => {
+        try {
+            const tokenPayload = await apiJsonRequest("/api/chat/token", { method: "POST" });
+            const chatToken = String(tokenPayload?.token || "").trim();
+            if (!chatToken) {
+                throw new Error("Missing chat token");
+            }
+            const chatApiBaseUrl = String(tokenPayload?.api_base_url || CHAT_API_URL).trim() || CHAT_API_URL;
+            const headers = { Authorization: `Bearer ${chatToken}` };
+            const directResponse = await fetch(`${chatApiBaseUrl}/api/chat/rooms/direct?limit=1&offset=0`, { headers });
+            const directPayload = await directResponse.json().catch(() => null);
+            if (!directResponse.ok) {
+                throw new Error("Failed to load unread counts");
+            }
+
+            const total = Math.max(0, Number(directPayload?.total_unread || 0));
+
+            headerChatUnreadState.total = total;
+            headerChatUnreadState.lastLoadedAt = Date.now();
+            setHeaderChatUnreadBadges(total);
+            return total;
+        } catch (error) {
+            console.error("Failed to load header chat unread count", error);
+            setHeaderChatUnreadBadges(headerChatUnreadState.total || 0);
+            return headerChatUnreadState.total || 0;
+        } finally {
+            headerChatUnreadState.loadingPromise = null;
+        }
+    })();
+
+    return headerChatUnreadState.loadingPromise;
+}
+
+window.refreshHeaderChatUnreadCount = function refreshHeaderChatUnreadCount() {
+    return loadHeaderChatUnreadCount(true);
+};
+
+function normalizeAssistantHistoryItem(item) {
+    const role = item?.role === "user" ? "user" : "assistant";
+    const content = String(item?.content || "")
+        .replace(/\r\n?/g, "\n")
+        .trim()
+        .replace(/[ \t]+\n/g, "\n")
+        .replace(/\n{3,}/g, "\n\n");
+    if (!content) {
+        return null;
+    }
+    return {
+        role,
+        content: content.slice(0, 4000),
+        id: String(item?.id || "").trim(),
+        feedbackVote: String(item?.feedbackVote || item?.feedback_vote || "").trim()
+    };
+}
+
+function loadSiteAssistantHistory() {
+    try {
+        const raw = window.localStorage.getItem(SITE_ASSISTANT_HISTORY_KEY);
+        if (!raw) {
+            return [];
+        }
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) {
+            return [];
+        }
+        return parsed
+            .map(normalizeAssistantHistoryItem)
+            .filter(Boolean)
+            .slice(-SITE_ASSISTANT_MAX_MESSAGES);
+    } catch (_error) {
+        return [];
+    }
+}
+
+function saveSiteAssistantHistory() {
+    try {
+        window.localStorage.setItem(
+            SITE_ASSISTANT_HISTORY_KEY,
+            JSON.stringify(siteAssistantState.history.slice(-SITE_ASSISTANT_MAX_MESSAGES))
+        );
+    } catch (_error) {
+        // Ignore storage errors and keep the in-memory session working.
+    }
+}
+
+function loadSiteAssistantThreadId() {
+    try {
+        return String(window.localStorage.getItem(SITE_ASSISTANT_THREAD_KEY) || "").trim();
+    } catch (_error) {
+        return "";
+    }
+}
+
+function saveSiteAssistantThreadId(threadId) {
+    const normalized = String(threadId || "").trim();
+    siteAssistantState.threadId = normalized;
+
+    try {
+        if (normalized) {
+            window.localStorage.setItem(SITE_ASSISTANT_THREAD_KEY, normalized);
+        } else {
+            window.localStorage.removeItem(SITE_ASSISTANT_THREAD_KEY);
+        }
+    } catch (_error) {
+        // Ignore localStorage failures and keep working in-memory.
+    }
+}
+
+function loadOrCreateSiteAssistantClientId() {
+    try {
+        const existing = String(window.localStorage.getItem(SITE_ASSISTANT_CLIENT_KEY) || "").trim();
+        if (existing) {
+            return existing;
+        }
+        const created = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+            ? crypto.randomUUID()
+            : `assistant-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+        window.localStorage.setItem(SITE_ASSISTANT_CLIENT_KEY, created);
+        return created;
+    } catch (_error) {
+        return typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+            ? crypto.randomUUID()
+            : `assistant-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    }
+}
+
+function loadSiteAssistantLauncherPosition() {
+    try {
+        const raw = window.localStorage.getItem(SITE_ASSISTANT_POSITION_KEY);
+        if (!raw) {
+            return null;
+        }
+        const parsed = JSON.parse(raw);
+        const x = Number(parsed?.x);
+        const y = Number(parsed?.y);
+        if (!Number.isFinite(x) || !Number.isFinite(y)) {
+            return null;
+        }
+        return { x, y };
+    } catch (_error) {
+        return null;
+    }
+}
+
+function saveSiteAssistantLauncherPosition(position) {
+    siteAssistantState.launcherPosition = position && Number.isFinite(position.x) && Number.isFinite(position.y)
+        ? { x: position.x, y: position.y }
+        : null;
+
+    try {
+        if (!siteAssistantState.launcherPosition) {
+            window.localStorage.removeItem(SITE_ASSISTANT_POSITION_KEY);
+            return;
+        }
+        window.localStorage.setItem(SITE_ASSISTANT_POSITION_KEY, JSON.stringify(siteAssistantState.launcherPosition));
+    } catch (_error) {
+        // Ignore localStorage failures and keep the current in-memory position.
+    }
+}
+
+async function loadSiteAssistantConfig(forceRefresh = false) {
+    if (!forceRefresh && siteAssistantState.configLoadingPromise) {
+        return siteAssistantState.configLoadingPromise;
+    }
+    if (!forceRefresh && siteAssistantState.config) {
+        return siteAssistantState.config;
+    }
+
+    siteAssistantState.configLoadingPromise = (async () => {
+        try {
+            const response = await fetch(`${AI_ASSISTANT_URL}/config`);
+            const payload = await response.json().catch(() => null);
+            if (!response.ok || !payload) {
+                throw new Error(payload?.error || `HTTP error ${response.status}`);
+            }
+            siteAssistantState.config = payload;
+            return payload;
+        } catch (error) {
+            console.error("Failed to load assistant config", error);
+            siteAssistantState.config = {
+                ok: false,
+                db_configured: false,
+                persistence: "local"
+            };
+            return siteAssistantState.config;
+        } finally {
+            siteAssistantState.configLoadingPromise = null;
+        }
+    })();
+
+    return siteAssistantState.configLoadingPromise;
+}
+
+async function assistantUsesDatabase() {
+    const config = await loadSiteAssistantConfig(false);
+    return Boolean(config?.db_configured);
+}
+
+function mapAssistantMessages(items) {
+    if (!Array.isArray(items)) {
+        return [];
+    }
+    return items
+        .map(normalizeAssistantHistoryItem)
+        .filter(Boolean)
+        .slice(-SITE_ASSISTANT_MAX_MESSAGES);
+}
+
+async function loadSiteAssistantThreadHistory(forceRefresh = false) {
+    if (!forceRefresh && siteAssistantState.historyLoaded) {
+        return siteAssistantState.history;
+    }
+    if (!forceRefresh && siteAssistantState.historyLoadingPromise) {
+        return siteAssistantState.historyLoadingPromise;
+    }
+
+    siteAssistantState.historyLoadingPromise = (async () => {
+        const usesDb = await assistantUsesDatabase();
+        if (!usesDb) {
+            siteAssistantState.historyLoaded = true;
+            return siteAssistantState.history;
+        }
+
+        const threadId = String(siteAssistantState.threadId || "").trim();
+        const clientId = String(siteAssistantState.clientId || "").trim();
+        if (!threadId || !clientId) {
+            siteAssistantState.history = [];
+            siteAssistantState.historyLoaded = true;
+            saveSiteAssistantHistory();
+            return [];
+        }
+
+        try {
+            const response = await fetch(`${AI_ASSISTANT_URL}/history`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    thread_id: threadId,
+                    client_id: clientId
+                })
+            });
+            const payload = await response.json().catch(() => null);
+            if (!response.ok) {
+                throw new Error(payload?.error || `HTTP error ${response.status}`);
+            }
+
+            const messages = mapAssistantMessages(payload?.messages);
+            siteAssistantState.history = messages;
+            if (!messages.length) {
+                saveSiteAssistantThreadId("");
+            }
+            saveSiteAssistantHistory();
+            siteAssistantState.historyLoaded = true;
+            return messages;
+        } catch (error) {
+            console.error("Failed to load assistant thread history", error);
+            siteAssistantState.historyLoaded = true;
+            return siteAssistantState.history;
+        } finally {
+            siteAssistantState.historyLoadingPromise = null;
+        }
+    })();
+
+    return siteAssistantState.historyLoadingPromise;
+}
+
+function assistantMessageToHtml(text) {
+    return escapeHtml(text || "").replace(/\n/g, "<br>");
+}
+
+function getSiteAssistantPageLabel() {
+    const page = String(document.body?.dataset?.page || "").trim();
+    const labels = {
+        news: "Novinky",
+        home: "Domů",
+        me: "Můj profil",
+        "public-profile": "Veřejný profil",
+        following: "Sledovaní houbaři",
+        chat: "Chat",
+        messages: "Zprávy",
+        faq: "Časté dotazy",
+        gallery: "Galerie",
+        map: "Mapa",
+        "my-map": "Moje mapa",
+        feed: "Zeď úlovků",
+        users: "Houbaři",
+        "create-post": "Vytvořit publikaci",
+        capture: "Zpracování fotek",
+        "server-storage": "Nahrané fotky",
+        moderation: "Moderace",
+        admin: "Administrace",
+        info: "O projektu",
+        register: "Registrace"
+    };
+
+    if (page && labels[page]) {
+        return labels[page];
+    }
+
+    const title = String(document.title || "").replace(/\s+\|\s+Houbám Zdar\s*$/i, "").trim();
+    return title || window.location.pathname;
+}
+
+function buildSiteAssistantIntro() {
+    const pageLabel = getSiteAssistantPageLabel();
+    return `Ahoj, jsem asistent Houbám Zdar. Poradím s registrací, přihlášením, chatem, fotografiemi a používáním webu. Jste právě na stránce ${pageLabel}.`;
+}
+
+function buildSiteAssistantSuggestions() {
+    const page = String(document.body?.dataset?.page || "").trim();
+    if (page === "chat" || page === "messages") {
+        return [
+            "Jak fungují zprávy?",
+            "Jak otevřu veřejný chat?",
+            "Jak smažu konverzaci?",
+            "Kdo může mazat zprávy?"
+        ];
+    }
+    if (page === "capture" || page === "create-post") {
+        return [
+            "Jak správně vyfotit houbu?",
+            "Jak přidám nový nález?",
+            "Kdy se hodí více fotek?",
+            "Co když nevidím GPS?"
+        ];
+    }
+    if (page === "me" || page === "public-profile" || page === "following") {
+        return [
+            "Jak přidám nové zařízení?",
+            "Jak fungují houbičky?",
+            "Jak někomu napsat zprávu?",
+            "Jak upravím svůj profil?"
+        ];
+    }
+    return [
+        "Jak se zaregistruji?",
+        "Jak se přihlásím z cizího počítače?",
+        "Jak přidám nové zařízení?",
+        "Jak správně vyfotit houbu?"
+    ];
+}
+
+function renderSiteAssistantMessages() {
+    const messagesNode = siteAssistantState.elements?.messages;
+    const suggestionsNode = siteAssistantState.elements?.suggestions;
+    const emptyStateNode = siteAssistantState.elements?.emptyState;
+    if (!messagesNode || !suggestionsNode || !emptyStateNode) {
+        return;
+    }
+
+    const messages = siteAssistantState.history.length
+        ? siteAssistantState.history
+        : [{ role: "assistant", content: buildSiteAssistantIntro() }];
+
+    messagesNode.innerHTML = messages.map((item) => `
+        <article class="site-assistant-message ${item.role === "user" ? "is-user" : "is-assistant"}">
+            <div class="site-assistant-message-label">${item.role === "user" ? "Vy" : "Asistent"}</div>
+            <div class="site-assistant-message-bubble">${assistantMessageToHtml(item.content)}</div>
+            ${item.role === "assistant" && item.id ? `
+                <div class="site-assistant-message-tools">
+                    <button
+                        type="button"
+                        class="site-assistant-feedback-btn${item.feedbackVote === "up" ? " is-active" : ""}"
+                        data-site-assistant-feedback="up"
+                        data-message-id="${escapeHtml(item.id)}"
+                        aria-label="Tato odpověď pomohla"
+                    >👍</button>
+                    <button
+                        type="button"
+                        class="site-assistant-feedback-btn${item.feedbackVote === "down" ? " is-active" : ""}"
+                        data-site-assistant-feedback="down"
+                        data-message-id="${escapeHtml(item.id)}"
+                        aria-label="Tato odpověď nepomohla"
+                    >👎</button>
+                </div>
+            ` : ""}
+        </article>
+    `).join("");
+
+    if (siteAssistantState.loading) {
+        messagesNode.insertAdjacentHTML("beforeend", `
+            <article class="site-assistant-message is-assistant is-pending">
+                <div class="site-assistant-message-label">Asistent</div>
+                <div class="site-assistant-message-bubble">Přemýšlím…</div>
+            </article>
+        `);
+    }
+
+    emptyStateNode.hidden = true;
+    emptyStateNode.innerHTML = "";
+    suggestionsNode.hidden = true;
+    suggestionsNode.innerHTML = "";
+}
+
+function syncSiteAssistantStatus(message = "", tone = "") {
+    const statusNode = siteAssistantState.elements?.status;
+    if (!statusNode) {
+        return;
+    }
+    statusNode.hidden = !message;
+    statusNode.textContent = message || "";
+    statusNode.dataset.tone = tone || "";
+}
+
+function syncSiteAssistantBusyState() {
+    const submitButton = siteAssistantState.elements?.submit;
+    const resetButton = siteAssistantState.elements?.reset;
+    if (submitButton instanceof HTMLButtonElement) {
+        submitButton.disabled = siteAssistantState.loading;
+        submitButton.textContent = siteAssistantState.loading ? "Čekejte…" : "Odeslat";
+    }
+    if (resetButton instanceof HTMLButtonElement) {
+        resetButton.disabled = siteAssistantState.loading;
+    }
+}
+
+function resizeSiteAssistantTextarea() {
+    const textarea = siteAssistantState.elements?.textarea;
+    if (!(textarea instanceof HTMLTextAreaElement)) {
+        return;
+    }
+    textarea.style.height = "0px";
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 144)}px`;
+}
+
+function scrollSiteAssistantToLatest(behavior = "smooth") {
+    const messagesNode = siteAssistantState.elements?.messages;
+    if (!(messagesNode instanceof HTMLElement)) {
+        return;
+    }
+
+    window.requestAnimationFrame(() => {
+        messagesNode.scrollTo({
+            top: messagesNode.scrollHeight,
+            behavior
+        });
+    });
+}
+
+function clampSiteAssistantLauncherPosition(x, y) {
+    const launcher = siteAssistantState.elements?.launcher;
+    const width = launcher instanceof HTMLElement ? launcher.offsetWidth || 212 : 212;
+    const height = launcher instanceof HTMLElement ? launcher.offsetHeight || 56 : 56;
+    const margin = 8;
+    const maxX = Math.max(margin, window.innerWidth - width - margin);
+    const maxY = Math.max(margin, window.innerHeight - height - margin);
+    return {
+        x: Math.min(Math.max(margin, x), maxX),
+        y: Math.min(Math.max(margin, y), maxY)
+    };
+}
+
+function applySiteAssistantLauncherPosition() {
+    const launcher = siteAssistantState.elements?.launcher;
+    if (!(launcher instanceof HTMLElement)) {
+        return;
+    }
+
+    if (!siteAssistantState.launcherPosition) {
+        launcher.style.removeProperty("left");
+        launcher.style.removeProperty("top");
+        launcher.style.removeProperty("right");
+        launcher.style.removeProperty("bottom");
+        return;
+    }
+
+    const clamped = clampSiteAssistantLauncherPosition(
+        Number(siteAssistantState.launcherPosition.x || 0),
+        Number(siteAssistantState.launcherPosition.y || 0)
+    );
+    siteAssistantState.launcherPosition = clamped;
+    launcher.style.left = `${clamped.x}px`;
+    launcher.style.top = `${clamped.y}px`;
+    launcher.style.right = "auto";
+    launcher.style.bottom = "auto";
+}
+
+function setSiteAssistantOpen(nextOpen) {
+    const root = siteAssistantState.elements?.root;
+    const backdrop = siteAssistantState.elements?.backdrop;
+    const panel = siteAssistantState.elements?.panel;
+    const launcher = siteAssistantState.elements?.launcher;
+    const textarea = siteAssistantState.elements?.textarea;
+    if (!root || !panel || !launcher || !backdrop) {
+        return;
+    }
+
+    siteAssistantState.open = Boolean(nextOpen);
+    root.classList.toggle("is-open", siteAssistantState.open);
+    backdrop.hidden = !siteAssistantState.open;
+    panel.hidden = !siteAssistantState.open;
+    launcher.setAttribute("aria-expanded", siteAssistantState.open ? "true" : "false");
+
+    if (siteAssistantState.open) {
+        renderSiteAssistantMessages();
+        syncSiteAssistantStatus();
+        scrollSiteAssistantToLatest(siteAssistantState.history.length ? "smooth" : "auto");
+        void loadSiteAssistantThreadHistory(false).then(() => {
+            renderSiteAssistantMessages();
+            scrollSiteAssistantToLatest(siteAssistantState.history.length ? "smooth" : "auto");
+        });
+        if (textarea instanceof HTMLTextAreaElement) {
+            window.setTimeout(() => textarea.focus(), 40);
+        }
+    }
+}
+
+function startSiteAssistantLauncherDrag(event) {
+    const launcher = siteAssistantState.elements?.launcher;
+    if (!(launcher instanceof HTMLElement) || siteAssistantState.open) {
+        return;
+    }
+    if (typeof event.button === "number" && event.button !== 0) {
+        return;
+    }
+
+    const rect = launcher.getBoundingClientRect();
+    siteAssistantState.drag.active = true;
+    siteAssistantState.drag.pointerId = event.pointerId;
+    siteAssistantState.drag.startX = event.clientX;
+    siteAssistantState.drag.startY = event.clientY;
+    siteAssistantState.drag.originX = rect.left;
+    siteAssistantState.drag.originY = rect.top;
+    siteAssistantState.drag.moved = false;
+    if (typeof launcher.setPointerCapture === "function") {
+        launcher.setPointerCapture(event.pointerId);
+    }
+}
+
+function moveSiteAssistantLauncherDrag(event) {
+    const launcher = siteAssistantState.elements?.launcher;
+    if (!siteAssistantState.drag.active || !(launcher instanceof HTMLElement)) {
+        return;
+    }
+    if (siteAssistantState.drag.pointerId !== null && event.pointerId !== siteAssistantState.drag.pointerId) {
+        return;
+    }
+
+    const deltaX = event.clientX - siteAssistantState.drag.startX;
+    const deltaY = event.clientY - siteAssistantState.drag.startY;
+    if (!siteAssistantState.drag.moved && Math.hypot(deltaX, deltaY) < 6) {
+        return;
+    }
+
+    siteAssistantState.drag.moved = true;
+    siteAssistantState.drag.suppressClick = true;
+    event.preventDefault();
+    const position = clampSiteAssistantLauncherPosition(
+        siteAssistantState.drag.originX + deltaX,
+        siteAssistantState.drag.originY + deltaY
+    );
+    saveSiteAssistantLauncherPosition(position);
+    applySiteAssistantLauncherPosition();
+}
+
+function endSiteAssistantLauncherDrag(event) {
+    const launcher = siteAssistantState.elements?.launcher;
+    if (!siteAssistantState.drag.active || !(launcher instanceof HTMLElement)) {
+        return;
+    }
+    if (siteAssistantState.drag.pointerId !== null && event.pointerId !== siteAssistantState.drag.pointerId) {
+        return;
+    }
+
+    if (typeof launcher.releasePointerCapture === "function") {
+        try {
+            launcher.releasePointerCapture(event.pointerId);
+        } catch (_error) {
+            // Ignore capture-release errors.
+        }
+    }
+
+    const moved = siteAssistantState.drag.moved;
+    siteAssistantState.drag.active = false;
+    siteAssistantState.drag.pointerId = null;
+    siteAssistantState.drag.startX = 0;
+    siteAssistantState.drag.startY = 0;
+    siteAssistantState.drag.originX = 0;
+    siteAssistantState.drag.originY = 0;
+    siteAssistantState.drag.moved = false;
+
+    if (moved) {
+        window.setTimeout(() => {
+            siteAssistantState.drag.suppressClick = false;
+        }, 40);
+    }
+}
+
+window.openSiteAssistant = function openSiteAssistant(prefill = "") {
+    initSiteAssistant();
+    setSiteAssistantOpen(true);
+    const textarea = siteAssistantState.elements?.textarea;
+    if (prefill && textarea instanceof HTMLTextAreaElement) {
+        textarea.value = String(prefill);
+        resizeSiteAssistantTextarea();
+        textarea.focus();
+        textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+    }
+};
+
+function resetSiteAssistantConversation() {
+    siteAssistantState.history = [];
+    siteAssistantState.historyLoaded = false;
+    siteAssistantState.historyLoadingPromise = null;
+    saveSiteAssistantThreadId("");
+    saveSiteAssistantHistory();
+    renderSiteAssistantMessages();
+    syncSiteAssistantStatus("Začínáme znovu.", "info");
+    scrollSiteAssistantToLatest("auto");
+}
+
+async function submitSiteAssistantFeedback(messageId, vote) {
+    const normalizedMessageId = String(messageId || "").trim();
+    const normalizedVote = vote === "down" ? "down" : "up";
+    if (!normalizedMessageId) {
+        return;
+    }
+
+    const usesDb = await assistantUsesDatabase();
+    if (!usesDb || !siteAssistantState.threadId || !siteAssistantState.clientId) {
+        syncSiteAssistantStatus("Feedback se uloží až po zapnutí nové databáze asistenta.", "info");
+        return;
+    }
+
+    try {
+        const response = await fetch(`${AI_ASSISTANT_URL}/feedback`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                thread_id: siteAssistantState.threadId,
+                client_id: siteAssistantState.clientId,
+                message_id: normalizedMessageId,
+                vote: normalizedVote
+            })
+        });
+        const payload = await response.json().catch(() => null);
+        if (!response.ok) {
+            throw new Error(payload?.error || `HTTP error ${response.status}`);
+        }
+
+        siteAssistantState.history = siteAssistantState.history.map((item) => (
+            item.id === normalizedMessageId
+                ? { ...item, feedbackVote: normalizedVote }
+                : item
+        ));
+        saveSiteAssistantHistory();
+        renderSiteAssistantMessages();
+        syncSiteAssistantStatus("Díky za zpětnou vazbu.", "info");
+    } catch (error) {
+        console.error("Assistant feedback failed", error);
+        syncSiteAssistantStatus("Feedback se teď nepodařilo uložit.", "error");
+    }
+}
+
+async function submitSiteAssistantMessage(rawMessage) {
+    const message = String(rawMessage || "")
+        .replace(/\r\n?/g, "\n")
+        .trim()
+        .replace(/[ \t]+\n/g, "\n")
+        .replace(/\n{3,}/g, "\n\n")
+        .slice(0, 2000);
+    if (!message || siteAssistantState.loading) {
+        return;
+    }
+
+    const usesDb = await assistantUsesDatabase();
+    if (usesDb && !siteAssistantState.historyLoaded) {
+        await loadSiteAssistantThreadHistory(false);
+    }
+
+    const previousHistory = siteAssistantState.history.slice(-6);
+    siteAssistantState.history = siteAssistantState.history
+        .concat([{ role: "user", content: message, id: "" }])
+        .slice(-SITE_ASSISTANT_MAX_MESSAGES);
+    saveSiteAssistantHistory();
+
+    siteAssistantState.loading = true;
+    renderSiteAssistantMessages();
+    syncSiteAssistantStatus();
+    syncSiteAssistantBusyState();
+    scrollSiteAssistantToLatest();
+
+    try {
+        const response = await fetch(`${AI_ASSISTANT_URL}/ask`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                thread_id: siteAssistantState.threadId || "",
+                client_id: siteAssistantState.clientId || "",
+                message,
+                page: `${getSiteAssistantPageLabel()} (${window.location.pathname})`,
+                locale: document.documentElement.lang || "cs",
+                history: usesDb ? [] : previousHistory
+            })
+        });
+
+        const payload = await response.json().catch(() => null);
+        if (!response.ok) {
+            throw new Error(payload?.error || `HTTP error ${response.status}`);
+        }
+
+        const answer = String(payload?.answer || "").trim();
+        if (!answer) {
+            throw new Error("Asistent nevrátil odpověď");
+        }
+
+        if (payload?.thread_id) {
+            saveSiteAssistantThreadId(payload.thread_id);
+            siteAssistantState.historyLoaded = true;
+        }
+
+        siteAssistantState.history = siteAssistantState.history
+            .concat([{
+                role: "assistant",
+                content: answer,
+                id: String(payload?.assistant_message_id || "").trim(),
+                feedbackVote: ""
+            }])
+            .slice(-SITE_ASSISTANT_MAX_MESSAGES);
+        saveSiteAssistantHistory();
+        syncSiteAssistantStatus();
+    } catch (error) {
+        console.error("Assistant request failed", error);
+        syncSiteAssistantStatus("Asistent teď neodpověděl. Zkuste to znovu nebo otevřete Časté dotazy.", "error");
+    } finally {
+        siteAssistantState.loading = false;
+        renderSiteAssistantMessages();
+        syncSiteAssistantBusyState();
+        scrollSiteAssistantToLatest();
+    }
+}
+
+function initSiteAssistant() {
+    if (siteAssistantState.initialized || !document.body) {
+        return;
+    }
+
+    siteAssistantState.initialized = true;
+    siteAssistantState.clientId = loadOrCreateSiteAssistantClientId();
+    siteAssistantState.threadId = loadSiteAssistantThreadId();
+    siteAssistantState.history = loadSiteAssistantHistory();
+    siteAssistantState.launcherPosition = loadSiteAssistantLauncherPosition();
+
+    document.body.insertAdjacentHTML("beforeend", `
+        <div id="site-assistant-root" class="site-assistant">
+            <button id="site-assistant-backdrop" type="button" class="site-assistant-backdrop" hidden aria-label="Zavřít asistenta"></button>
+            <button id="site-assistant-launcher" type="button" class="site-assistant-launcher" aria-label="Otevřít asistenta" aria-expanded="false" aria-controls="site-assistant-panel">
+                <span class="site-assistant-launcher-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 15a3 3 0 0 1-3 3H9l-4 3v-3H5a3 3 0 0 1-3-3V7a3 3 0 0 1 3-3h13a3 3 0 0 1 3 3z"></path>
+                        <path d="M8 10h8"></path>
+                        <path d="M8 14h5"></path>
+                    </svg>
+                </span>
+                <span class="site-assistant-launcher-copy">
+                    <strong>Asistent</strong>
+                    <small>Pomoc se stránkou</small>
+                </span>
+            </button>
+            <section id="site-assistant-panel" class="site-assistant-panel" hidden aria-labelledby="site-assistant-title">
+                <div class="site-assistant-panel-head">
+                    <div>
+                        <p class="section-label">Houbám Zdar</p>
+                        <h2 id="site-assistant-title">Asistent</h2>
+                    </div>
+                    <div class="site-assistant-panel-actions">
+                        <button id="site-assistant-reset" type="button" class="btn btn-secondary site-assistant-head-btn">Nový chat</button>
+                        <button id="site-assistant-close" type="button" class="site-assistant-close" aria-label="Zavřít asistenta">&times;</button>
+                    </div>
+                </div>
+                <p class="site-assistant-note">Pomohu s používáním webu.</p>
+                <div id="site-assistant-messages" class="site-assistant-messages" role="log" aria-live="polite"></div>
+                <div id="site-assistant-empty" class="site-assistant-empty">
+                    <p>Zkuste se zeptat na registraci, přihlášení, chat, fotografie nebo publikování nálezů.</p>
+                </div>
+                <div id="site-assistant-suggestions" class="site-assistant-suggestions"></div>
+                <form id="site-assistant-form" class="site-assistant-form">
+                    <label for="site-assistant-input" class="sr-only">Dotaz pro asistenta</label>
+                    <textarea id="site-assistant-input" class="site-assistant-input" rows="1" maxlength="2000" placeholder="Napište dotaz k používání Houbám Zdar"></textarea>
+                    <div class="site-assistant-form-foot">
+                        <p id="site-assistant-status" class="site-assistant-status" hidden></p>
+                        <button id="site-assistant-submit" type="submit" class="btn btn-primary site-assistant-submit">Odeslat</button>
+                    </div>
+                </form>
+            </section>
+        </div>
+    `);
+
+    siteAssistantState.elements = {
+        root: document.getElementById("site-assistant-root"),
+        backdrop: document.getElementById("site-assistant-backdrop"),
+        launcher: document.getElementById("site-assistant-launcher"),
+        panel: document.getElementById("site-assistant-panel"),
+        messages: document.getElementById("site-assistant-messages"),
+        suggestions: document.getElementById("site-assistant-suggestions"),
+        emptyState: document.getElementById("site-assistant-empty"),
+        status: document.getElementById("site-assistant-status"),
+        form: document.getElementById("site-assistant-form"),
+        textarea: document.getElementById("site-assistant-input"),
+        submit: document.getElementById("site-assistant-submit"),
+        close: document.getElementById("site-assistant-close"),
+        reset: document.getElementById("site-assistant-reset")
+    };
+
+    siteAssistantState.elements.launcher?.addEventListener("click", () => {
+        if (siteAssistantState.drag.suppressClick) {
+            siteAssistantState.drag.suppressClick = false;
+            return;
+        }
+        setSiteAssistantOpen(!siteAssistantState.open);
+    });
+    siteAssistantState.elements.launcher?.addEventListener("pointerdown", startSiteAssistantLauncherDrag);
+    siteAssistantState.elements.launcher?.addEventListener("pointermove", moveSiteAssistantLauncherDrag);
+    siteAssistantState.elements.launcher?.addEventListener("pointerup", endSiteAssistantLauncherDrag);
+    siteAssistantState.elements.launcher?.addEventListener("pointercancel", endSiteAssistantLauncherDrag);
+    siteAssistantState.elements.backdrop?.addEventListener("click", () => {
+        setSiteAssistantOpen(false);
+    });
+    siteAssistantState.elements.close?.addEventListener("click", () => {
+        setSiteAssistantOpen(false);
+    });
+    siteAssistantState.elements.reset?.addEventListener("click", () => {
+        resetSiteAssistantConversation();
+    });
+    siteAssistantState.elements.form?.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const textarea = siteAssistantState.elements?.textarea;
+        if (!(textarea instanceof HTMLTextAreaElement)) {
+            return;
+        }
+        const message = textarea.value;
+        textarea.value = "";
+        resizeSiteAssistantTextarea();
+        await submitSiteAssistantMessage(message);
+    });
+    siteAssistantState.elements.textarea?.addEventListener("input", () => {
+        resizeSiteAssistantTextarea();
+    });
+    siteAssistantState.elements.textarea?.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" && !event.shiftKey) {
+            event.preventDefault();
+            siteAssistantState.elements.form?.requestSubmit();
+        }
+    });
+    siteAssistantState.elements.suggestions?.addEventListener("click", async (event) => {
+        const button = event.target instanceof Element ? event.target.closest("[data-site-assistant-question]") : null;
+        if (!(button instanceof HTMLElement)) {
+            return;
+        }
+        const question = String(button.dataset.siteAssistantQuestion || "").trim();
+        if (!question) {
+            return;
+        }
+        setSiteAssistantOpen(true);
+        await submitSiteAssistantMessage(question);
+    });
+    siteAssistantState.elements.messages?.addEventListener("click", async (event) => {
+        const button = event.target instanceof Element ? event.target.closest("[data-site-assistant-feedback]") : null;
+        if (!(button instanceof HTMLElement)) {
+            return;
+        }
+        const vote = String(button.dataset.siteAssistantFeedback || "").trim();
+        const messageId = String(button.dataset.messageId || "").trim();
+        if (!messageId || !vote) {
+            return;
+        }
+        await submitSiteAssistantFeedback(messageId, vote);
+    });
+
+    document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && siteAssistantState.open) {
+            setSiteAssistantOpen(false);
+        }
+    });
+
+    renderSiteAssistantMessages();
+    resizeSiteAssistantTextarea();
+    syncSiteAssistantBusyState();
+    setSiteAssistantOpen(false);
+    applySiteAssistantLauncherPosition();
+    void loadSiteAssistantConfig(false);
 }
 
 const sharedPublicMapState = {
@@ -530,6 +1500,103 @@ function buildHeaderMenuIconMarkup(icon) {
     return `<span class="header-menu-icon" aria-hidden="true">${icon}</span>`;
 }
 
+function renderHeaderMenuLead(leadNode, lead) {
+    if (!leadNode) {
+        return;
+    }
+
+    if (!lead) {
+        leadNode.hidden = true;
+        leadNode.innerHTML = "";
+        leadNode.classList.remove("is-link-only");
+        return;
+    }
+
+    leadNode.hidden = false;
+    leadNode.innerHTML = "";
+    leadNode.classList.toggle("is-link-only", Boolean(lead.href));
+
+    if (lead.href) {
+        const link = document.createElement("a");
+        link.className = "header-menu-item header-menu-lead-link";
+        link.href = lead.href;
+        link.innerHTML = `
+            ${buildHeaderMenuIconMarkup(lead.icon)}
+            <span class="header-menu-item-copy">
+                <strong>${escapeHtml(lead.title || lead.label || "")}</strong>
+                ${lead.copy ? `<small class="header-menu-note">${escapeHtml(lead.copy)}</small>` : ""}
+            </span>
+        `;
+        link.addEventListener("click", () => {
+            const menu = leadNode.closest(".header-menu");
+            menu?.removeAttribute("open");
+        });
+        leadNode.appendChild(link);
+        return;
+    }
+
+    const hasMetrics = Array.isArray(lead.metrics) && lead.metrics.length;
+    if (lead.eyebrow || hasMetrics) {
+        const topRow = document.createElement("div");
+        topRow.className = "header-menu-lead-top";
+
+        if (lead.eyebrow) {
+            const eyebrowNode = document.createElement("span");
+            eyebrowNode.className = "section-label";
+            eyebrowNode.textContent = lead.eyebrow;
+            topRow.appendChild(eyebrowNode);
+        }
+
+        if (hasMetrics) {
+            const metricsNode = document.createElement("div");
+            metricsNode.className = "header-menu-lead-metrics";
+
+            lead.metrics.forEach((metric) => {
+                const metricNode = document.createElement(metric.href ? "a" : "span");
+                metricNode.className = `header-menu-lead-metric${metric.kind ? ` is-${metric.kind}` : ""}`;
+                if (metric.href && metricNode instanceof HTMLAnchorElement) {
+                    metricNode.href = metric.href;
+                    metricNode.addEventListener("click", () => {
+                        const menu = leadNode.closest(".header-menu");
+                        menu?.removeAttribute("open");
+                    });
+                }
+
+                const iconNode = document.createElement("span");
+                iconNode.className = "header-menu-lead-metric-icon";
+                iconNode.innerHTML = metric.icon || "";
+                metricNode.appendChild(iconNode);
+
+                const valueNode = document.createElement("span");
+                valueNode.className = "header-menu-lead-metric-badge";
+                if (metric.counterAttr) {
+                    valueNode.setAttribute(metric.counterAttr, "");
+                }
+                valueNode.textContent = String(metric.value ?? "0");
+                metricNode.appendChild(valueNode);
+
+                metricsNode.appendChild(metricNode);
+            });
+
+            topRow.appendChild(metricsNode);
+        }
+
+        leadNode.appendChild(topRow);
+    }
+
+    if (lead.title) {
+        const titleNode = document.createElement("strong");
+        titleNode.textContent = lead.title;
+        leadNode.appendChild(titleNode);
+    }
+
+    if (lead.copy) {
+        const copyNode = document.createElement("p");
+        copyNode.textContent = lead.copy;
+        leadNode.appendChild(copyNode);
+    }
+}
+
 function closeOpenHeaderMenusExcept(activeMenu = null) {
     document.querySelectorAll(".header-menu[open]").forEach((menu) => {
         if (activeMenu && menu === activeMenu) {
@@ -612,14 +1679,12 @@ function createTabbedHeaderMenuButton(label, iconSVG, className, tabs, options =
     const panel = document.createElement("div");
     panel.className = "header-menu-panel";
 
-    if (lead) {
-        const leadNode = document.createElement("div");
+    const initialLead = tabs[0]?.lead || lead || null;
+    let leadNode = null;
+    if (initialLead || tabs.some((tab) => tab.lead)) {
+        leadNode = document.createElement("div");
         leadNode.className = "header-menu-lead";
-        leadNode.innerHTML = `
-            ${lead.eyebrow ? `<span class="section-label">${escapeHtml(lead.eyebrow)}</span>` : ""}
-            ${lead.title ? `<strong>${escapeHtml(lead.title)}</strong>` : ""}
-            ${lead.copy ? `<p>${escapeHtml(lead.copy)}</p>` : ""}
-        `;
+        renderHeaderMenuLead(leadNode, initialLead);
         panel.appendChild(leadNode);
     }
 
@@ -640,13 +1705,14 @@ function createTabbedHeaderMenuButton(label, iconSVG, className, tabs, options =
         tabContent.className = `header-menu-tab-content ${index === 0 ? "is-active" : ""}`;
 
         tab.items.forEach((item) => {
+            const itemPrimaryLabel = item.htmlLabel || `<span>${escapeHtml(item.label || "Akce")}</span>`;
             if (item.type === "action" && typeof item.handler === "function") {
                 const button = document.createElement("button");
                 button.type = "button";
                 button.className = `btn ${item.className || "btn-secondary"} header-menu-action`;
                 button.innerHTML = `
                     ${buildHeaderMenuIconMarkup(item.icon)}
-                    <span>${escapeHtml(item.label || "Akce")}</span>
+                    ${itemPrimaryLabel}
                 `;
                 button.addEventListener("click", async () => {
                     details.removeAttribute("open");
@@ -663,7 +1729,7 @@ function createTabbedHeaderMenuButton(label, iconSVG, className, tabs, options =
                 labelNode.innerHTML = `
                     ${buildHeaderMenuIconMarkup(item.icon)}
                     <span class="header-menu-item-copy">
-                        <span>${escapeHtml(item.label)}</span>
+                        ${itemPrimaryLabel}
                         ${item.note ? `<small class="header-menu-note">${escapeHtml(item.note)}</small>` : ""}
                     </span>
                 `;
@@ -689,7 +1755,7 @@ function createTabbedHeaderMenuButton(label, iconSVG, className, tabs, options =
             link.innerHTML = `
                 ${buildHeaderMenuIconMarkup(item.icon)}
                 <span class="header-menu-item-copy">
-                    <span>${escapeHtml(item.label)}</span>
+                    ${itemPrimaryLabel}
                     ${item.note ? `<small class="header-menu-note">${escapeHtml(item.note)}</small>` : ""}
                 </span>
             `;
@@ -706,6 +1772,7 @@ function createTabbedHeaderMenuButton(label, iconSVG, className, tabs, options =
             contentContainer.querySelectorAll(".header-menu-tab-content").forEach(c => c.classList.remove("is-active"));
             tabBtn.classList.add("is-active");
             tabContent.classList.add("is-active");
+            renderHeaderMenuLead(leadNode, tab.lead || lead || null);
         });
     });
 
@@ -1352,7 +2419,7 @@ function buildCaptureAccessBadgeHtml(capture) {
     }
 
     if (capture.coordinates_locked) {
-        return '<span class="capture-access-badge capture-access-badge-paid">1 houbička</span>';
+        return '<span class="capture-access-badge capture-access-badge-paid">Za houbičku</span>';
     }
 
     if (captureHasCoordinates(capture)) {
@@ -1382,6 +2449,7 @@ function refreshHoubickaBalanceViews() {
 
     setText("metric-houbicky", formatHoubickaCount(balance));
     setText("houbicka-balance", formatHoubickaCount(balance));
+    setHeaderHoubickaBadges(balance);
 }
 
 function getPreviousProfileVisit() {
@@ -1685,6 +2753,15 @@ function renderHeader(session, profile = null) {
     const createPostIcon = `
         <span class="header-emoji-icon">✍️</span>
     `;
+    const houbickaLeadIcon = `
+        <span class="header-emoji-icon">🍄</span>
+    `;
+    const messageLeadIcon = `
+        <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 6h16v12H4z"></path>
+            <path d="m4 8 8 6 8-6"></path>
+        </svg>
+    `;
     const logoutIcon = `
         <svg viewBox="0 0 24 24" aria-hidden="true" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
             <path d="M10 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h4"></path>
@@ -1695,12 +2772,15 @@ function renderHeader(session, profile = null) {
 
     const avatarUrl = identity?.picture;
     const profileIcon = buildAvatarImageHtml(avatarUrl, "Avatar", "", 'loading="lazy"');
+    const brandMenuIcon = '<img src="/logo.png" alt="" loading="lazy">';
 
     if (session && session.logged_in) {
         const leftTabItems = [
             { href: "/", label: "Novinky", icon: "🔥" },
-            { href: "/info.html", label: "O Houbám Zdar", icon: "ℹ️" },
+            { href: "/faq.html", label: "Časté dotazy", icon: "❓" },
+            { type: "action", label: "Asistent", icon: "🤖", handler: () => window.openSiteAssistant?.() },
             { href: "/feed.html", label: "Zeď úlovků", icon: "📰" },
+            { href: "/chat.html", label: "Chat", icon: "💬" },
             { href: "/gallery.html", label: "Galerie", icon: "🖼️" },
             { href: "/users.html", label: "Houbaři", icon: "🍄" },
             { type: "action", label: "Mapa", icon: "🗺️", handler: openHeaderGlobalMap },
@@ -1711,6 +2791,12 @@ function renderHeader(session, profile = null) {
         const rightTabItems = [
             { href: "/public-profile.html", label: "Veřejný profil", icon: "🌍" },
             { href: "/me.html", label: "Můj profil", icon: profileIcon },
+            {
+                href: "/messages.html",
+                label: "Zprávy",
+                htmlLabel: '<span class="header-menu-label-with-badge">Zprávy <span class="header-menu-unread-badge" data-header-chat-unread-total hidden></span></span>',
+                icon: "✉️"
+            },
             { href: "/capture.html", label: "Zpracování fotek", note: "lokální snímky, výběr a nahrání na server", icon: "🧺" },
             { href: "/server-storage.html", label: "Nahrané fotky", note: "to, co už je uložené v Bunny", icon: "🗂️" },
             { href: "/my-map.html", label: "Moje mapa", icon: "📍" },
@@ -1725,9 +2811,44 @@ function renderHeader(session, profile = null) {
         }
         rightTabItems.push({ type: "action", label: "Odhlásit", className: "btn-danger", handler: logoutFlow, icon: "↪" });
 
+        const username = session.user?.preferred_username || identity?.preferred_username || "hoste";
         const tabs = [
-            { label: "Hlavní menu", htmlLabel: "Hlavní menu", items: leftTabItems },
-            { label: "Můj profil", htmlLabel: `${profileIcon} Můj profil`, items: rightTabItems }
+            {
+                label: "Hlavní menu",
+                htmlLabel: "Hlavní menu",
+                items: leftTabItems,
+                lead: {
+                    href: "/info.html",
+                    title: "O Houbám Zdar",
+                    copy: "Jak funguje projekt, sdílení nálezů a pravidla komunity.",
+                    icon: brandMenuIcon
+                }
+            },
+            {
+                label: "Můj profil",
+                htmlLabel: `${profileIcon} Můj profil`,
+                items: rightTabItems,
+                lead: {
+                    eyebrow: "Menu Ahoj",
+                    title: username,
+                    metrics: [
+                        {
+                            kind: "houbicky",
+                            href: "/me.html",
+                            icon: houbickaLeadIcon,
+                            counterAttr: "data-header-houbicka-total",
+                            value: Math.max(0, Number(identity?.houbicka_balance || 0))
+                        },
+                        {
+                            kind: "messages",
+                            href: "/messages.html",
+                            icon: messageLeadIcon,
+                            counterAttr: "data-header-chat-unread-lead",
+                            value: Math.max(0, Number(headerChatUnreadState.total || 0))
+                        }
+                    ]
+                }
+            }
         ];
 
         const cameraButton = createDirectCameraButton("Přidat úlovek", cameraIcon, "btn-secondary");
@@ -1742,13 +2863,8 @@ function renderHeader(session, profile = null) {
         const logoutButton = createIconActionButton("Odhlásit", logoutIcon, "btn-secondary", logoutFlow);
         logoutButton.classList.add("header-control-button");
 
-        const username = session.user?.preferred_username || identity?.preferred_username || "hoste";
         const menuButton = createTabbedHeaderMenuButton("Menu", menuIcon, "btn-secondary", tabs, {
-            hideLabel: true,
-            lead: {
-                eyebrow: "Menu",
-                title: `Ahoj, ${username}`
-            }
+            hideLabel: true
         });
 
         authButtons.appendChild(cameraButton);
@@ -1756,13 +2872,20 @@ function renderHeader(session, profile = null) {
         authButtons.appendChild(profileButton);
         authButtons.appendChild(logoutButton);
         authButtons.appendChild(menuButton);
+        setHeaderHoubickaBadges(identity?.houbicka_balance || 0);
+        void loadHeaderChatUnreadCount(false);
         return;
     }
 
+    setHeaderChatUnreadBadges(0);
+    setHeaderHoubickaBadges(0);
+
     const leftTabItems = [
         { href: "/", label: "Novinky", icon: "🔥" },
-        { href: "/info.html", label: "O Houbám Zdar", icon: "ℹ️" },
+        { href: "/faq.html", label: "Časté dotazy", icon: "❓" },
+        { type: "action", label: "Asistent", icon: "🤖", handler: () => window.openSiteAssistant?.() },
         { href: "/feed.html", label: "Zeď úlovků", icon: "📰" },
+        { href: "/chat.html", label: "Chat", icon: "💬" },
         { href: "/gallery.html", label: "Galerie", icon: "🖼️" },
         { href: "/users.html", label: "Houbaři", icon: "🍄" },
         { type: "action", label: "Mapa", icon: "🗺️", handler: openHeaderGlobalMap }
@@ -1777,8 +2900,27 @@ function renderHeader(session, profile = null) {
     ];
 
     const tabs = [
-        { label: "Hlavní menu", htmlLabel: "Hlavní menu", items: leftTabItems },
-        { label: "Přihlášení / Registrace", htmlLabel: "Přihlášení / Registrace", items: rightTabItems }
+        {
+            label: "Hlavní menu",
+            htmlLabel: "Hlavní menu",
+            items: leftTabItems,
+            lead: {
+                href: "/info.html",
+                title: "O Houbám Zdar",
+                copy: "Jak funguje projekt, sdílení nálezů a co čekat po registraci.",
+                icon: brandMenuIcon
+            }
+        },
+        {
+            label: "Přihlášení / Registrace",
+            htmlLabel: "Přihlášení / Registrace",
+            items: rightTabItems,
+            lead: {
+                eyebrow: "Veřejné menu",
+                title: "Houbám Zdar",
+                copy: "Skutečné souřadnice fotografií uvidíte až po registraci."
+            }
+        }
     ];
 
     const loginIcon = `
@@ -1807,12 +2949,7 @@ function renderHeader(session, profile = null) {
     cameraButton.classList.add("header-control-button");
 
     const menuButton = createTabbedHeaderMenuButton("Menu", menuIcon, "btn-secondary", tabs, {
-        hideLabel: true,
-        lead: {
-            eyebrow: "Veřejné menu",
-            title: "Houbám Zdar",
-            copy: "Skutečné souřadnice fotografií uvidíte až po registraci."
-        }
+        hideLabel: true
     });
 
     authButtons.appendChild(cameraButton);
@@ -2077,7 +3214,7 @@ function renderViewedCaptures(captures) {
                     </div>
                     <p class="viewed-capture-coordinates">${escapeHtml(formatCaptureCoordinates(capture))}</p>
                     <p class="subtle-note">
-                        Odemčeno za 1 houbičku. Fotografie zůstává v soukromém přehledu i po dalším vývoji profilu.
+                        Odemčeno za houbičku. Fotografie zůstává v soukromém přehledu i po dalším vývoji profilu.
                     </p>
                 </div>
             </article>
@@ -2622,7 +3759,8 @@ function publicProfileFollowNodes() {
     return {
         container: document.getElementById("public-profile-follow-actions"),
         button: document.getElementById("public-profile-follow-btn"),
-        status: document.getElementById("public-profile-follow-status")
+        status: document.getElementById("public-profile-follow-status"),
+        messageLink: document.getElementById("public-profile-message-btn")
     };
 }
 
@@ -2661,6 +3799,9 @@ function syncPublicProfileFollowAction() {
     nodes.button.textContent = loggedIn
         ? (isFollowing ? "Přestat sledovat" : "Sledovat")
         : "Přihlásit se a sledovat";
+    if (nodes.messageLink) {
+        nodes.messageLink.href = `/chat.html?dm=${encodeURIComponent(String(profile.id || ""))}`;
+    }
 }
 
 async function togglePublicProfileFollow() {
@@ -3636,35 +4777,33 @@ function renderFollowingUsers() {
 
     container.innerHTML = followingPageState.users.map((user) => `
         <article class="following-user-card card" data-following-user-card="${escapeHtml(String(user.id))}">
-            <div class="following-user-head">
-                <a class="following-user-avatar" href="${escapeHtml(buildPublicProfileURL(user.id))}" aria-label="Otevřít veřejný profil houbaře ${escapeHtml(user.preferred_username || "houbař")}">
-                    <img src="${escapeHtml(user.picture || DEFAULT_AVATAR_URL)}" alt="${escapeHtml(user.preferred_username || "Profilová fotka")}">
-                </a>
-                <div class="following-user-copy">
-                    <div class="following-user-title-row">
-                        <div>
-                            <h2>${escapeHtml(user.preferred_username || "Bez veřejného jména")}</h2>
-                            <p class="muted-copy">${escapeHtml(
-                                hasMeaningfulDateTime(user.followed_at)
-                                    ? `Sledujete od ${formatDateTime(user.followed_at, "")}`
-                                    : "Ve sledování"
-                            )}</p>
-                        </div>
-                        <button
-                            type="button"
-                            class="btn btn-secondary"
-                            data-following-unfollow="${escapeHtml(String(user.id))}"
-                        >Přestat sledovat</button>
+            <a class="following-user-avatar" href="${escapeHtml(buildPublicProfileURL(user.id))}" aria-label="Otevřít veřejný profil houbaře ${escapeHtml(user.preferred_username || "houbař")}">
+                <img src="${escapeHtml(user.picture || DEFAULT_AVATAR_URL)}" alt="${escapeHtml(user.preferred_username || "Profilová fotka")}">
+            </a>
+            <div class="following-user-copy">
+                <div class="following-user-title-row">
+                    <div class="following-user-title-copy">
+                        <h2>${escapeHtml(user.preferred_username || "Bez veřejného jména")}</h2>
+                        <p class="muted-copy">${escapeHtml(
+                            hasMeaningfulDateTime(user.followed_at)
+                                ? `Sledujete od ${formatDateTime(user.followed_at, "")}`
+                                : "Ve sledování"
+                        )}</p>
                     </div>
-                    <p class="public-about-preview">${escapeHtml(user.about_me || "Zatím bez veřejného představení.")}</p>
-                    <div class="compact-meta">
-                        <span class="compact-chip">${escapeHtml(String(user.public_posts_count || 0))} publikací</span>
-                        <span class="compact-chip">${escapeHtml(String(user.public_captures_count || 0))} veřejných fotografií</span>
-                        <span class="compact-chip">${escapeHtml(String(user.followers_count || 0))} sledujících</span>
-                    </div>
-                    <div class="action-row">
-                        <a href="${escapeHtml(buildPublicProfileURL(user.id))}" class="btn btn-primary">Otevřít veřejný profil</a>
-                    </div>
+                    <button
+                        type="button"
+                        class="btn btn-secondary following-user-unfollow"
+                        data-following-unfollow="${escapeHtml(String(user.id))}"
+                    >Přestat sledovat</button>
+                </div>
+                <div class="compact-meta following-user-meta">
+                    <span class="compact-chip">${escapeHtml(String(user.public_posts_count || 0))} publikací</span>
+                    <span class="compact-chip">${escapeHtml(String(user.public_captures_count || 0))} fotek</span>
+                    <span class="compact-chip">${escapeHtml(String(user.followers_count || 0))} sledujících</span>
+                </div>
+                <div class="action-row following-user-actions">
+                    <a href="/chat.html?dm=${escapeHtml(String(user.id))}" class="btn btn-secondary">Zpráva</a>
+                    <a href="${escapeHtml(buildPublicProfileURL(user.id))}" class="btn btn-primary">Profil</a>
                 </div>
             </div>
         </article>
@@ -4137,7 +5276,7 @@ async function unlockCurrentLightboxCapture() {
     }
 
     mapBtn.disabled = true;
-    setLightboxMessage("Odemykám souřadnice za 1 houbičku...");
+    setLightboxMessage("Odemykám souřadnice za houbičku...");
 
     try {
         const res = await fetch(`${API_URL}/api/captures/${encodeURIComponent(capture.id)}/unlock-coordinates`, {
@@ -4367,7 +5506,7 @@ function updateLightboxMap() {
     if (capture.coordinates_locked) {
         mapBtn.style.display = "block";
         if (window.appSession && window.appSession.logged_in) {
-            mapBtn.textContent = "Otevřít souřadnice za 1 houbičku";
+            mapBtn.textContent = "Otevřít souřadnice za houbičku";
             mapBtn.onclick = (event) => {
                 event.stopPropagation();
                 unlockCurrentLightboxCapture();
@@ -4669,6 +5808,7 @@ function initReauthPage() {
 
 document.addEventListener("DOMContentLoaded", () => {
     initLegalFooter();
+    initSiteAssistant();
 
     const page = document.body.dataset.page;
     if (page === "home") {
@@ -4708,5 +5848,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
     if (page === "create-post") {
         initCreatePostPage();
+    }
+});
+
+window.addEventListener("pageshow", () => {
+    if (siteAssistantState.initialized) {
+        setSiteAssistantOpen(false);
     }
 });

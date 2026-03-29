@@ -5,9 +5,11 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
+	"github.com/houbamzdar/bff/internal/assistantadmin"
 	"github.com/houbamzdar/bff/internal/auth"
 	"github.com/houbamzdar/bff/internal/config"
 	"github.com/houbamzdar/bff/internal/db"
@@ -25,6 +27,15 @@ func main() {
 	}
 	defer database.Close()
 
+	var assistantAdminDB *assistantadmin.DB
+	if strings.TrimSpace(cfg.AssistantDBURL) != "" {
+		assistantAdminDB, err = assistantadmin.New(cfg.AssistantDBURL, cfg.AssistantDBToken)
+		if err != nil {
+			log.Fatalf("failed to initialize assistant admin db: %v", err)
+		}
+		defer assistantAdminDB.Close()
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -34,7 +45,7 @@ func main() {
 	}
 
 	mediaStorage := media.NewBunnyStorage(cfg)
-	srv := server.New(cfg, database, oidcProvider, mediaStorage)
+	srv := server.New(cfg, database, assistantAdminDB, oidcProvider, mediaStorage)
 	enrichmentService := enrichment.New(cfg, database, mediaStorage)
 
 	workerCtx, workerCancel := context.WithCancel(context.Background())

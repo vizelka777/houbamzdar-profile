@@ -104,7 +104,7 @@ func TestListModerationUserActionsIncludesUserAndContentActions(t *testing.T) {
 		t.Fatalf("create moderator session: %v", err)
 	}
 
-	srv := New(cfg, database, nil, nil)
+	srv := New(cfg, database, nil, nil, nil)
 
 	req := httptest.NewRequest(
 		http.MethodGet,
@@ -239,7 +239,7 @@ func TestSetModerationUserRestrictionsPersistsModerationNote(t *testing.T) {
 		t.Fatalf("create moderator session: %v", err)
 	}
 
-	srv := New(cfg, database, nil, nil)
+	srv := New(cfg, database, nil, nil, nil)
 
 	requestBody := strings.NewReader(`{
 		"banned_until": "",
@@ -416,7 +416,7 @@ func TestListModerationHiddenContentEndpoints(t *testing.T) {
 		t.Fatalf("create moderator session: %v", err)
 	}
 
-	srv := New(cfg, database, nil, nil)
+	srv := New(cfg, database, nil, nil, nil)
 
 	t.Run("hidden captures", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/api/moderation/hidden-captures?limit=10&offset=0", nil)
@@ -597,7 +597,7 @@ func TestModerationUserRolesRouteDisabled(t *testing.T) {
 		t.Fatalf("create moderator session: %v", err)
 	}
 
-	srv := New(cfg, database, nil, nil)
+	srv := New(cfg, database, nil, nil, nil)
 
 	req := httptest.NewRequest(
 		http.MethodPost,

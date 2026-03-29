@@ -66,7 +66,7 @@ func TestDeleteMeRemovesRegularUserAccount(t *testing.T) {
 		t.Fatalf("create session: %v", err)
 	}
 
-	srv := New(cfg, database, nil, media.NewBunnyStorage(cfg))
+	srv := New(cfg, database, nil, nil, media.NewBunnyStorage(cfg))
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/me", nil)
 	req.AddCookie(&http.Cookie{Name: cfg.SessionCookieName, Value: sessionID})
@@ -170,7 +170,7 @@ func TestDeleteMeRejectsAdminAccount(t *testing.T) {
 		t.Fatalf("create session: %v", err)
 	}
 
-	srv := New(cfg, database, nil, nil)
+	srv := New(cfg, database, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/me", nil)
 	req.AddCookie(&http.Cookie{Name: cfg.SessionCookieName, Value: sessionID})
@@ -243,7 +243,7 @@ func TestPostMeNicknameSuggestsAlternativesForTakenValue(t *testing.T) {
 		t.Fatalf("create session: %v", err)
 	}
 
-	srv := New(cfg, database, nil, nil)
+	srv := New(cfg, database, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/me/nickname", bytes.NewBufferString(`{"preferred_username":"atlas"}`))
 	req.Header.Set("Content-Type", "application/json")
@@ -317,7 +317,7 @@ func TestPostMeNicknameUpdatesPreferredUsername(t *testing.T) {
 		t.Fatalf("create session: %v", err)
 	}
 
-	srv := New(cfg, database, nil, nil)
+	srv := New(cfg, database, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/me/nickname", bytes.NewBufferString(`{"preferred_username":"Žaneta7"}`))
 	req.Header.Set("Content-Type", "application/json")

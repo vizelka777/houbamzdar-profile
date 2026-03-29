@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="cs" data-chat-page-mode="public">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script>
+        (function() {
+            const params = new URLSearchParams(window.location.search || "");
+            const directUserID = Number(params.get("dm") || 0);
+            const pageMode = Number.isFinite(directUserID) && directUserID > 0
+                ? "direct-focus"
+                : (params.get("view") === "messages" ? "messages" : "public");
+            document.documentElement.setAttribute("data-chat-page-mode", pageMode);
+        })();
+    </script>
+    <title>Chat | Houbám Zdar</title>
+    <meta name="description" content="Veřejný chat i soukromé zprávy v Houbám Zdar.">
+    <link rel="icon" href="/favicon.ico" sizes="any">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+    <link rel="stylesheet" href="styles/base.css">
+    <link rel="stylesheet" href="styles/page-chat.css">
+</head>
+<body data-page="chat" class="page-shell page-profile">
+    <header class="site-header">
+        <a href="/info.html" class="brand-link" aria-label="Houbám Zdar">
+            <img src="/logo.png" alt="Logo Houbám Zdar" class="brand-mark">
+            <div class="brand-copy">
+                <span class="brand-eyebrow">Komunita</span>
+                <strong>Houbám Zdar</strong>
+            </div>
+        </a>
+        <div id="auth-buttons" class="header-actions"></div>
+    </header>
+
+    <main class="content-main chat-layout">
+        <aside class="card chat-sidebar">
+            <div class="chat-sidebar-section chat-sidebar-box">
+                <p class="section-label">Chat</p>
+                <div class="chat-view-switch" aria-label="Přepnutí mezi veřejným chatem a zprávami">
+                    <button id="chat-view-public-btn" type="button" class="btn btn-secondary chat-view-pill">Veřejný chat</button>
+                    <button id="chat-view-messages-btn" type="button" class="btn btn-secondary chat-view-pill">Zprávy</button>
+                </div>
+                <p id="chat-sidebar-intro" class="muted-copy chat-sidebar-intro">
+                    Vyberte, jestli chcete veřejné místnosti nebo soukromé konverzace.
+                </p>
+            </div>
+
+            <div id="chat-public-section" class="chat-sidebar-section chat-sidebar-box">
+                <p class="section-label">Místnosti</p>
+                <div id="chat-public-rooms" class="chat-room-list">
+                    <p class="muted-copy">Načítám místnosti...</p>
+                </div>
+            </div>
+
+            <div id="chat-direct-section" class="chat-sidebar-section chat-sidebar-box">
+                <p class="section-label">Moje konverzace</p>
+                <div id="chat-direct-rooms" class="chat-room-list">
+                    <p class="muted-copy">Načítám konverzace...</p>
+                </div>
+                <div class="chat-room-list-actions">
+                    <button id="chat-direct-load-more" type="button" class="btn btn-secondary" hidden>Načíst další</button>
+                </div>
+            </div>
+        </aside>
+
+        <section class="card chat-main">
+            <div class="chat-room-head">
+                <div>
+                    <p id="chat-room-eyebrow" class="section-label">Chat</p>
+                    <h1 id="chat-room-title">Vyberte místnost nebo konverzaci</h1>
+                </div>
+                <p id="chat-room-status" class="muted-copy">Po přihlášení uvidíte veřejné místnosti i soukromé zprávy.</p>
+            </div>
+
+            <div id="chat-message-list" class="chat-message-list">
+                <p class="muted-copy">Vyberte vlevo veřejnou místnost nebo soukromou konverzaci.</p>
+            </div>
+
+            <form id="chat-message-form" class="chat-message-form" hidden>
+                <textarea id="chat-message-input" class="chat-message-input" maxlength="1000" placeholder="Napište zprávu do veřejného chatu" required></textarea>
+                <div class="chat-message-actions">
+                    <p id="chat-compose-status" class="status-message" aria-live="polite"></p>
+                    <button id="chat-message-submit" type="submit" class="btn btn-primary">Odeslat</button>
+                </div>
+            </form>
+        </section>
+    </main>
+
+    <script src="app.js" defer></script>
+    <script src="chat.js" defer></script>
+</body>
+</html>

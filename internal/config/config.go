@@ -13,6 +13,8 @@ type Config struct {
 	AppBaseURL          string
 	FrontBaseURL        string
 	FrontOrigin         string
+	ChatAPIBaseURL      string
+	AssistantAPIBaseURL string
 	SessionCookieName   string
 	SessionCookieSecure bool
 	SessionTTLHours     int
@@ -25,6 +27,14 @@ type Config struct {
 
 	DBURL   string
 	DBToken string
+
+	AssistantDBURL   string
+	AssistantDBToken string
+
+	ChatTokenSecret     string
+	ChatTokenIssuer     string
+	ChatTokenAudience   string
+	ChatTokenTTLSeconds int
 
 	BunnyStorageHost       string
 	BunnyPrivateZone       string
@@ -75,6 +85,8 @@ func Load() *Config {
 		AppBaseURL:          os.Getenv("APP_BASE_URL"),
 		FrontBaseURL:        os.Getenv("FRONT_BASE_URL"),
 		FrontOrigin:         os.Getenv("FRONT_ORIGIN"),
+		ChatAPIBaseURL:      os.Getenv("CHAT_API_BASE_URL"),
+		AssistantAPIBaseURL: os.Getenv("ASSISTANT_API_BASE_URL"),
 		SessionCookieName:   sessionCookieName,
 		SessionCookieSecure: secure,
 		SessionTTLHours:     ttl,
@@ -87,6 +99,14 @@ func Load() *Config {
 
 		DBURL:   os.Getenv("DB_URL"),
 		DBToken: os.Getenv("DB_TOKEN"),
+
+		AssistantDBURL:   os.Getenv("ASSISTANT_DB_URL"),
+		AssistantDBToken: os.Getenv("ASSISTANT_DB_TOKEN"),
+
+		ChatTokenSecret:     os.Getenv("CHAT_TOKEN_SECRET"),
+		ChatTokenIssuer:     getEnv("CHAT_TOKEN_ISSUER", os.Getenv("APP_BASE_URL")),
+		ChatTokenAudience:   getEnv("CHAT_TOKEN_AUDIENCE", "houbamzdar-chat"),
+		ChatTokenTTLSeconds: getEnvInt("CHAT_TOKEN_TTL_SECONDS", 300),
 
 		BunnyStorageHost:       getEnv("BUNNY_STORAGE_HOST", "storage.bunnycdn.com"),
 		BunnyPrivateZone:       os.Getenv("BUNNY_PRIVATE_STORAGE_ZONE"),

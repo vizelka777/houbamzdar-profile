@@ -7,6 +7,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
+	"github.com/houbamzdar/bff/internal/assistantadmin"
 	"github.com/houbamzdar/bff/internal/auth"
 	"github.com/houbamzdar/bff/internal/backup"
 	"github.com/houbamzdar/bff/internal/config"
@@ -16,15 +17,16 @@ import (
 )
 
 type Server struct {
-	Config *config.Config
-	DB     *db.DB
-	OIDC   *auth.OIDC
-	Media  *media.BunnyStorage
-	Backup *backup.Service
-	Router *chi.Mux
+	Config  *config.Config
+	DB      *db.DB
+	AIAdmin *assistantadmin.DB
+	OIDC    *auth.OIDC
+	Media   *media.BunnyStorage
+	Backup  *backup.Service
+	Router  *chi.Mux
 }
 
-func New(cfg *config.Config, database *db.DB, oidc *auth.OIDC, mediaStorage *media.BunnyStorage) *Server {
+func New(cfg *config.Config, database *db.DB, assistantAdminDB *assistantadmin.DB, oidc *auth.OIDC, mediaStorage *media.BunnyStorage) *Server {
 	r := chi.NewRouter()
 
 	r.Use(middleware.Logger)
@@ -37,12 +39,13 @@ func New(cfg *config.Config, database *db.DB, oidc *auth.OIDC, mediaStorage *med
 	}))
 
 	s := &Server{
-		Config: cfg,
-		DB:     database,
-		OIDC:   oidc,
-		Media:  mediaStorage,
-		Backup: backup.New(cfg, database, mediaStorage),
-		Router: r,
+		Config:  cfg,
+		DB:      database,
+		AIAdmin: assistantAdminDB,
+		OIDC:    oidc,
+		Media:   mediaStorage,
+		Backup:  backup.New(cfg, database, mediaStorage),
+		Router:  r,
 	}
 
 	s.setupRoutes()
@@ -72,6 +75,7 @@ func (s *Server) setupRoutes() {
 	s.Router.Group(func(r chi.Router) {
 		r.Use(s.authMiddleware)
 		r.Get("/api/me", s.handleGetMe)
+		r.Post("/api/chat/token", s.handleCreateChatToken)
 		r.Delete("/api/me", s.handleDeleteMe)
 		r.Get("/api/me/following", s.handleListMyFollowingUsers)
 		r.Get("/api/me/map-captures", s.handleListMyMapCaptures)
@@ -93,6 +97,9 @@ func (s *Server) setupRoutes() {
 		r.Get("/api/admin/backups", s.handleListAdminBackups)
 		r.Post("/api/admin/backups/run", s.handleRunAdminBackup)
 		r.Post("/api/admin/backups/prune", s.handlePruneAdminBackups)
+		r.Get("/api/admin/assistant/overview", s.handleGetAssistantAdminOverview)
+		r.Get("/api/admin/assistant/threads", s.handleListAssistantAdminThreads)
+		r.Get("/api/admin/assistant/threads/{threadID}", s.handleGetAssistantAdminThread)
 		r.Get("/api/moderation/captures/{captureID}/taxonomy", s.handleGetModerationCaptureTaxonomy)
 		r.Post("/api/moderation/captures/{captureID}/taxonomy", s.handleSetModerationCaptureTaxonomy)
 		r.Get("/api/moderation/captures/{captureID}/geo", s.handleGetModerationCaptureGeo)

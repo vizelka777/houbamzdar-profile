@@ -125,7 +125,7 @@ func TestAdminOverviewAndUserDirectoryEndpoints(t *testing.T) {
 		t.Fatalf("create admin session: %v", err)
 	}
 
-	srv := New(cfg, database, nil, nil)
+	srv := New(cfg, database, nil, nil, nil)
 
 	t.Run("overview", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/api/admin/overview", nil)
@@ -301,7 +301,7 @@ func TestAdminRoleManagementRouteDisabled(t *testing.T) {
 		t.Fatalf("create admin session: %v", err)
 	}
 
-	srv := New(cfg, database, nil, nil)
+	srv := New(cfg, database, nil, nil, nil)
 
 	req := httptest.NewRequest(
 		http.MethodPost,
@@ -371,7 +371,7 @@ func TestModeratorCannotAccessAdminEndpoints(t *testing.T) {
 		t.Fatalf("create moderator session: %v", err)
 	}
 
-	srv := New(cfg, database, nil, nil)
+	srv := New(cfg, database, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/admin/overview", nil)
 	req.AddCookie(&http.Cookie{Name: cfg.SessionCookieName, Value: sessionID})
@@ -433,7 +433,7 @@ func TestAdminBackupEndpoints(t *testing.T) {
 		t.Fatalf("create admin session: %v", err)
 	}
 
-	srv := New(cfg, database, nil, nil)
+	srv := New(cfg, database, nil, nil, nil)
 	srv.Backup = backup.NewWithStorage(cfg, database, storage)
 
 	runReq := httptest.NewRequest(http.MethodPost, "/api/admin/backups/run", nil)
@@ -542,7 +542,7 @@ func TestAdminPruneBackupsEndpoint(t *testing.T) {
 		t.Fatalf("create admin session: %v", err)
 	}
 
-	srv := New(cfg, database, nil, nil)
+	srv := New(cfg, database, nil, nil, nil)
 	srv.Backup = backup.NewWithStorage(cfg, database, storage)
 
 	pruneReq := httptest.NewRequest(http.MethodPost, "/api/admin/backups/prune", nil)

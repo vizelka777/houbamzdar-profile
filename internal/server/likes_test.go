@@ -60,7 +60,7 @@ func TestPostLikes(t *testing.T) {
 
 	guestReq := httptest.NewRequest(http.MethodPost, "/api/posts/"+post.ID+"/like", nil)
 	guestRec := httptest.NewRecorder()
-	srv := New(cfg, database, nil, nil)
+	srv := New(cfg, database, nil, nil, nil)
 	srv.Router.ServeHTTP(guestRec, guestReq)
 	if guestRec.Code != http.StatusUnauthorized {
 		t.Fatalf("expected status 401 for guest like, got %d", guestRec.Code)

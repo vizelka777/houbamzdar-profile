@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="cs" data-chat-page-mode="messages">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script>
+        (function() {
+            const current = new URL(window.location.href);
+            const directUserID = Number(current.searchParams.get("dm") || 0);
+            if (Number.isFinite(directUserID) && directUserID > 0) {
+                const target = new URL("/chat.html", window.location.origin);
+                target.searchParams.set("dm", String(directUserID));
+                window.location.replace(`${target.pathname}${target.search}${target.hash}`);
+                return;
+            }
+            document.documentElement.setAttribute("data-chat-page-mode", "messages");
+        })();
+    </script>
+    <title>Zprávy | Houbám Zdar</title>
+    <meta name="description" content="Vaše soukromé konverzace v Houbám Zdar.">
+    <link rel="icon" href="/favicon.ico" sizes="any">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+    <link rel="stylesheet" href="styles/base.css">
+    <link rel="stylesheet" href="styles/page-chat.css">
+</head>
+<body data-page="chat" data-chat-default-view="messages" class="page-shell page-profile messages-page">
+    <header class="site-header">
+        <a href="/info.html" class="brand-link" aria-label="Houbám Zdar">
+            <img src="/logo.png" alt="Logo Houbám Zdar" class="brand-mark">
+            <div class="brand-copy">
+                <span class="brand-eyebrow">Komunita</span>
+                <strong>Houbám Zdar</strong>
+            </div>
+        </a>
+        <div id="auth-buttons" class="header-actions"></div>
+    </header>
+
+    <main class="content-main chat-layout">
+        <aside class="card chat-sidebar">
+            <div class="chat-sidebar-section chat-sidebar-box">
+                <p class="section-label">Zprávy</p>
+                <p id="chat-sidebar-intro" class="muted-copy chat-sidebar-intro">
+                    Jen vaše soukromé konverzace. Nový chat otevřete přes sledované houbaře nebo veřejný profil.
+                </p>
+            </div>
+
+            <div id="chat-direct-section" class="chat-sidebar-section chat-sidebar-box">
+                <p class="section-label">Moje konverzace</p>
+                <div id="chat-direct-rooms" class="chat-room-list">
+                    <p class="muted-copy">Načítám konverzace...</p>
+                </div>
+                <div class="chat-room-list-actions">
+                    <button id="chat-direct-load-more" type="button" class="btn btn-secondary" hidden>Načíst další</button>
+                </div>
+            </div>
+        </aside>
+    </main>
+
+    <script src="app.js" defer></script>
+    <script src="chat.js" defer></script>
+</body>
+</html>
