@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"hash/fnv"
 	"math"
 	"strings"
 	"time"
@@ -65,6 +64,8 @@ const migrationUserFollowsTableID = "20260323_create_user_follows_table"
 var ErrInsufficientHoubickaBalance = errors.New("insufficient houbicka balance")
 var ErrCaptureHasNoCoordinates = errors.New("capture has no coordinates")
 
+const guestCoordinateDecimalPlaces = 2
+
 func isModeratorUsername(username string) bool {
 	return strings.EqualFold(strings.TrimSpace(username), "houbamzdar")
 }
@@ -81,45 +82,20 @@ func publicUserNotBannedClause(alias string) string {
 	return fmt.Sprintf("(COALESCE(%s.banned_until, '') = '' OR %s.banned_until <= ?)", alias, alias)
 }
 
-func buildGuestMockCoordinates(capture *models.Capture) (float64, float64, bool) {
+func buildGuestApproximateCoordinates(capture *models.Capture) (float64, float64, bool) {
 	if capture == nil || capture.Latitude == nil || capture.Longitude == nil {
 		return 0, 0, false
 	}
 
-	hasher := fnv.New64a()
-	_, _ = hasher.Write([]byte(strings.TrimSpace(capture.ID)))
-	sum := hasher.Sum64()
+	scale := math.Pow(10, guestCoordinateDecimalPlaces)
+	approxLatDegrees := math.Round(*capture.Latitude*scale) / scale
+	approxLonDegrees := math.Round(*capture.Longitude*scale) / scale
 
-	bearingRadians := (float64(sum%36000) / 100) * (math.Pi / 180)
-	distanceMeters := 18000 + float64((sum>>16)%22001)
-	angularDistance := distanceMeters / 6371000
-
-	originLat := *capture.Latitude * (math.Pi / 180)
-	originLon := *capture.Longitude * (math.Pi / 180)
-
-	mockLat := math.Asin(
-		math.Sin(originLat)*math.Cos(angularDistance) +
-			math.Cos(originLat)*math.Sin(angularDistance)*math.Cos(bearingRadians),
-	)
-	mockLon := originLon + math.Atan2(
-		math.Sin(bearingRadians)*math.Sin(angularDistance)*math.Cos(originLat),
-		math.Cos(angularDistance)-math.Sin(originLat)*math.Sin(mockLat),
-	)
-
-	mockLatDegrees := mockLat * (180 / math.Pi)
-	mockLonDegrees := mockLon * (180 / math.Pi)
-	for mockLonDegrees > 180 {
-		mockLonDegrees -= 360
-	}
-	for mockLonDegrees < -180 {
-		mockLonDegrees += 360
-	}
-
-	if math.IsNaN(mockLatDegrees) || math.IsNaN(mockLonDegrees) || math.IsInf(mockLatDegrees, 0) || math.IsInf(mockLonDegrees, 0) {
+	if math.IsNaN(approxLatDegrees) || math.IsNaN(approxLonDegrees) || math.IsInf(approxLatDegrees, 0) || math.IsInf(approxLonDegrees, 0) {
 		return 0, 0, false
 	}
 
-	return mockLatDegrees, mockLonDegrees, true
+	return approxLatDegrees, approxLonDegrees, true
 }
 
 func New(cfg *config.Config) (*DB, error) {
@@ -2485,7 +2461,7 @@ func (db *DB) maskCaptureCoordinatesForViewer(viewerUserID int64, captures []*mo
 			continue
 		}
 		if viewerUserID == 0 && capture.CoordinatesFree {
-			mockLat, mockLon, ok := buildGuestMockCoordinates(capture)
+			mockLat, mockLon, ok := buildGuestApproximateCoordinates(capture)
 			if ok {
 				capture.Latitude = &mockLat
 				capture.Longitude = &mockLon

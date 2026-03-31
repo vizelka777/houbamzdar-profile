@@ -2273,8 +2273,28 @@ function captureHasMockCoordinates(capture) {
     return Boolean(capture && capture.coordinates_mocked);
 }
 
+const approximateGuestCoordinateFractionDigits = 2;
+const approximateGuestCaptureMapMaxZoom = 13;
+const exactCaptureMapFitMaxZoom = 15;
+const exactCaptureMapHardMaxZoom = 19;
+
+function captureCoordinateFractionDigits(capture) {
+    return captureHasMockCoordinates(capture) ? approximateGuestCoordinateFractionDigits : 5;
+}
+
 function captureMockCoordinatesNote() {
-    return "Ukázkové souřadnice pro návštěvníky. Skutečné souřadnice se zobrazí až po registraci.";
+    return "Přibližná poloha pro návštěvníky, zaokrouhlená asi na 1 km. Přesné souřadnice se zobrazí až po registraci.";
+}
+
+function captureMockCoordinatesViewerNote(entries) {
+    if (Array.isArray(entries) && entries.length > 1) {
+        return "Body pro návštěvníky jsou jen přibližné, zaokrouhlené asi na 1 km.";
+    }
+    return "Poloha pro návštěvníky je jen přibližná, zaokrouhlená asi na 1 km.";
+}
+
+function captureEntriesHaveMockCoordinates(entries) {
+    return Array.isArray(entries) && entries.some((entry) => captureHasMockCoordinates(entry?.capture));
 }
 
 function buildCaptureMapData(capture) {
@@ -2407,7 +2427,8 @@ function formatCaptureCoordinates(capture) {
         return "Souřadnice nejsou k dispozici.";
     }
 
-    const formatted = `${Number(capture.latitude).toFixed(5)}, ${Number(capture.longitude).toFixed(5)}`;
+    const fractionDigits = captureCoordinateFractionDigits(capture);
+    const formatted = `${Number(capture.latitude).toFixed(fractionDigits)}, ${Number(capture.longitude).toFixed(fractionDigits)}`;
     if (captureHasMockCoordinates(capture)) {
         return `${formatted} • ${captureMockCoordinatesNote()}`;
     }
@@ -2514,7 +2535,7 @@ function buildCaptureRegionSearchNote(capture) {
     if (!capture) return "";
 
     if (captureHasMockCoordinates(capture)) {
-        return "Ukázkové souřadnice pro návštěvníky. Skutečné až po registraci.";
+        return "Přibližná poloha pro návštěvníky, zaokrouhlená asi na 1 km.";
     }
 
     if (capture.coordinates_free) {
@@ -3030,7 +3051,7 @@ function renderHeader(session, profile = null) {
             lead: {
                 eyebrow: "Veřejné menu",
                 title: "Houbám Zdar",
-                copy: "Skutečné souřadnice fotografií uvidíte až po registraci."
+                copy: "Návštěvníkům ukazujeme polohu jen přibližně. Přesné souřadnice fotografií uvidíte až po registraci."
             }
         }
     ];
@@ -5234,6 +5255,9 @@ function buildCaptureMapViewerMarker(entry, options = {}) {
 }
 
 function renderCaptureMapViewerEntries(map, entries, options = {}) {
+    const fitMaxZoom = captureEntriesHaveMockCoordinates(entries)
+        ? approximateGuestCaptureMapMaxZoom
+        : exactCaptureMapFitMaxZoom;
     const markerOptions = {
         ...options,
         forcePlainMarker: options.forcePlainMarker || entries.length === 1
@@ -5255,7 +5279,7 @@ function renderCaptureMapViewerEntries(map, entries, options = {}) {
                 }
             }
         );
-        window.HZDMapClusters.fitLayer(map, captureMapViewerMarkerLayer, { padding: [30, 30], maxZoom: 15 });
+        window.HZDMapClusters.fitLayer(map, captureMapViewerMarkerLayer, { padding: [30, 30], maxZoom: fitMaxZoom });
         return;
     }
 
@@ -5265,7 +5289,7 @@ function renderCaptureMapViewerEntries(map, entries, options = {}) {
     captureMapViewerMarkerLayer = L.featureGroup(markers).addTo(map);
     const bounds = captureMapViewerMarkerLayer.getBounds();
     if (bounds.isValid()) {
-        map.fitBounds(bounds, { padding: [30, 30], maxZoom: 15 });
+        map.fitBounds(bounds, { padding: [30, 30], maxZoom: fitMaxZoom });
     }
 }
 
@@ -5274,8 +5298,14 @@ function fitCaptureMapViewerEntries(map, entries, options = {}) {
         return;
     }
 
+    const hasMockCoordinates = captureEntriesHaveMockCoordinates(entries);
+    const hardMaxZoom = hasMockCoordinates ? approximateGuestCaptureMapMaxZoom : exactCaptureMapHardMaxZoom;
+    const fitMaxZoom = hasMockCoordinates ? approximateGuestCaptureMapMaxZoom : exactCaptureMapFitMaxZoom;
+    map.setMaxZoom(hardMaxZoom);
+
     if (entries.length === 1) {
-        map.setView([entries[0].lat, entries[0].lon], options.zoom || 13);
+        const requestedZoom = Number.isFinite(Number(options.zoom)) ? Number(options.zoom) : 13;
+        map.setView([entries[0].lat, entries[0].lon], Math.min(requestedZoom, hardMaxZoom));
         return;
     }
 
@@ -5285,7 +5315,7 @@ function fitCaptureMapViewerEntries(map, entries, options = {}) {
     });
 
     if (bounds.isValid()) {
-        map.fitBounds(bounds, { padding: [30, 30], maxZoom: 15 });
+        map.fitBounds(bounds, { padding: [30, 30], maxZoom: fitMaxZoom });
     }
 }
 
@@ -5302,17 +5332,20 @@ function resolveCaptureMapViewerTitle(entries, options = {}) {
 
 function resolveCaptureMapViewerNote(entries, options = {}) {
     const customNote = String(options.note || "").trim();
+    const hasMockCoordinates = captureEntriesHaveMockCoordinates(entries);
     if (customNote) {
+        if (hasMockCoordinates) {
+            return `${customNote} ${captureMockCoordinatesViewerNote(entries)}`;
+        }
         return customNote;
     }
 
     const [entry] = entries;
     const capture = entry?.capture || null;
     const locationLabel = buildCaptureRegionLabel(capture);
-    const hasMockCoordinates = entries.some((item) => captureHasMockCoordinates(item?.capture));
 
     if (entries.length > 1 && hasMockCoordinates) {
-        return "Ukázkové body pro návštěvníky. Skutečné souřadnice se zobrazí až po registraci.";
+        return "Přibližné body pro návštěvníky, zaokrouhlené asi na 1 km. Přesné souřadnice se zobrazí až po registraci.";
     }
     if (entries.length > 1) {
         return `${entries.length} bodů na mapě.`;
@@ -5651,7 +5684,7 @@ function updateLightboxMap() {
     }
 
     mapBtn.style.display = "block";
-    mapBtn.textContent = captureHasMockCoordinates(capture) ? "Zobrazit ukázku na mapě" : "Zobrazit na mapě";
+    mapBtn.textContent = captureHasMockCoordinates(capture) ? "Zobrazit přibližně na mapě" : "Zobrazit na mapě";
 
     if (captureHasMockCoordinates(capture)) {
         setLightboxMessage(

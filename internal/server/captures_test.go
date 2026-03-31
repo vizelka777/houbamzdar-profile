@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -17,6 +18,13 @@ import (
 	"golang.org/x/oauth2"
 	_ "modernc.org/sqlite"
 )
+
+const guestCoordinateDecimalPlaces = 2
+
+func testRoundGuestCoordinate(value float64) float64 {
+	scale := math.Pow(10, guestCoordinateDecimalPlaces)
+	return math.Round(value*scale) / scale
+}
 
 func TestParseCaptureListFiltersSupportsInclusiveDateRange(t *testing.T) {
 	t.Parallel()
@@ -203,8 +211,11 @@ func TestCaptureCoordinateUnlockFlow(t *testing.T) {
 	if !captureByID[freeCapture.ID].CoordinatesMocked {
 		t.Fatalf("expected guest free capture to be marked with mocked coordinates")
 	}
-	if *captureByID[freeCapture.ID].Latitude == *freeCapture.Latitude || *captureByID[freeCapture.ID].Longitude == *freeCapture.Longitude {
-		t.Fatalf("expected guest free capture coordinates to differ from the real coordinates")
+	if got, want := *captureByID[freeCapture.ID].Latitude, testRoundGuestCoordinate(*freeCapture.Latitude); got != want {
+		t.Fatalf("expected guest free capture latitude %.2f, got %.8f", want, got)
+	}
+	if got, want := *captureByID[freeCapture.ID].Longitude, testRoundGuestCoordinate(*freeCapture.Longitude); got != want {
+		t.Fatalf("expected guest free capture longitude %.2f, got %.8f", want, got)
 	}
 
 	guestMapReq := httptest.NewRequest(http.MethodGet, "/api/public/map-captures?limit=10&offset=0", nil)
@@ -229,6 +240,12 @@ func TestCaptureCoordinateUnlockFlow(t *testing.T) {
 	}
 	if !guestMapPayload.Captures[0].CoordinatesMocked {
 		t.Fatalf("expected free guest map capture to be marked as mocked, got %+v", guestMapPayload.Captures[0])
+	}
+	if got, want := *guestMapPayload.Captures[0].Latitude, testRoundGuestCoordinate(*freeCapture.Latitude); got != want {
+		t.Fatalf("expected free guest map capture latitude %.2f, got %.8f", want, got)
+	}
+	if got, want := *guestMapPayload.Captures[0].Longitude, testRoundGuestCoordinate(*freeCapture.Longitude); got != want {
+		t.Fatalf("expected free guest map capture longitude %.2f, got %.8f", want, got)
 	}
 
 	guestPagedReq := httptest.NewRequest(http.MethodGet, "/api/public/captures?page=2&page_size=1", nil)
@@ -571,8 +588,11 @@ func TestProfileMapEndpointsUseDedicatedWholeMapPayloads(t *testing.T) {
 	if !guestPublicMapPayload.Captures[0].CoordinatesMocked {
 		t.Fatalf("expected guest public profile map capture to be marked as mocked, got %+v", guestPublicMapPayload.Captures[0])
 	}
-	if *guestPublicMapPayload.Captures[0].Latitude == *freePublicCapture.Latitude || *guestPublicMapPayload.Captures[0].Longitude == *freePublicCapture.Longitude {
-		t.Fatalf("expected guest public profile map capture to differ from the real coordinates")
+	if got, want := *guestPublicMapPayload.Captures[0].Latitude, testRoundGuestCoordinate(*freePublicCapture.Latitude); got != want {
+		t.Fatalf("expected guest public profile map capture latitude %.2f, got %.8f", want, got)
+	}
+	if got, want := *guestPublicMapPayload.Captures[0].Longitude, testRoundGuestCoordinate(*freePublicCapture.Longitude); got != want {
+		t.Fatalf("expected guest public profile map capture longitude %.2f, got %.8f", want, got)
 	}
 
 	viewerPublicMapReq := httptest.NewRequest(http.MethodGet, "/api/public/users/"+strconv.FormatInt(author.ID, 10)+"/map-captures", nil)

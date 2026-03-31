@@ -2,6 +2,7 @@ package db
 
 import (
 	"database/sql"
+	"math"
 	"path/filepath"
 	"testing"
 	"time"
@@ -11,6 +12,11 @@ import (
 	"golang.org/x/oauth2"
 	_ "modernc.org/sqlite"
 )
+
+func testRoundGuestCoordinate(value float64) float64 {
+	scale := math.Pow(10, guestCoordinateDecimalPlaces)
+	return math.Round(value*scale) / scale
+}
 
 func openTestDB(t *testing.T) *sql.DB {
 	t.Helper()
@@ -1481,8 +1487,11 @@ func TestListPublicCapturesMasksPaidCoordinatesAndLeavesFreeVisible(t *testing.T
 	if !captureByID[freeCapture.ID].CoordinatesMocked {
 		t.Fatalf("expected free capture coordinates to be marked as mocked for guests")
 	}
-	if *captureByID[freeCapture.ID].Latitude == *freeCapture.Latitude || *captureByID[freeCapture.ID].Longitude == *freeCapture.Longitude {
-		t.Fatalf("expected guest free capture coordinates to differ from the real coordinates")
+	if got, want := *captureByID[freeCapture.ID].Latitude, testRoundGuestCoordinate(*freeCapture.Latitude); got != want {
+		t.Fatalf("expected guest free capture latitude %.2f, got %.8f", want, got)
+	}
+	if got, want := *captureByID[freeCapture.ID].Longitude, testRoundGuestCoordinate(*freeCapture.Longitude); got != want {
+		t.Fatalf("expected guest free capture longitude %.2f, got %.8f", want, got)
 	}
 
 	if _, _, err := database.UnlockCaptureCoordinates(viewer.ID, paidCapture.ID); err != nil {
@@ -1802,12 +1811,26 @@ func TestListPublicCapturesWithFiltersRespectsGeoPrivacyAndSpeciesSearch(t *test
 	if mapMatches[0].ID != freePraha.ID || mapMatches[1].ID != freeMoravia.ID {
 		t.Fatalf("unexpected guest map captures ordering: %+v", []string{mapMatches[0].ID, mapMatches[1].ID})
 	}
+	realCoordinatesByID := map[string][2]float64{
+		freeMoravia.ID: {*freeMoravia.Latitude, *freeMoravia.Longitude},
+		freePraha.ID:   {*freePraha.Latitude, *freePraha.Longitude},
+	}
 	for _, capture := range mapMatches {
 		if capture.Latitude == nil || capture.Longitude == nil || capture.CoordinatesLocked {
 			t.Fatalf("expected visible coordinates in map captures, got %+v", capture)
 		}
 		if !capture.CoordinatesMocked {
 			t.Fatalf("expected guest map captures to use mocked coordinates, got %+v", capture)
+		}
+		realCoordinates, ok := realCoordinatesByID[capture.ID]
+		if !ok {
+			t.Fatalf("missing real coordinates for capture %s", capture.ID)
+		}
+		if got, want := *capture.Latitude, testRoundGuestCoordinate(realCoordinates[0]); got != want {
+			t.Fatalf("expected guest map capture %s latitude %.2f, got %.8f", capture.ID, want, got)
+		}
+		if got, want := *capture.Longitude, testRoundGuestCoordinate(realCoordinates[1]); got != want {
+			t.Fatalf("expected guest map capture %s longitude %.2f, got %.8f", capture.ID, want, got)
 		}
 	}
 
