@@ -2064,108 +2064,14 @@ function buildFollowingPageURL() {
     return "/following.html";
 }
 
-const CAPTURE_IMAGE_VARIANTS = {
-    original: null,
-    thumb: {
-        width: "384",
-        quality: "68",
-        widths: [192, 256, 320, 384, 512, 640, 768],
-        sizes: "(max-width: 720px) 50vw, (max-width: 1200px) 33vw, 384px"
-    },
-    mapMarker: {
-        width: "128",
-        quality: "60",
-        widths: [64, 96, 128, 160, 192, 256],
-        sizes: "56px"
-    },
-    popup: {
-        width: "640",
-        quality: "72",
-        widths: [320, 480, 640, 768, 960, 1280],
-        sizes: "(max-width: 720px) 82vw, 320px"
-    },
-    lightbox: {
-        width: "1600",
-        quality: "80",
-        widths: [640, 960, 1280, 1600, 2048],
-        sizes: "100vw"
-    }
-};
-
-function getCaptureImageVariantPreset(variant = "original") {
-    return CAPTURE_IMAGE_VARIANTS[variant] || CAPTURE_IMAGE_VARIANTS.original;
-}
-
-function isOptimizerEligibleCaptureURL(url) {
-    const hostname = String(url?.hostname || "").toLowerCase();
-    return hostname === "foto.houbamzdar.cz" || hostname.endsWith(".b-cdn.net");
-}
-
-function applyCaptureImageVariant(urlString, variant = "original", overrides = {}) {
-    const preset = getCaptureImageVariantPreset(variant);
-    if (!preset) {
-        return urlString;
-    }
-
-    try {
-        const url = new URL(urlString, window.location.origin);
-        if (!isOptimizerEligibleCaptureURL(url)) {
-            return urlString;
-        }
-
-        const params = {
-            ...preset,
-            ...(overrides && typeof overrides === "object" ? overrides : {})
-        };
-        delete params.widths;
-        delete params.sizes;
-
-        Object.entries(params).forEach(([key, value]) => {
-            if (value === null || value === undefined || value === "") {
-                return;
-            }
-            url.searchParams.set(key, value);
-        });
-        return url.toString();
-    } catch (error) {
-        console.warn("Failed to build capture image variant", error);
-        return urlString;
-    }
-}
-
 function buildCaptureImageURL(capture, variant = "original") {
     if (!capture) return "";
-    const baseURL = capture.image_url || capture.public_url || "";
-    if (baseURL) {
-        return applyCaptureImageVariant(baseURL, variant);
+    const preparedURL = capture.image_variants?.[variant];
+    if (variant !== "original" && preparedURL) {
+        return preparedURL;
     }
-    return `${API_URL}/api/captures/${encodeURIComponent(capture.id)}/preview`;
-}
-
-function buildCaptureImageSrcSet(capture, variant = "original") {
-    const baseURL = capture?.image_url || capture?.public_url || "";
-    if (!baseURL) {
-        return "";
-    }
-
-    const preset = getCaptureImageVariantPreset(variant);
-    const widths = Array.isArray(preset?.widths) ? preset.widths : [];
-    if (!widths.length) {
-        return "";
-    }
-
-    return [...new Set(widths.map((value) => Number(value)).filter((value) => value > 0))]
-        .sort((left, right) => left - right)
-        .map((width) => `${applyCaptureImageVariant(baseURL, variant, { width: String(width) })} ${width}w`)
-        .join(", ");
-}
-
-function buildCaptureImageSizes(variant = "original", override = "") {
-    const explicit = String(override || "").trim();
-    if (explicit) {
-        return explicit;
-    }
-    return String(getCaptureImageVariantPreset(variant)?.sizes || "").trim();
+    return capture.image_url || capture.public_url ||
+        `${API_URL}/api/captures/${encodeURIComponent(capture.id)}/preview`;
 }
 
 function buildCaptureImageTag(capture, {
@@ -2190,15 +2096,6 @@ function buildCaptureImageTag(capture, {
         'decoding="async"',
         fetchPriority ? `fetchpriority="${escapeHtml(fetchPriority)}"` : ""
     ];
-
-    const srcset = buildCaptureImageSrcSet(capture, variant);
-    const resolvedSizes = buildCaptureImageSizes(variant, sizes);
-    if (srcset) {
-        attrs.push(`srcset="${escapeHtml(srcset)}"`);
-        if (resolvedSizes) {
-            attrs.push(`sizes="${escapeHtml(resolvedSizes)}"`);
-        }
-    }
 
     Object.entries(extraAttrs || {}).forEach(([name, value]) => {
         if (!name || value === null || value === undefined || value === "") {
@@ -2244,19 +2141,8 @@ function setCaptureImageElement(img, capture, {
         img.removeAttribute("fetchpriority");
     }
 
-    const srcset = buildCaptureImageSrcSet(capture, variant);
-    if (srcset) {
-        img.srcset = srcset;
-        const resolvedSizes = buildCaptureImageSizes(variant, sizes);
-        if (resolvedSizes) {
-            img.sizes = resolvedSizes;
-        } else {
-            img.removeAttribute("sizes");
-        }
-    } else {
-        img.removeAttribute("srcset");
-        img.removeAttribute("sizes");
-    }
+    img.removeAttribute("srcset");
+    img.removeAttribute("sizes");
 }
 
 function captureHasCoordinates(capture) {

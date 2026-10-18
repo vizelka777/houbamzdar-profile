@@ -79,11 +79,13 @@ Backend (BFF) и Frontend статика для сайта houbamzdar.cz.
 
 1. Пользователь снимает фото в `capture.html`, снимок временно сохраняется в `IndexedDB`.
 2. При отправке на сервер backend нормализует изображение и повторно кодирует его, чтобы не тащить EXIF-метаданные как есть.
-3. Оригинал сохраняется в Bunny Storage.
+3. Оригинал сохраняется в Bunny Storage. При `CAPTURE_IMAGE_VARIANTS_ENABLED=true` backend создаёт четыре готовые JPEG-копии; галерея и карта получают их URL через `image_variants`, без Bunny Optimizer.
 4. Координаты, точность и статус (`private` / `published`) сохраняются в `photo_captures`.
 5. В single-zone конфигурации публикация просто начинает отдавать ссылку на тот же объект через `foto.houbamzdar.cz`; в legacy two-zone конфигурации backend по-прежнему может копировать файл в public zone.
 6. При снятии с публикации ссылки из продукта исчезают, но сам загруженный файл может оставаться в storage до явного удаления.
-7. AI-проверка больше не уменьшает картинку локально в backend. Validator получает Optimizer URL от `foto.houbamzdar.cz` и анализирует уменьшенную JPEG-версию через Bunny CDN.
+7. При включённой AI-проверке backend уменьшает картинку до 384 пикселей и передаёт JPEG в validator inline. `CAPTURE_AI_VALIDATION_DISABLED=true` временно пропускает автоматическую проверку грибов, сохраняя проверку координат. Возврат: установить `false` и обновить настройки контейнера.
+
+Порядок перехода и восстановления: [docs/photo-cost-controls.md](docs/photo-cost-controls.md).
 
 ## Синхронизация данных
 Upsert логика находится в `internal/db/db.go` метод `UpsertUser`. 

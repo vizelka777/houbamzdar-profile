@@ -64,6 +64,7 @@ type Capture struct {
 	PrivateStorageKey              string                    `json:"-"`
 	PublicStorageKey               string                    `json:"-"`
 	ImageURL                       string                    `json:"image_url,omitempty"`
+	ImageVariants                  map[string]string         `json:"image_variants,omitempty"`
 	PublicURL                      string                    `json:"public_url,omitempty"`
 	PublishedAt                    time.Time                 `json:"published_at,omitempty"`
 	UnlockedAt                     time.Time                 `json:"unlocked_at,omitempty"`

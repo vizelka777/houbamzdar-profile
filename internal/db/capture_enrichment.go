@@ -13,6 +13,7 @@ const (
 	CapturePublicationReviewNone              = "none"
 	CapturePublicationReviewPendingValidation = "pending_validation"
 	CapturePublicationReviewApproved          = "approved"
+	CapturePublicationReviewApprovedWithoutAI = "approved_without_ai"
 	CapturePublicationReviewRejected          = "rejected"
 	CapturePublicationReviewError             = "error"
 )
@@ -280,6 +281,30 @@ func (db *DB) FinalizeCapturePublicationApproved(
 	species []*models.CaptureMushroomSpecies,
 	geo *models.CaptureGeoIndex,
 ) error {
+	if analysis == nil {
+		return fmt.Errorf("mushroom analysis is required")
+	}
+	return db.finalizeCapturePublication(id, userID, publicStorageKey, analysis, species, geo, CapturePublicationReviewApproved)
+}
+
+// FinalizeCapturePublicationWithoutAI publishes after geographic validation without
+// inventing an AI result or overwriting an existing mushroom review.
+func (db *DB) FinalizeCapturePublicationWithoutAI(id string, userID int64, publicStorageKey string, geo *models.CaptureGeoIndex) error {
+	return db.finalizeCapturePublication(id, userID, publicStorageKey, nil, nil, geo, CapturePublicationReviewApprovedWithoutAI)
+}
+
+func (db *DB) finalizeCapturePublication(
+	id string,
+	userID int64,
+	publicStorageKey string,
+	analysis *models.CaptureMushroomAnalysis,
+	species []*models.CaptureMushroomSpecies,
+	geo *models.CaptureGeoIndex,
+	reviewStatus string,
+) error {
+	if geo == nil {
+		return fmt.Errorf("geographic validation is required")
+	}
 	tx, err := db.Begin()
 	if err != nil {
 		return err
@@ -287,15 +312,16 @@ func (db *DB) FinalizeCapturePublicationApproved(
 	defer tx.Rollback()
 
 	now := time.Now().UTC().Format(time.RFC3339)
-	analysis.ReviewSource = CaptureAnalysisSourceAutomaticPublishValidation
-	analysis.ReviewedByUserID = 0
-	analysis.ReviewedAt = time.Time{}
-	if err := upsertCaptureMushroomAnalysisTx(tx, analysis); err != nil {
-		return err
-	}
-
-	if err := replaceCaptureMushroomSpeciesTx(tx, id, species); err != nil {
-		return err
+	if analysis != nil {
+		analysis.ReviewSource = CaptureAnalysisSourceAutomaticPublishValidation
+		analysis.ReviewedByUserID = 0
+		analysis.ReviewedAt = time.Time{}
+		if err := upsertCaptureMushroomAnalysisTx(tx, analysis); err != nil {
+			return err
+		}
+		if err := replaceCaptureMushroomSpeciesTx(tx, id, species); err != nil {
+			return err
+		}
 	}
 
 	if _, err := tx.Exec(`
@@ -339,7 +365,7 @@ func (db *DB) FinalizeCapturePublicationApproved(
 			publication_review_checked_at = ?,
 			publication_review_next_attempt_at = NULL
 		WHERE id = ? AND user_id = ?
-	`, publicStorageKey, now, CapturePublicationReviewApproved, now, id, userID); err != nil {
+	`, publicStorageKey, now, reviewStatus, now, id, userID); err != nil {
 		return err
 	}
 

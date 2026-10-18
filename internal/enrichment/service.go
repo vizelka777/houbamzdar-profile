@@ -20,25 +20,28 @@ import (
 )
 
 type Service struct {
-	db          *db.DB
-	media       *media.BunnyStorage
-	aiClient    *AIValidatorClient
-	geoResolver *NominatimResolver
-	logger      *log.Logger
+	db                   *db.DB
+	media                *media.BunnyStorage
+	aiClient             *AIValidatorClient
+	geoResolver          *NominatimResolver
+	logger               *log.Logger
+	aiValidationDisabled bool
 }
 
 func New(cfg *config.Config, database *db.DB, mediaStorage *media.BunnyStorage) *Service {
 	return &Service{
-		db:          database,
-		media:       mediaStorage,
-		aiClient:    NewAIValidatorClient(cfg),
-		geoResolver: NewNominatimResolver(cfg),
-		logger:      log.Default(),
+		db:                   database,
+		media:                mediaStorage,
+		aiClient:             NewAIValidatorClient(cfg),
+		geoResolver:          NewNominatimResolver(cfg),
+		logger:               log.Default(),
+		aiValidationDisabled: cfg.CaptureAIValidationDisabled,
 	}
 }
 
 func (s *Service) Enabled() bool {
-	return s != nil && s.db != nil && s.media != nil && s.media.Enabled() && s.aiClient.Enabled() && s.geoResolver.Enabled()
+	return s != nil && s.db != nil && s.media != nil && s.media.Enabled() &&
+		(s.aiValidationDisabled || s.aiClient.Enabled()) && s.geoResolver.Enabled()
 }
 
 func (s *Service) Run(ctx context.Context) {
@@ -100,17 +103,22 @@ func (s *Service) processCapture(ctx context.Context, capture *models.Capture) e
 		return s.db.RejectCapturePublication(capture.ID, db.CapturePublicationRejectOutsideCzechia)
 	}
 
-	imageSource, sourceErr := PrepareValidatorImageSource(s.media, capture, AIReviewModePublishValidation)
-	if sourceErr != nil && s.logger != nil {
-		s.logger.Printf("capture enrichment validator image source fallback for %s: %v", capture.ID, sourceErr)
-	}
+	var analysis *models.CaptureMushroomAnalysis
+	var species []*models.CaptureMushroomSpecies
+	if !s.aiValidationDisabled {
+		imageSource, sourceErr := PrepareValidatorImageSource(ctx, s.media, capture, AIReviewModePublishValidation)
+		if sourceErr != nil && s.logger != nil {
+			s.logger.Printf("capture enrichment validator image source fallback for %s: %v", capture.ID, sourceErr)
+		}
 
-	analysis, species, aiErr := s.aiClient.AnalyzeCaptureWithModeAndImageSource(ctx, capture, AIReviewModePublishValidation, "", imageSource)
-	if aiErr != nil {
-		return s.handleRetry(capture, fmt.Errorf("analyze mushrooms: %w", aiErr))
-	}
-	if analysis == nil || !analysis.HasMushrooms {
-		return s.db.RejectCapturePublication(capture.ID, db.CapturePublicationRejectNoMushrooms)
+		var aiErr error
+		analysis, species, aiErr = s.aiClient.AnalyzeCaptureWithModeAndImageSource(ctx, capture, AIReviewModePublishValidation, "", imageSource)
+		if aiErr != nil {
+			return s.handleRetry(capture, fmt.Errorf("analyze mushrooms: %w", aiErr))
+		}
+		if analysis == nil || !analysis.HasMushrooms {
+			return s.db.RejectCapturePublication(capture.ID, db.CapturePublicationRejectNoMushrooms)
+		}
 	}
 
 	publicKey, _, publishErr := s.media.PublishCapture(ctx, capture)
@@ -118,11 +126,17 @@ func (s *Service) processCapture(ctx context.Context, capture *models.Capture) e
 		return s.handleRetry(capture, fmt.Errorf("publish capture: %w", publishErr))
 	}
 
-	if err := s.db.FinalizeCapturePublicationApproved(capture.ID, capture.UserID, publicKey, analysis, species, geoResult); err != nil {
+	var finalizeErr error
+	if s.aiValidationDisabled {
+		finalizeErr = s.db.FinalizeCapturePublicationWithoutAI(capture.ID, capture.UserID, publicKey, geoResult)
+	} else {
+		finalizeErr = s.db.FinalizeCapturePublicationApproved(capture.ID, capture.UserID, publicKey, analysis, species, geoResult)
+	}
+	if finalizeErr != nil {
 		if s.media.PublicObjectNeedsDelete(capture.PrivateStorageKey, publicKey) {
 			_ = s.media.DeletePublic(ctx, publicKey)
 		}
-		return s.handleRetry(capture, fmt.Errorf("finalize publication: %w", err))
+		return s.handleRetry(capture, fmt.Errorf("finalize publication: %w", finalizeErr))
 	}
 
 	return nil

@@ -23,10 +23,10 @@
       "id": "pdZdipupoFrUKG4-4iqd",
       "name": "houbamzdar",
       "packageId": "d2c1b95e-65e7-42a3-adb3-d27d9d1a4f72",
-      "image": "houbamzdar/bff:v62",
+      "image": "houbamzdar/bff:v63",
       "imageName": "bff",
       "imageNamespace": "houbamzdar",
-      "imageTag": "v62",
+      "imageTag": "v63",
       "imageRegistryId": "2725",
       "imageDigest": "",
       "imagePullPolicy": "always",
@@ -181,6 +181,14 @@
         {
           "name": "CAPTURE_AI_VALIDATOR_URL",
           "value": "https://houbamzdar-ai-api.b-cdn.net/validate-capture"
+        },
+        {
+          "name": "CAPTURE_AI_VALIDATION_DISABLED",
+          "value": "true"
+        },
+        {
+          "name": "CAPTURE_IMAGE_VARIANTS_ENABLED",
+          "value": "true"
         },
         {
           "name": "CAPTURE_AI_VALIDATOR_TOKEN",

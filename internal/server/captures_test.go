@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -906,113 +907,121 @@ func TestAdminID20CanSeeAllMapMarkers(t *testing.T) {
 }
 
 func TestHandlePublishCaptureQueuesValidation(t *testing.T) {
-	t.Parallel()
+	for _, disabled := range []bool{false, true} {
+		t.Run(fmt.Sprintf("ai_disabled_%t", disabled), func(t *testing.T) {
+			t.Parallel()
 
-	cfg := &config.Config{
-		DBURL:                  "file:" + filepath.Join(t.TempDir(), "test.db"),
-		FrontOrigin:            "https://houbamzdar.cz",
-		SessionCookieName:      "hzd_session",
-		CaptureAIValidatorURL:  "https://validator.example/validate-capture",
-		NominatimBaseURL:       "https://nominatim.openstreetmap.org",
-		NominatimUserAgent:     "houbamzdar-tests/1.0",
-		BunnyPrivateZone:       "private-zone",
-		BunnyPrivateStorageKey: "private-key",
-		BunnyPublicZone:        "public-zone",
-		BunnyPublicStorageKey:  "public-key",
-		BunnyPublicBaseURL:     "https://foto.houbamzdar.cz",
-		BunnyStorageHost:       "storage.bunnycdn.com",
-	}
+			cfg := &config.Config{
+				DBURL:                  "file:" + filepath.Join(t.TempDir(), "test.db"),
+				FrontOrigin:            "https://houbamzdar.cz",
+				SessionCookieName:      "hzd_session",
+				CaptureAIValidatorURL:  "https://validator.example/validate-capture",
+				NominatimBaseURL:       "https://nominatim.openstreetmap.org",
+				NominatimUserAgent:     "houbamzdar-tests/1.0",
+				BunnyPrivateZone:       "private-zone",
+				BunnyPrivateStorageKey: "private-key",
+				BunnyPublicZone:        "public-zone",
+				BunnyPublicStorageKey:  "public-key",
+				BunnyPublicBaseURL:     "https://foto.houbamzdar.cz",
+				BunnyStorageHost:       "storage.bunnycdn.com",
+			}
+			cfg.CaptureAIValidationDisabled = disabled
+			if disabled {
+				cfg.CaptureAIValidatorURL = ""
+			}
 
-	database, err := db.New(cfg)
-	if err != nil {
-		t.Fatalf("open test database: %v", err)
-	}
-	t.Cleanup(func() {
-		_ = database.Close()
-	})
+			database, err := db.New(cfg)
+			if err != nil {
+				t.Fatalf("open test database: %v", err)
+			}
+			t.Cleanup(func() {
+				_ = database.Close()
+			})
 
-	user, _, err := database.UpsertUser(&models.OIDCClaims{
-		Iss:               "https://ahoj420.eu",
-		Sub:               "publish-queue-user",
-		PreferredUsername: "queueuser",
-		Email:             "publish-queue-user@example.test",
-		EmailVerified:     true,
-	}, &oauth2.Token{
-		AccessToken:  "queue-access",
-		RefreshToken: "queue-refresh",
-		Expiry:       time.Now().Add(time.Hour).UTC(),
-	})
-	if err != nil {
-		t.Fatalf("create user: %v", err)
-	}
+			user, _, err := database.UpsertUser(&models.OIDCClaims{
+				Iss:               "https://ahoj420.eu",
+				Sub:               "publish-queue-user",
+				PreferredUsername: "queueuser",
+				Email:             "publish-queue-user@example.test",
+				EmailVerified:     true,
+			}, &oauth2.Token{
+				AccessToken:  "queue-access",
+				RefreshToken: "queue-refresh",
+				Expiry:       time.Now().Add(time.Hour).UTC(),
+			})
+			if err != nil {
+				t.Fatalf("create user: %v", err)
+			}
 
-	sessionID := "publish-queue-session"
-	if err := database.CreateSession(&models.Session{
-		SessionID: sessionID,
-		UserID:    user.ID,
-		ExpiresAt: time.Now().Add(time.Hour).UTC(),
-	}); err != nil {
-		t.Fatalf("create session: %v", err)
-	}
+			sessionID := "publish-queue-session"
+			if err := database.CreateSession(&models.Session{
+				SessionID: sessionID,
+				UserID:    user.ID,
+				ExpiresAt: time.Now().Add(time.Hour).UTC(),
+			}); err != nil {
+				t.Fatalf("create session: %v", err)
+			}
 
-	lat := 49.1951
-	lon := 16.6068
-	capture := &models.Capture{
-		ID:                "publish-queue-capture",
-		UserID:            user.ID,
-		OriginalFileName:  "queue.jpg",
-		ContentType:       "image/jpeg",
-		SizeBytes:         2048,
-		Width:             1200,
-		Height:            900,
-		CapturedAt:        time.Date(2026, time.March, 16, 9, 0, 0, 0, time.UTC),
-		UploadedAt:        time.Date(2026, time.March, 16, 9, 0, 0, 0, time.UTC),
-		Latitude:          &lat,
-		Longitude:         &lon,
-		Status:            "private",
-		PrivateStorageKey: "captures/private/publish-queue-capture.jpg",
-	}
-	if err := database.CreateCapture(capture); err != nil {
-		t.Fatalf("create capture: %v", err)
-	}
+			lat := 49.1951
+			lon := 16.6068
+			capture := &models.Capture{
+				ID:                "publish-queue-capture",
+				UserID:            user.ID,
+				OriginalFileName:  "queue.jpg",
+				ContentType:       "image/jpeg",
+				SizeBytes:         2048,
+				Width:             1200,
+				Height:            900,
+				CapturedAt:        time.Date(2026, time.March, 16, 9, 0, 0, 0, time.UTC),
+				UploadedAt:        time.Date(2026, time.March, 16, 9, 0, 0, 0, time.UTC),
+				Latitude:          &lat,
+				Longitude:         &lon,
+				Status:            "private",
+				PrivateStorageKey: "captures/private/publish-queue-capture.jpg",
+			}
+			if err := database.CreateCapture(capture); err != nil {
+				t.Fatalf("create capture: %v", err)
+			}
 
-	srv := New(cfg, database, nil, nil, &media.BunnyStorage{})
+			srv := New(cfg, database, nil, nil, &media.BunnyStorage{})
 
-	req := httptest.NewRequest(http.MethodPost, "/api/captures/"+capture.ID+"/publish", nil)
-	req.AddCookie(&http.Cookie{Name: cfg.SessionCookieName, Value: sessionID})
-	rec := httptest.NewRecorder()
-	srv.Router.ServeHTTP(rec, req)
+			req := httptest.NewRequest(http.MethodPost, "/api/captures/"+capture.ID+"/publish", nil)
+			req.AddCookie(&http.Cookie{Name: cfg.SessionCookieName, Value: sessionID})
+			rec := httptest.NewRecorder()
+			srv.Router.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusAccepted {
-		t.Fatalf("expected status 202, got %d: %s", rec.Code, rec.Body.String())
-	}
+			if rec.Code != http.StatusAccepted {
+				t.Fatalf("expected status 202, got %d: %s", rec.Code, rec.Body.String())
+			}
 
-	var payload struct {
-		OK      bool            `json:"ok"`
-		Capture *models.Capture `json:"capture"`
-	}
-	if err := json.NewDecoder(rec.Body).Decode(&payload); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if !payload.OK || payload.Capture == nil {
-		t.Fatalf("unexpected payload: %+v", payload)
-	}
-	if payload.Capture.Status != "private" {
-		t.Fatalf("expected private status while validation is pending, got %q", payload.Capture.Status)
-	}
-	if payload.Capture.PublicationReviewStatus != db.CapturePublicationReviewPendingValidation {
-		t.Fatalf("expected pending_validation status, got %q", payload.Capture.PublicationReviewStatus)
-	}
-	if payload.Capture.PublicationRequestedAt.IsZero() {
-		t.Fatalf("expected publication_requested_at to be set")
-	}
+			var payload struct {
+				OK      bool            `json:"ok"`
+				Capture *models.Capture `json:"capture"`
+			}
+			if err := json.NewDecoder(rec.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode response: %v", err)
+			}
+			if !payload.OK || payload.Capture == nil {
+				t.Fatalf("unexpected payload: %+v", payload)
+			}
+			if payload.Capture.Status != "private" {
+				t.Fatalf("expected private status while validation is pending, got %q", payload.Capture.Status)
+			}
+			if payload.Capture.PublicationReviewStatus != db.CapturePublicationReviewPendingValidation {
+				t.Fatalf("expected pending_validation status, got %q", payload.Capture.PublicationReviewStatus)
+			}
+			if payload.Capture.PublicationRequestedAt.IsZero() {
+				t.Fatalf("expected publication_requested_at to be set")
+			}
 
-	reloaded, err := database.GetCaptureForUser(capture.ID, user.ID)
-	if err != nil {
-		t.Fatalf("reload capture: %v", err)
-	}
-	if reloaded.PublicationReviewStatus != db.CapturePublicationReviewPendingValidation {
-		t.Fatalf("expected database capture to be pending_validation, got %q", reloaded.PublicationReviewStatus)
+			reloaded, err := database.GetCaptureForUser(capture.ID, user.ID)
+			if err != nil {
+				t.Fatalf("reload capture: %v", err)
+			}
+			if reloaded.PublicationReviewStatus != db.CapturePublicationReviewPendingValidation {
+				t.Fatalf("expected database capture to be pending_validation, got %q", reloaded.PublicationReviewStatus)
+			}
+		})
 	}
 }
 
@@ -1149,8 +1158,8 @@ func TestHandleModeratorRecheckCaptureUpdatesPublishedAnalysis(t *testing.T) {
 		if body.ReviewMode != "moderator_recheck" {
 			t.Fatalf("expected moderator_recheck mode, got %q", body.ReviewMode)
 		}
-		if body.ImageURL == "" {
-			t.Fatalf("expected optimizer image_url in validator request")
+		if body.ImageURL != "" || body.PrivateStorageKey == "" {
+			t.Fatalf("expected private storage fallback without optimizer URL")
 		}
 
 		w.Header().Set("Content-Type", "application/json")

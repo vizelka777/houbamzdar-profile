@@ -37,6 +37,10 @@ func PrepareValidatorImage(raw []byte, contentType string, maxDimension int, qua
 		return nil, fmt.Errorf("decode image (detected as %q, header %q): %w", detected, contentType, err)
 	}
 
+	return prepareJPEG(img, maxDimension, quality)
+}
+
+func prepareJPEG(img image.Image, maxDimension int, quality int) (*ValidatorImage, error) {
 	sourceBounds := img.Bounds()
 	targetWidth, targetHeight := fitWithinMaxDimension(sourceBounds.Dx(), sourceBounds.Dy(), maxDimension)
 	if targetWidth <= 0 || targetHeight <= 0 {

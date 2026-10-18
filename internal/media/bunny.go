@@ -8,7 +8,6 @@ import (
 	"image/png"
 	"io"
 	"net/http"
-	"net/url"
 	"path"
 	"strings"
 	"time"
@@ -32,15 +31,16 @@ type NormalizedAsset struct {
 }
 
 type BunnyStorage struct {
-	host          string
-	privateZone   string
-	privateKey    string
-	publicZone    string
-	publicKey     string
-	publicBaseURL string
-	backupZone    string
-	backupKey     string
-	httpClient    *http.Client
+	host                 string
+	privateZone          string
+	privateKey           string
+	publicZone           string
+	publicKey            string
+	publicBaseURL        string
+	backupZone           string
+	backupKey            string
+	httpClient           *http.Client
+	imageVariantsEnabled bool
 }
 
 func NewBunnyStorage(cfg *config.Config) *BunnyStorage {
@@ -49,14 +49,15 @@ func NewBunnyStorage(cfg *config.Config) *BunnyStorage {
 	}
 
 	return &BunnyStorage{
-		host:          cfg.BunnyStorageHost,
-		privateZone:   cfg.BunnyPrivateZone,
-		privateKey:    cfg.BunnyPrivateStorageKey,
-		publicZone:    cfg.BunnyPublicZone,
-		publicKey:     cfg.BunnyPublicStorageKey,
-		publicBaseURL: strings.TrimRight(cfg.BunnyPublicBaseURL, "/"),
-		backupZone:    strings.TrimSpace(cfg.BunnyBackupZone),
-		backupKey:     strings.TrimSpace(cfg.BunnyBackupStorageKey),
+		host:                 cfg.BunnyStorageHost,
+		privateZone:          cfg.BunnyPrivateZone,
+		privateKey:           cfg.BunnyPrivateStorageKey,
+		publicZone:           cfg.BunnyPublicZone,
+		publicKey:            cfg.BunnyPublicStorageKey,
+		publicBaseURL:        strings.TrimRight(cfg.BunnyPublicBaseURL, "/"),
+		backupZone:           strings.TrimSpace(cfg.BunnyBackupZone),
+		backupKey:            strings.TrimSpace(cfg.BunnyBackupStorageKey),
+		imageVariantsEnabled: cfg.CaptureImageVariantsEnabled,
 		httpClient: &http.Client{
 			Timeout: 60 * time.Second,
 		},
@@ -159,6 +160,12 @@ func (b *BunnyStorage) StorePrivateCapture(ctx context.Context, userID int64, ca
 	if err := b.putObject(ctx, b.privateZone, b.privateKey, key, asset.Bytes, asset.ContentType); err != nil {
 		return "", err
 	}
+	if b.imageVariantsEnabled {
+		if err := b.storeCaptureImageVariants(ctx, b.privateZone, b.privateKey, key, asset.Bytes, asset.ContentType); err != nil {
+			_ = b.DeletePrivate(ctx, key)
+			return "", err
+		}
+	}
 	return key, nil
 }
 
@@ -185,6 +192,12 @@ func (b *BunnyStorage) PublishCapture(ctx context.Context, capture *models.Captu
 	if err := b.putObject(ctx, b.publicZone, b.publicKey, publicKey, content, contentType); err != nil {
 		return "", "", err
 	}
+	if b.imageVariantsEnabled {
+		if err := b.storeCaptureImageVariants(ctx, b.publicZone, b.publicKey, publicKey, content, contentType); err != nil {
+			_ = b.DeletePublic(ctx, publicKey)
+			return "", "", err
+		}
+	}
 
 	return publicKey, fmt.Sprintf("%s/%s", b.publicBaseURL, publicKey), nil
 }
@@ -194,6 +207,11 @@ func (b *BunnyStorage) ReadPrivateCapture(ctx context.Context, key string) ([]by
 }
 
 func (b *BunnyStorage) DeletePrivate(ctx context.Context, key string) error {
+	if b.imageVariantsEnabled {
+		if err := b.deleteCaptureImageVariants(ctx, b.privateZone, b.privateKey, key); err != nil {
+			return err
+		}
+	}
 	return b.deleteObject(ctx, b.privateZone, b.privateKey, key)
 }
 
@@ -223,6 +241,11 @@ func (b *BunnyStorage) DeletePublic(ctx context.Context, key string) error {
 	if key == "" {
 		return nil
 	}
+	if b.imageVariantsEnabled {
+		if err := b.deleteCaptureImageVariants(ctx, b.publicZone, b.publicKey, key); err != nil {
+			return err
+		}
+	}
 	return b.deleteObject(ctx, b.publicZone, b.publicKey, key)
 }
 
@@ -231,38 +254,6 @@ func (b *BunnyStorage) PublicURL(key string) string {
 		return ""
 	}
 	return fmt.Sprintf("%s/%s", b.publicBaseURL, key)
-}
-
-func (b *BunnyStorage) OptimizerURL(key string, width int, height int, quality int, format string) string {
-	if b == nil {
-		return ""
-	}
-	key = strings.TrimSpace(key)
-	if key == "" {
-		return ""
-	}
-
-	baseURL := strings.TrimRight(b.publicBaseURL, "/") + "/" + strings.TrimLeft(key, "/")
-	parsed, err := url.Parse(baseURL)
-	if err != nil {
-		return baseURL
-	}
-
-	query := parsed.Query()
-	if width > 0 {
-		query.Set("width", fmt.Sprintf("%d", width))
-	}
-	if height > 0 {
-		query.Set("height", fmt.Sprintf("%d", height))
-	}
-	if quality > 0 {
-		query.Set("quality", fmt.Sprintf("%d", quality))
-	}
-	if strings.TrimSpace(format) != "" {
-		query.Set("format", strings.TrimSpace(format))
-	}
-	parsed.RawQuery = query.Encode()
-	return parsed.String()
 }
 
 func PrivateCaptureKey(userID int64, captureID string, capturedAt time.Time, extension string) string {

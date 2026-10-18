@@ -1,4 +1,4 @@
-const CACHE_VERSION = "hzd-pwa-v2";
+const CACHE_VERSION = "hzd-pwa-v3";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const OFFLINE_URL = "/offline.html";

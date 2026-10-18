@@ -312,7 +312,8 @@ func (s *Server) handlePublishCapture(w http.ResponseWriter, r *http.Request) {
 	}
 	captureID := chi.URLParam(r, "captureID")
 
-	if s.Media == nil || !s.Media.Enabled() || s.Config.CaptureAIValidatorURL == "" || s.Config.NominatimBaseURL == "" {
+	if s.Media == nil || !s.Media.Enabled() ||
+		(!s.Config.CaptureAIValidationDisabled && s.Config.CaptureAIValidatorURL == "") || s.Config.NominatimBaseURL == "" {
 		http.Error(w, "publication validation is not configured", http.StatusServiceUnavailable)
 		return
 	}
@@ -333,7 +334,8 @@ func (s *Server) handlePublishCapture(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if capture.PublicationReviewStatus == db.CapturePublicationReviewApproved {
+	if capture.PublicationReviewStatus == db.CapturePublicationReviewApproved ||
+		(s.Config.CaptureAIValidationDisabled && capture.PublicationReviewStatus == db.CapturePublicationReviewApprovedWithoutAI) {
 		publicKey, publicURL, err := s.Media.PublishCapture(r.Context(), capture)
 		if err != nil {
 			http.Error(w, "failed to publish capture", http.StatusBadGateway)
@@ -449,7 +451,7 @@ func (s *Server) handleModeratorRecheckCapture(w http.ResponseWriter, r *http.Re
 	}
 
 	validator := enrichment.NewAIValidatorClient(s.Config)
-	imageSource, _ := enrichment.PrepareValidatorImageSource(s.Media, capture, enrichment.AIReviewModeModeratorRecheck)
+	imageSource, _ := enrichment.PrepareValidatorImageSource(r.Context(), s.Media, capture, enrichment.AIReviewModeModeratorRecheck)
 	analysis, species, err := validator.AnalyzeCaptureWithModeAndImageSource(r.Context(), capture, enrichment.AIReviewModeModeratorRecheck, strings.TrimSpace(req.ModelCode), imageSource)
 	if err != nil {
 		http.Error(w, "failed to recheck capture: "+err.Error(), http.StatusBadGateway)
@@ -999,6 +1001,7 @@ func attachPublicURLs(captures []*models.Capture, storage *media.BunnyStorage) {
 	}
 
 	for _, capture := range captures {
+		capture.ImageVariants = storage.CaptureImageVariantURLs(capture)
 		if strings.TrimSpace(capture.PrivateStorageKey) != "" {
 			capture.ImageURL = storage.PublicURL(capture.PrivateStorageKey)
 		}

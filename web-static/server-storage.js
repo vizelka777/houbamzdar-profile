@@ -185,6 +185,8 @@ function buildStorageStatusBadge(capture) {
         return '<span class="status-badge review-error">Chyba kontroly</span>';
     case "approved":
         return '<span class="status-badge verified">Schváleno</span>';
+    case "approved_without_ai":
+        return '<span class="status-badge unverified">Bez AI kontroly</span>';
     default:
         return '<span class="status-badge unverified">Nepublikované</span>';
     }
@@ -203,8 +205,8 @@ function buildStorageReviewPanel(capture) {
     case "pending_validation":
         title = "Kontrola před zveřejněním";
         copy = capture.publication_review_last_error
-            ? "Předchozí pokus selhal. Backend zkouší ověření znovu automaticky."
-            : "Fotografie čeká na AI kontrolu hub a potvrzení, že souřadnice leží v Česku.";
+            ? "Předchozí pokus selhal. Kontrola se automaticky opakuje."
+            : "Fotografie čeká na dokončení kontroly před zveřejněním včetně ověření polohy v Česku.";
         copyClass = "is-pending";
         break;
     case "rejected":
@@ -230,6 +232,10 @@ function buildStorageReviewPanel(capture) {
     case "approved":
         title = "Kontrola je hotová";
         copy = "Fotografie už prošla validací a čeká na finální zveřejnění.";
+        break;
+    case "approved_without_ai":
+        title = "Publikováno bez AI kontroly";
+        copy = "Při předchozím zveřejnění byla ověřena poloha v Česku. Přítomnost hub nebyla automaticky ověřena.";
         break;
     default:
         if (!captureHasCoordinates(capture)) {

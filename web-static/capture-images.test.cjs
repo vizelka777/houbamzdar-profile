@@ -1,0 +1,18 @@
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const vm = require("node:vm");
+const source = fs.readFileSync(`${__dirname}/app.js`, "utf8");
+const start = source.indexOf("function buildCaptureImageURL(");
+const end = source.indexOf("function captureHasCoordinates(", start);
+const context = { API_URL: "https://api.example.test", escapeHtml: (s) => String(s) };
+vm.createContext(context);
+vm.runInContext(source.slice(start, end), context);
+const capture = { id: "photo", image_url: "https://photos.example.test/photo.jpg", image_variants: { thumb: "https://photos.example.test/photo.jpg.variants-v1/thumb.jpg" } };
+assert.equal(context.buildCaptureImageURL(capture, "thumb"), capture.image_variants.thumb);
+assert.equal(context.buildCaptureImageURL(capture, "original"), capture.image_url);
+assert.equal(context.buildCaptureImageURL({ id: "old", image_url: capture.image_url }, "thumb"), capture.image_url);
+assert.equal(context.buildCaptureImageURL({ id: "private/photo" }, "thumb"), "https://api.example.test/api/captures/private%2Fphoto/preview");
+assert.equal(context.buildCaptureImageURL(null, "thumb"), "");
+assert.ok(context.buildCaptureImageTag(capture, { variant: "thumb" }).includes(capture.image_variants.thumb));
+assert.ok(!context.buildCaptureImageTag(capture, { variant: "thumb" }).includes("srcset="));
+console.log("capture image URL checks passed");

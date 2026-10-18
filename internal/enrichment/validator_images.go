@@ -1,6 +1,8 @@
 package enrichment
 
 import (
+	"context"
+	"encoding/base64"
 	"fmt"
 
 	"github.com/houbamzdar/bff/internal/media"
@@ -12,7 +14,7 @@ const (
 	validatorJPEGQuality       = 70
 )
 
-func PrepareValidatorImageSource(storage *media.BunnyStorage, capture *models.Capture, reviewMode AIReviewMode) (*AIValidatorImageSource, error) {
+func PrepareValidatorImageSource(ctx context.Context, storage *media.BunnyStorage, capture *models.Capture, reviewMode AIReviewMode) (*AIValidatorImageSource, error) {
 	if storage == nil {
 		return nil, fmt.Errorf("storage is not configured")
 	}
@@ -24,13 +26,21 @@ func PrepareValidatorImageSource(storage *media.BunnyStorage, capture *models.Ca
 	}
 
 	maxDimension, quality := validatorImageProfile(reviewMode)
-	imageURL := storage.OptimizerURL(capture.PrivateStorageKey, maxDimension, maxDimension, quality, "jpeg")
-	if imageURL == "" {
-		return nil, fmt.Errorf("capture has no optimizer url")
+	if !storage.CanReadPrivate() {
+		return nil, fmt.Errorf("private storage is not configured")
+	}
+	raw, contentType, err := storage.ReadPrivateCapture(ctx, capture.PrivateStorageKey)
+	if err != nil {
+		return nil, fmt.Errorf("read validator image: %w", err)
+	}
+	prepared, err := media.PrepareValidatorImage(raw, contentType, maxDimension, quality)
+	if err != nil {
+		return nil, err
 	}
 
 	return &AIValidatorImageSource{
-		URL: imageURL,
+		Data:     base64.StdEncoding.EncodeToString(prepared.Bytes),
+		MimeType: prepared.ContentType,
 	}, nil
 }
 

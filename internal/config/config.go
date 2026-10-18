@@ -45,10 +45,12 @@ type Config struct {
 	BunnyBackupZone        string
 	BunnyBackupStorageKey  string
 
-	CaptureAIValidatorURL   string
-	CaptureAIValidatorToken string
-	NominatimBaseURL        string
-	NominatimUserAgent      string
+	CaptureAIValidatorURL       string
+	CaptureAIValidatorToken     string
+	CaptureAIValidationDisabled bool
+	CaptureImageVariantsEnabled bool
+	NominatimBaseURL            string
+	NominatimUserAgent          string
 
 	AdminBackupIntervalHours int
 	AdminBackupRetentionDays int
@@ -117,10 +119,12 @@ func Load() *Config {
 		BunnyBackupZone:        os.Getenv("BUNNY_BACKUP_STORAGE_ZONE"),
 		BunnyBackupStorageKey:  os.Getenv("BUNNY_BACKUP_STORAGE_KEY"),
 
-		CaptureAIValidatorURL:   os.Getenv("CAPTURE_AI_VALIDATOR_URL"),
-		CaptureAIValidatorToken: os.Getenv("CAPTURE_AI_VALIDATOR_TOKEN"),
-		NominatimBaseURL:        getEnv("NOMINATIM_BASE_URL", "https://nominatim.openstreetmap.org"),
-		NominatimUserAgent:      getEnv("NOMINATIM_USER_AGENT", "houbamzdar-mvp/1.0"),
+		CaptureAIValidatorURL:       os.Getenv("CAPTURE_AI_VALIDATOR_URL"),
+		CaptureAIValidatorToken:     os.Getenv("CAPTURE_AI_VALIDATOR_TOKEN"),
+		CaptureAIValidationDisabled: getEnvBool("CAPTURE_AI_VALIDATION_DISABLED", false),
+		CaptureImageVariantsEnabled: getEnvBool("CAPTURE_IMAGE_VARIANTS_ENABLED", false),
+		NominatimBaseURL:            getEnv("NOMINATIM_BASE_URL", "https://nominatim.openstreetmap.org"),
+		NominatimUserAgent:          getEnv("NOMINATIM_USER_AGENT", "houbamzdar-mvp/1.0"),
 
 		AdminBackupIntervalHours: backupIntervalHours,
 		AdminBackupRetentionDays: backupRetentionDays,
@@ -145,6 +149,14 @@ func getEnvInt(key string, fallback int) int {
 		return fallback
 	}
 	return parsed
+}
+
+func getEnvBool(key string, fallback bool) bool {
+	value, err := strconv.ParseBool(strings.TrimSpace(os.Getenv(key)))
+	if err != nil {
+		return fallback
+	}
+	return value
 }
 
 func parseScopes(raw string) []string {
